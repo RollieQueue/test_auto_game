@@ -192,12 +192,42 @@ Season rules (numbers in `src/sim/balance.js`): spring rains refill water pocket
 regeneration and makes trees thirstier, autumn fruiting (mushrooms grow faster, spores ×3), winter dormancy
 (trees neither pay nor drink much, mushrooms do not grow, upkeep drops). Photosynthesis follows daylight.
 
-## Finds (planned, docs/BACKLOG.md A3)
+## Finds
 
 A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` item discovers it:
 `state.finds[decor.id] = { kind: decor.type, at: state.time }` and the event
 `{ type: 'find', id: decor.id, kind: decor.type, x, y }`. Names, notes and rarity per kind come from
 `src/content/finds.js`; the HUD shows them on an «Атлас находок» page, the renderer marks found items.
+
+## Glades (src/world/biomes.js, fairness.js)
+
+`world.biome` is one of `birch | oak | pine | mixed` and `world.name` a generated Russian glade name
+(«Дубрава у оврага»). Biomes weight tree species and set horizon depths, rocks, water and minerals; terrain
+features vary the ground line. A glade has 2–5 trees (not always three) and the spore starts anywhere across
+the width; `fairness.js` guarantees an affordable opening (water, a root tip, nitrogen) for every seed.
+
+## Threats and chapters (`state.flags.threats`)
+
+```js
+state.fauna = Worm[]   // { id, x, y, a, len, speed, phase, age, mode: 'wander'|'bite'|'snared'|'leave', fade,
+                       //   bite: null | { edge, x, y, t, dur }, trapId, ...internal }
+state.traps = Trap[]   // «ловчие кольца»: { id, nodeId, x, y, r, grow 0..1, charges, cool, glow, age, prey }
+state.ui.tool          // 'grow' | 'fruit' | 'trap'; while 'trap', state.ui.trapPick = null | { nodeId, x, y, ok, reason }
+state.chapter          // 1..3; state.objectives is always the current page; flags.pagesDone, flags.bookDone
+```
+
+Nematodes spawn as the network grows (more in summer, few in winter) and bite thin hyphae (`edge.w < 1.6`; the
+first 52 u around the spore and hyphae younger than 8 s are immune). A cut kills the whole branch beyond it:
+nodes and edges get `alive = false`, links, flows, growing tips, mushrooms and rings on it are dropped. A ring
+(`commandTrap`, `canTrap`, `trapDenial`, `pickTrapNode`; cost `B.trapCost`) lures worms within `B.trapRadius`
+and digests them for minerals, a few times. A starving network sheds unproductive twigs (`severed` with
+`cause: 'starved'`). With threats on, sugar is tighter (`B` in balance.js; `sim.mushroomCost(state)` gives the
+current mushroom price).
+
+Events: `worm-spawn`, `worm-sense`, `worm-gone`, `bite`, `bite-abort`, `severed {x, y, lost, nodes, links,
+mushrooms, cut, edges, cause}`, `worm-caught {x, y, trapId, wormId, minerals}`, `trap-placed`, `trap-ready`,
+`trap-spent {lost?}`, `trap-denied {reason: 'sugar'|'crowded'|'dead'}`, `mushroom-wilted`,
+`all-objectives {chapter}`, `chapter {chapter}`. Chapter titles: `CHAPTER_TITLES` in src/sim/objectives.js.
 
 ## Illustrated assets (art task)
 
