@@ -1,0 +1,356 @@
+{
+ "version": 1,
+ "assets": [
+  {
+   "id": "plate.frontispiece",
+   "group": "plate",
+   "type": "frontispiece",
+   "file": "assets/art/frontispiece.webp",
+   "w": 1400,
+   "h": 872,
+   "anchor": {
+    "x": 700,
+    "y": 436
+   },
+   "worldSize": 1080
+  },
+  {
+   "id": "mushroom.chanterelle.1",
+   "group": "mushroom",
+   "type": "chanterelle",
+   "file": "assets/art/mushroom/chanterelle.1.webp",
+   "w": 338,
+   "h": 320,
+   "anchor": {
+    "x": 194,
+    "y": 319
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.chanterelle.2",
+   "group": "mushroom",
+   "type": "chanterelle",
+   "file": "assets/art/mushroom/chanterelle.2.webp",
+   "w": 354,
+   "h": 320,
+   "anchor": {
+    "x": 186,
+    "y": 319
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.common.1",
+   "group": "mushroom",
+   "type": "common",
+   "file": "assets/art/mushroom/common.1.webp",
+   "w": 318,
+   "h": 320,
+   "anchor": {
+    "x": 191,
+    "y": 318
+   },
+   "worldSize": 46
+  },
+  {
+   "id": "mushroom.common.2",
+   "group": "mushroom",
+   "type": "common",
+   "file": "assets/art/mushroom/common.2.webp",
+   "w": 365,
+   "h": 320,
+   "anchor": {
+    "x": 190,
+    "y": 319
+   },
+   "worldSize": 46
+  },
+  {
+   "id": "mushroom.common.3",
+   "group": "mushroom",
+   "type": "common",
+   "file": "assets/art/mushroom/common.3.webp",
+   "w": 309,
+   "h": 320,
+   "anchor": {
+    "x": 123,
+    "y": 318
+   },
+   "worldSize": 46
+  },
+  {
+   "id": "mushroom.fly_agaric.1",
+   "group": "mushroom",
+   "type": "fly_agaric",
+   "file": "assets/art/mushroom/fly_agaric.1.webp",
+   "w": 348,
+   "h": 320,
+   "anchor": {
+    "x": 174,
+    "y": 318
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.fly_agaric.2",
+   "group": "mushroom",
+   "type": "fly_agaric",
+   "file": "assets/art/mushroom/fly_agaric.2.webp",
+   "w": 218,
+   "h": 320,
+   "anchor": {
+    "x": 95,
+    "y": 318
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.porcini.1",
+   "group": "mushroom",
+   "type": "porcini",
+   "file": "assets/art/mushroom/porcini.1.webp",
+   "w": 308,
+   "h": 320,
+   "anchor": {
+    "x": 140,
+    "y": 318
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.porcini.2",
+   "group": "mushroom",
+   "type": "porcini",
+   "file": "assets/art/mushroom/porcini.2.webp",
+   "w": 353,
+   "h": 320,
+   "anchor": {
+    "x": 186,
+    "y": 314
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.saffron_milk_cap.1",
+   "group": "mushroom",
+   "type": "saffron_milk_cap",
+   "file": "assets/art/mushroom/saffron_milk_cap.1.webp",
+   "w": 360,
+   "h": 320,
+   "anchor": {
+    "x": 199,
+    "y": 314
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "mushroom.saffron_milk_cap.2",
+   "group": "mushroom",
+   "type": "saffron_milk_cap",
+   "file": "assets/art/mushroom/saffron_milk_cap.2.webp",
+   "w": 263,
+   "h": 320,
+   "anchor": {
+    "x": 149,
+    "y": 319
+   },
+   "worldSize": 52
+  },
+  {
+   "id": "decor.acorn.1",
+   "group": "decor",
+   "type": "acorn",
+   "file": "assets/art/decor/acorn.1.webp",
+   "w": 187,
+   "h": 128,
+   "anchor": {
+    "x": 96,
+    "y": 62
+   },
+   "worldSize": 20
+  },
+  {
+   "id": "decor.ammonite.1",
+   "group": "decor",
+   "type": "ammonite",
+   "file": "assets/art/decor/ammonite.1.webp",
+   "w": 137,
+   "h": 144,
+   "anchor": {
+    "x": 70,
+    "y": 74
+   },
+   "worldSize": 28
+  },
+  {
+   "id": "decor.beetle.1",
+   "group": "decor",
+   "type": "beetle",
+   "file": "assets/art/decor/beetle.1.webp",
+   "w": 140,
+   "h": 128,
+   "anchor": {
+    "x": 72,
+    "y": 64
+   },
+   "worldSize": 22
+  },
+  {
+   "id": "decor.beetle.2",
+   "group": "decor",
+   "type": "beetle",
+   "file": "assets/art/decor/beetle.2.webp",
+   "w": 138,
+   "h": 144,
+   "anchor": {
+    "x": 66,
+    "y": 60
+   },
+   "worldSize": 26
+  },
+  {
+   "id": "decor.bone.1",
+   "group": "decor",
+   "type": "bone",
+   "file": "assets/art/decor/bone.1.webp",
+   "w": 117,
+   "h": 128,
+   "anchor": {
+    "x": 61,
+    "y": 66
+   },
+   "worldSize": 30
+  },
+  {
+   "id": "decor.leaf.1",
+   "group": "decor",
+   "type": "leaf",
+   "file": "assets/art/decor/leaf.1.webp",
+   "w": 176,
+   "h": 160,
+   "anchor": {
+    "x": 92,
+    "y": 70
+   },
+   "worldSize": 30
+  },
+  {
+   "id": "decor.leaf.2",
+   "group": "decor",
+   "type": "leaf",
+   "file": "assets/art/decor/leaf.2.webp",
+   "w": 52,
+   "h": 112,
+   "anchor": {
+    "x": 25,
+    "y": 49
+   },
+   "worldSize": 24
+  },
+  {
+   "id": "decor.pebble.1",
+   "group": "decor",
+   "type": "pebble",
+   "file": "assets/art/decor/pebble.1.webp",
+   "w": 116,
+   "h": 128,
+   "anchor": {
+    "x": 55,
+    "y": 63
+   },
+   "worldSize": 22
+  },
+  {
+   "id": "decor.pebble.2",
+   "group": "decor",
+   "type": "pebble",
+   "file": "assets/art/decor/pebble.2.webp",
+   "w": 127,
+   "h": 128,
+   "anchor": {
+    "x": 70,
+    "y": 67
+   },
+   "worldSize": 22
+  },
+  {
+   "id": "decor.potsherd.1",
+   "group": "decor",
+   "type": "potsherd",
+   "file": "assets/art/decor/potsherd.1.webp",
+   "w": 121,
+   "h": 128,
+   "anchor": {
+    "x": 59,
+    "y": 58
+   },
+   "worldSize": 26
+  },
+  {
+   "id": "decor.seed.2",
+   "group": "decor",
+   "type": "seed",
+   "file": "assets/art/decor/seed.2.webp",
+   "w": 66,
+   "h": 112,
+   "anchor": {
+    "x": 32,
+    "y": 59
+   },
+   "worldSize": 18
+  },
+  {
+   "id": "decor.shell.1",
+   "group": "decor",
+   "type": "shell",
+   "file": "assets/art/decor/shell.1.webp",
+   "w": 128,
+   "h": 128,
+   "anchor": {
+    "x": 64,
+    "y": 63
+   },
+   "worldSize": 24
+  },
+  {
+   "id": "decor.shell.2",
+   "group": "decor",
+   "type": "shell",
+   "file": "assets/art/decor/shell.2.webp",
+   "w": 128,
+   "h": 128,
+   "anchor": {
+    "x": 63,
+    "y": 60
+   },
+   "worldSize": 24
+  },
+  {
+   "id": "decor.snail.1",
+   "group": "decor",
+   "type": "snail",
+   "file": "assets/art/decor/snail.1.webp",
+   "w": 184,
+   "h": 144,
+   "anchor": {
+    "x": 108,
+    "y": 143
+   },
+   "worldSize": 24
+  },
+  {
+   "id": "decor.twig.1",
+   "group": "decor",
+   "type": "twig",
+   "file": "assets/art/decor/twig.1.webp",
+   "w": 113,
+   "h": 112,
+   "anchor": {
+    "x": 54,
+    "y": 64
+   },
+   "worldSize": 34
+  }
+ ]
+}

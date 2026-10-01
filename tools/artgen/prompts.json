@@ -1,0 +1,424 @@
+{
+ "version": 1,
+ "notes": "Single source of truth for generate.py / cutout.py. `picked` = chosen seed per asset (null until chosen). Candidate seeds = seedBase + 0..candidates-1.",
+ "model": {
+  "base": "stabilityai/stable-diffusion-xl-base-1.0",
+  "variant": "fp16",
+  "vae": "madebyollin/sdxl-vae-fp16-fix",
+  "lora": null
+ },
+ "defaults": {
+  "steps": 28,
+  "guidance": 6.5,
+  "scheduler": "dpmpp_2m_karras",
+  "candidates": 6
+ },
+ "styles": {
+  "decor": {
+   "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, single specimen, pure white background",
+   "negative": "beige, cream background, gradient, several objects, cluster, group, splatter, stains, ground, soil, grass, shadow, text, signature, watermark, border, frame, page, photograph, 3d render, cropped"
+  },
+  "specimen": {
+   "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, single specimen, bare stem base, pure white background",
+   "negative": "beige, cream background, gradient, grass, moss, fern, leaves, twigs, insects, several mushrooms, cluster, group, splatter, stains, ground, soil, shadow, text, signature, watermark, border, frame, page, photograph, 3d render, cropped"
+  },
+  "plate": {
+   "suffix": "19th century naturalist atlas plate, scientific cross-section illustration, fine sepia ink linework, cross-hatching, delicate watercolor wash, muted earthy colors, aged paper",
+   "negative": "photograph, photo, 3d render, text, letters, numbers, signature, watermark, caption, label, border, frame, blurry, oversaturated, neon, cartoon, anime"
+  }
+ },
+ "sets": {
+  "mushrooms": {
+   "style": "specimen",
+   "width": 1024,
+   "height": 1024,
+   "seedBase": 1000,
+   "assets": [
+    {
+     "id": "mushroom.common.1",
+     "group": "mushroom",
+     "type": "common",
+     "subject": "a single lone forest mushroom, side view, domed chestnut brown cap, slender pale stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 46,
+     "seedOffset": 0,
+     "picked": 1001
+    },
+    {
+     "id": "mushroom.common.2",
+     "group": "mushroom",
+     "type": "common",
+     "subject": "a single lone forest mushroom, side view, wide flat tan cap, thin cream stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 46,
+     "seedOffset": 100,
+     "picked": 1103,
+     "cut": {
+      "basecut": 0.06
+     }
+    },
+    {
+     "id": "mushroom.common.3",
+     "group": "mushroom",
+     "type": "common",
+     "subject": "a single lone forest mushroom, side view, convex russet cap, short thick curved stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 46,
+     "seedOffset": 200,
+     "picked": 1201,
+     "cut": {
+      "tol": 11,
+      "soft": 30
+     }
+    },
+    {
+     "id": "mushroom.fly_agaric.1",
+     "group": "mushroom",
+     "type": "fly_agaric",
+     "subject": "a single lone fly agaric mushroom, side view, red cap with white warts, white stem with ring",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 300,
+     "picked": 1301,
+     "cut": {
+      "basecut": 0.14
+     }
+    },
+    {
+     "id": "mushroom.fly_agaric.2",
+     "group": "mushroom",
+     "type": "fly_agaric",
+     "subject": "a single lone young fly agaric mushroom, side view, rounded red cap with white warts, bulbous base",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 400,
+     "picked": 1400,
+     "cut": {
+      "basecut": 0.13
+     }
+    },
+    {
+     "id": "mushroom.porcini.1",
+     "group": "mushroom",
+     "type": "porcini",
+     "subject": "a single lone porcini mushroom, side view, bun-shaped brown cap, thick swollen pale bulbous stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 500,
+     "picked": 1505,
+     "cut": {
+      "basecut": 0.09
+     }
+    },
+    {
+     "id": "mushroom.porcini.2",
+     "group": "mushroom",
+     "type": "porcini",
+     "subject": "a single lone porcini mushroom, side view, wide dark brown cap, short stout cream stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 600,
+     "picked": 1601,
+     "cut": {
+      "basecut": 0.05
+     }
+    },
+    {
+     "id": "mushroom.chanterelle.1",
+     "group": "mushroom",
+     "type": "chanterelle",
+     "subject": "a single lone chanterelle mushroom, side view, golden yellow funnel-shaped wavy cap, ridges running down the stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 700,
+     "picked": 1705,
+     "cut": {
+      "basecut": 0.2
+     }
+    },
+    {
+     "id": "mushroom.chanterelle.2",
+     "group": "mushroom",
+     "type": "chanterelle",
+     "subject": "a single lone chanterelle mushroom, side view, apricot yellow wavy cap, tapering stem",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 800,
+     "picked": 1811,
+     "cut": {
+      "basecut": 0.05
+     }
+    },
+    {
+     "id": "mushroom.saffron_milk_cap.1",
+     "group": "mushroom",
+     "type": "saffron_milk_cap",
+     "subject": "a single lone saffron milk cap mushroom, side view, orange concave cap with concentric rings, short stout stem, standing upright",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 900,
+     "picked": 1902,
+     "cut": {
+      "basecut": 0.07
+     }
+    },
+    {
+     "id": "mushroom.saffron_milk_cap.2",
+     "group": "mushroom",
+     "type": "saffron_milk_cap",
+     "subject": "a single lone saffron milk cap mushroom, side view, orange funnel cap with darker rings",
+     "anchor": "bottom",
+     "height": 320,
+     "worldSize": 52,
+     "seedOffset": 1000,
+     "picked": 2009,
+     "cut": {
+      "basecut": 0.05
+     }
+    }
+   ]
+  },
+  "decor": {
+   "style": "decor",
+   "width": 1024,
+   "height": 1024,
+   "seedBase": 2000,
+   "candidates": 4,
+   "assets": [
+    {
+     "id": "decor.acorn.1",
+     "group": "decor",
+     "type": "acorn",
+     "subject": "one oak acorn, glossy brown nut with a textured scaly cap, side view",
+     "anchor": "center",
+     "worldSize": 20,
+     "height": 128,
+     "seedOffset": 50,
+     "negExtra": "leaves, branch, twig, plate, bowl, stalk, pine cone",
+     "picked": 2000
+    },
+    {
+     "id": "decor.acorn.2",
+     "group": "decor",
+     "type": "acorn",
+     "subject": "one acorn standing upright, brown nut in its rough scaly cup",
+     "anchor": "bottom",
+     "worldSize": 20,
+     "height": 128,
+     "seedOffset": 150,
+     "negExtra": "leaves, branch, plate, bowl, pot, pine cone"
+    },
+    {
+     "id": "decor.leaf.1",
+     "group": "decor",
+     "type": "leaf",
+     "subject": "one fallen oak leaf, brown autumn colours, lying flat",
+     "anchor": "center",
+     "worldSize": 30,
+     "height": 160,
+     "seedOffset": 200,
+     "picked": 2201
+    },
+    {
+     "id": "decor.leaf.2",
+     "group": "decor",
+     "type": "leaf",
+     "subject": "one fallen birch leaf, yellow, lying flat",
+     "anchor": "center",
+     "worldSize": 24,
+     "height": 112,
+     "seedOffset": 300,
+     "picked": 2303
+    },
+    {
+     "id": "decor.snail.1",
+     "group": "decor",
+     "type": "snail",
+     "subject": "one garden snail with a spiral shell, side view, crawling",
+     "anchor": "bottom",
+     "worldSize": 24,
+     "height": 144,
+     "seedOffset": 400,
+     "picked": 2401
+    },
+    {
+     "id": "decor.beetle.1",
+     "group": "decor",
+     "type": "beetle",
+     "subject": "one ground beetle, dorsal view, glossy dark body, six legs",
+     "anchor": "center",
+     "worldSize": 22,
+     "height": 128,
+     "seedOffset": 500,
+     "picked": 2500
+    },
+    {
+     "id": "decor.beetle.2",
+     "group": "decor",
+     "type": "beetle",
+     "subject": "one stag beetle, dorsal view, large mandibles, six legs",
+     "anchor": "center",
+     "worldSize": 26,
+     "height": 144,
+     "seedOffset": 600,
+     "picked": 2600
+    },
+    {
+     "id": "decor.seed.1",
+     "group": "decor",
+     "type": "seed",
+     "subject": "one single sunflower seed, small striped seed, oval",
+     "anchor": "center",
+     "worldSize": 22,
+     "height": 128,
+     "seedOffset": 750,
+     "negExtra": "flower, leaves, insect, wings"
+    },
+    {
+     "id": "decor.seed.2",
+     "group": "decor",
+     "type": "seed",
+     "subject": "one pine cone seed with a thin wing",
+     "anchor": "center",
+     "worldSize": 18,
+     "height": 112,
+     "seedOffset": 800,
+     "picked": 2802
+    },
+    {
+     "id": "decor.twig.1",
+     "group": "decor",
+     "type": "twig",
+     "subject": "one bare dry fallen twig with a few small side branches, lying horizontally",
+     "anchor": "center",
+     "worldSize": 34,
+     "height": 112,
+     "seedOffset": 900,
+     "negExtra": "leaves, foliage",
+     "picked": 2902
+    },
+    {
+     "id": "decor.pebble.1",
+     "group": "decor",
+     "type": "pebble",
+     "subject": "one smooth rounded pebble with a pale mineral vein",
+     "anchor": "center",
+     "worldSize": 22,
+     "height": 128,
+     "seedOffset": 1000,
+     "picked": 3002
+    },
+    {
+     "id": "decor.pebble.2",
+     "group": "decor",
+     "type": "pebble",
+     "subject": "one small angular flint stone, chipped",
+     "anchor": "center",
+     "worldSize": 22,
+     "height": 128,
+     "seedOffset": 1100,
+     "picked": 3102
+    },
+    {
+     "id": "decor.bone.1",
+     "group": "decor",
+     "type": "bone",
+     "subject": "one single long bone, a weathered animal femur with knobbed ends",
+     "anchor": "center",
+     "worldSize": 30,
+     "height": 128,
+     "seedOffset": 1200,
+     "negExtra": "skull, skeleton, teeth, head",
+     "picked": 3201
+    },
+    {
+     "id": "decor.shell.1",
+     "group": "decor",
+     "type": "shell",
+     "subject": "one fossil clam shell, oval bivalve with concentric growth rings",
+     "anchor": "center",
+     "worldSize": 24,
+     "height": 128,
+     "seedOffset": 1300,
+     "picked": 3305
+    },
+    {
+     "id": "decor.shell.2",
+     "group": "decor",
+     "type": "shell",
+     "subject": "one fossil scallop shell, fan shaped with ridges",
+     "anchor": "center",
+     "worldSize": 24,
+     "height": 128,
+     "seedOffset": 1400,
+     "picked": 3403
+    },
+    {
+     "id": "decor.potsherd.1",
+     "group": "decor",
+     "type": "potsherd",
+     "subject": "one fragment of ancient pottery, potsherd, with a painted pattern",
+     "anchor": "center",
+     "worldSize": 26,
+     "height": 128,
+     "seedOffset": 1500,
+     "picked": 3500
+    },
+    {
+     "id": "decor.ammonite.1",
+     "group": "decor",
+     "type": "ammonite",
+     "subject": "one fossil ammonite, spiral ribbed shell",
+     "anchor": "center",
+     "worldSize": 28,
+     "height": 144,
+     "seedOffset": 1600,
+     "picked": 3602
+    }
+   ]
+  },
+  "frontispiece": {
+   "style": "plate",
+   "width": 1280,
+   "height": 832,
+   "seedBase": 3000,
+   "candidates": 8,
+   "assets": [
+    {
+     "id": "plate.frontispiece",
+     "group": "plate",
+     "type": "frontispiece",
+     "file": "assets/art/frontispiece.webp",
+     "target": [
+      1400,
+      null
+     ],
+     "crop": [
+      0.03,
+      0.025,
+      0.97,
+      0.925
+     ],
+     "picked": 3004,
+     "cut": {
+      "gamma": 1.35,
+      "sat": 0.95,
+      "vig0": 0.86,
+      "vig1": 1.03
+     },
+     "subject": "cross-section of a forest floor, three mushrooms and an acorn on the surface, below ground tree roots and pale white mycelium threads branching through the soil, centered composition"
+    }
+   ]
+  }
+ }
+}

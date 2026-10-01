@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Корни и нити — галерея иллюстраций</title>
+<style>
+  body { margin: 0; background: #2a1f18; color: #efe4cc; font: 13px/1.35 Georgia, serif; }
+  header { padding: 14px 20px; display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; font-weight: normal; }
+  header label { opacity: .85; }
+  h2 { margin: 18px 20px 6px; font-size: 15px; font-weight: normal; letter-spacing: .06em; text-transform: uppercase; opacity: .75; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 20px 10px; }
+  .card { border: 1px solid #5a4636; background: #1f1611; }
+  .card .panes { display: flex; }
+  .pane { display: flex; align-items: center; justify-content: center; padding: 10px; }
+  .paper { background: #efe4cc; }
+  .soil { background: #3f2c20; }
+  .pane .stage { position: relative; line-height: 0; }
+  .pane img { display: block; image-rendering: auto; }
+  .dot { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px; border: 1px solid #c0392b; border-radius: 50%; background: rgba(255, 255, 255, .6); display: none; }
+  body.anchors .dot { display: block; }
+  .meta { padding: 4px 8px; font-size: 12px; }
+  .meta b { font-weight: normal; color: #f2c879; }
+  .meta span { opacity: .65; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Галерея иллюстраций</h1>
+  <label>масштаб <select id="zoom"><option value="1">1×</option><option value="0.5">0.5×</option><option value="2">2×</option></select></label>
+  <label><input type="checkbox" id="anchors"> показать якоря</label>
+  <span id="count"></span>
+</header>
+<div id="root"></div>
+<script>
+const root = document.getElementById('root');
+const zoomSel = document.getElementById('zoom');
+let manifest = null;
+
+function render() {
+  const zoomv = parseFloat(zoomSel.value);
+  root.innerHTML = '';
+  const groups = {};
+  for (const a of manifest.assets) (groups[a.group] ||= []).push(a);
+  for (const [g, list] of Object.entries(groups)) {
+    const h = document.createElement('h2');
+    h.textContent = `${g} (${list.length})`;
+    root.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    for (const a of list) {
+      const z = a.w > 700 ? Math.min(zoomv, 700 / a.w) : zoomv; // wide plates are shown scaled down, side by side
+      const card = document.createElement('div');
+      card.className = 'card';
+      const panes = ['paper', 'soil'].map((bg) => `
+        <div class="pane ${bg}"><div class="stage">
+          <img src="../../${a.file}" width="${Math.round(a.w * z)}" height="${Math.round(a.h * z)}" alt="${a.id}">
+          <i class="dot" style="left:${a.anchor.x * z}px;top:${a.anchor.y * z}px"></i>
+        </div></div>`).join('');
+      card.innerHTML = `<div class="panes">${panes}</div>
+        <div class="meta"><b>${a.id}</b> <span>${a.w}×${a.h}, якорь ${a.anchor.x},${a.anchor.y}, мир ${a.worldSize}</span></div>`;
+      grid.appendChild(card);
+    }
+    root.appendChild(grid);
+  }
+  document.getElementById('count').textContent = `${manifest.assets.length} изображений`;
+}
+
+fetch('manifest.json').then((r) => r.json()).then((m) => { manifest = m; render(); });
+zoomSel.onchange = render;
+document.getElementById('anchors').onchange = (e) => document.body.classList.toggle('anchors', e.target.checked);
+</script>
+</body>
+</html>
