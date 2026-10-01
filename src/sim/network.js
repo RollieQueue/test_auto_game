@@ -31,6 +31,9 @@ export function createSimData(state) {
     income: 0, // current sugar income per second (diagnostics)
     nextGrowId: 0,
     treeStageUps: 0,
+    nextMushroomId: 0,
+    // threats (state.flags.threats): plain numbers only, saved with the rest of state.sim
+    threat: { rs: hash32(state.seed, 'threat'), spawnT: B.wormFirst, nextWorm: 0, nextTrap: 0, starve: 0, caught: 0, bites: 0, severed: 0, lostLength: 0 },
   };
 }
 
@@ -175,4 +178,77 @@ export function pathBetween(net, a, b) {
   const path = left.slice(0, up.get(n) + 1);
   for (let i = right.length - 1; i >= 0; i--) path.push(right[i]);
   return path;
+}
+
+/** Calls fn(node) for every alive node whose grid cell lies within `radius` of (x, y) (a superset: callers measure). */
+export function eachNodeNear(state, x, y, radius, fn) {
+  const { cells } = state.sim;
+  const nodes = state.net.nodes;
+  const x0 = Math.floor((x - radius) / CELL);
+  const x1 = Math.floor((x + radius) / CELL);
+  const y0 = Math.floor((y - radius) / CELL);
+  const y1 = Math.floor((y + radius) / CELL);
+  for (let cx = x0; cx <= x1; cx++) {
+    for (let cy = y0; cy <= y1; cy++) {
+      const cell = cells.get(key(cx, cy));
+      if (!cell) continue;
+      for (const id of cell) if (nodes[id].alive) fn(nodes[id]);
+    }
+  }
+}
+
+/**
+ * Kills edge `edgeId` and everything beyond it (the branch whose root is the edge's child), the way a cut hypha
+ * leaves the rest of the network cut off from the spore. Keeps the graph consistent: dead nodes and edges stay in the
+ * arrays (alive = false), their links, growing hyphae and flows are dropped, statistics are recomputed, net.version
+ * bumps. Returns the report { dead: Set of node ids, edges: dead edge ids nearest to the cut first, lost: length,
+ * links: the removed link records } or null when the edge is already dead.
+ */
+export function severBranch(state, edgeId) {
+  const { net, sim, world } = state;
+  const cut = net.edges[edgeId];
+  if (!cut || !cut.alive) return null;
+  const nodes = net.nodes;
+  const dead = new Set([cut.b]);
+  for (let i = cut.b + 1; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n.alive && dead.has(n.parent)) dead.add(i);
+  }
+  const order = [...dead].sort((a, b) => nodes[a].dist - nodes[b].dist || a - b);
+  const edges = [];
+  let lost = 0;
+  for (const id of order) {
+    nodes[id].alive = false;
+    const e = net.edges[sim.parentEdge[id]];
+    e.alive = false;
+    edges.push(e.id);
+    lost += e.len;
+  }
+  // links: deposits, trees (a freed root tip can be claimed again by a regrown hypha)
+  const gone = net.links.filter((l) => dead.has(l.nodeId));
+  net.links = net.links.filter((l) => !dead.has(l.nodeId));
+  for (const l of gone) {
+    if (l.kind === 'water') sim.waterLinks[l.targetId] = sim.waterLinks[l.targetId].filter((id) => !dead.has(id));
+    else if (l.kind === 'mineral') sim.mineralLinks[l.targetId] = sim.mineralLinks[l.targetId].filter((id) => !dead.has(id));
+    else {
+      sim.contacts[l.targetId] = sim.contacts[l.targetId].filter((id) => !dead.has(id));
+      sim.tipClaimed.delete(`${l.targetId}:${l.tip}`);
+      world.trees[l.targetId].linked = sim.contacts[l.targetId].length > 0;
+    }
+  }
+  net.growing = net.growing.filter((h) => !dead.has(h.lastNode) && !dead.has(h.from));
+  state.flows = state.flows.filter((f) => f.path.every((id) => !dead.has(id)));
+  // statistics, exactly (no drift from subtracting)
+  let length = 0;
+  let sap = 0;
+  for (const e of net.edges) {
+    if (!e.alive) continue;
+    length += e.len;
+    const c = nodes[e.b];
+    if (horizonIndexAt(world, c.x, c.y) <= 1) sap += e.len;
+  }
+  state.stats.hyphaeLength = length;
+  sim.lenSap = sap;
+  net.version++;
+  return { dead, edges, lost, links: gone };
 }

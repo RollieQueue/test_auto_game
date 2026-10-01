@@ -11,7 +11,7 @@ const optional = (path) =>
     if (!(err instanceof TypeError)) console.error(`[render] ${path}`, err);
     return null;
   });
-const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod] = await Promise.all([
+const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod, faunaMod] = await Promise.all([
   optional('./trees.js'),
   optional('./mushrooms.js'),
   optional('./deposits.js'),
@@ -21,6 +21,7 @@ const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod
   optional('./feedback.js'),
   optional('./ambient.js'),
   optional('./atmosphere.js'),
+  optional('./fauna.js'),
 ]);
 
 const REBUILD_DELAY = 0.2; // seconds the window size must stay put before the world layer is repainted
@@ -70,7 +71,9 @@ export function createRenderer(canvas) {
   const feedback = add('feedback', feedbackMod?.createFeedback);
   const ambient = add('ambient', ambientMod?.createAmbient);
   const atmos = add('atmos', atmosMod?.createAtmosphere); // day, night, weather, snow (only with state.flags.seasons)
-  const refs = { trees: trees?.api, mushrooms: mushrooms?.api };
+  const fauna = add('fauna', faunaMod?.createFauna); // nematodes, cut-off hyphae dying away, trap rings (state.fauna / state.traps)
+  const refs = { trees: trees?.api, mushrooms: mushrooms?.api, mycelium: mycelium?.api };
+  fauna?.api.attach?.(refs);
   let modsWorld = null;
   let modsKey = '';
   let warmWorld = null;
@@ -315,9 +318,11 @@ export function createRenderer(canvas) {
     call(atmos, 'drawSoil', ctx, state, t, dt);
     call(mycelium, 'draw', ctx, state, t, dt, frame);
     call(flows, 'draw', ctx, state, t, dt, frame);
+    call(fauna, 'draw', ctx, state, t, dt, frame); // worms live in the soil, over the mycelium and its flows
     call(trees, 'drawTrees', ctx, state, t, dt);
     call(ambient, 'draw', ctx, state, t, dt, frame);
     call(mushrooms, 'draw', ctx, state, t, dt);
+    call(fauna, 'drawTop', ctx, state, t, dt); // ghosts of mushrooms that wilted when their node was cut off
     call(atmos, 'drawOver', ctx, state, t, dt);
     call(feedback, 'draw', ctx, state, t, dt, frame);
     call(effects, 'draw', ctx, state, t, dt, frame);

@@ -3,12 +3,13 @@ import { B } from './balance.js';
 import { addNode, createSimData, nearestNode } from './network.js';
 import { commandGrow, estimateGrowth, stepGrowth } from './growth.js';
 import { stepEconomy } from './economy.js';
-import { canFruit, commandFruit, pickFruitNode, stepMushrooms } from './mushrooms.js';
+import { canFruit, commandFruit, mushroomCost, pickFruitNode, stepMushrooms } from './mushrooms.js';
 import { recomputeFlows } from './flows.js';
 import { createObjectives, stepObjectives } from './objectives.js';
 import { initTime, stepTime } from './clock.js';
+import { canTrap, commandTrap, pickTrapNode, stepThreats, trapDenial } from './threats.js';
 
-export { commandGrow, estimateGrowth, canFruit, commandFruit, pickFruitNode };
+export { commandGrow, estimateGrowth, canFruit, commandFruit, mushroomCost, pickFruitNode, canTrap, commandTrap, pickTrapNode, trapDenial };
 
 export function initSim(state) {
   const { world, net } = state;
@@ -30,6 +31,9 @@ export function initSim(state) {
     addNode(state, origin.x + Math.cos(a) * B.originRingRadius, origin.y + Math.sin(a) * B.originRingRadius, origin.id);
   }
   state.objectives = createObjectives();
+  state.chapter = 1;
+  state.fauna = []; // nematodes (state.flags.threats), see threats.js
+  state.traps = []; // «ловчие кольца»
   initTime(state);
 }
 
@@ -39,6 +43,7 @@ export function updateSim(state, dt) {
   sim.clock += dt;
   stepTime(state);
   stepGrowth(state, dt);
+  stepThreats(state, dt);
   stepEconomy(state, dt);
   stepMushrooms(state, dt);
   sim.flowDt += dt;

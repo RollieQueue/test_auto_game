@@ -478,6 +478,42 @@ export function createAudio(options = {}) {
     'all-objectives'(t) {
       [72, 76, 79, 84, 88].forEach((m, i) => bell(m, t + i * 0.16, 0.08, 2.6));
     },
+    // Threats (nematodes and trap rings): quiet, dry and organic; every cue checks the voice room first
+    bite(t) {
+      if (throttled('bite', 0.35) || voices + 3 > MAX_VOICES - AMBIENT_RESERVE) return;
+      noiseBurst(t, { type: 'bandpass', freq: rand(1500, 2100), q: 2.2, dur: 0.02, gain: 0.13 });
+      noiseBurst(t + 0.045, { type: 'bandpass', freq: rand(1900, 2600), q: 2.2, dur: 0.016, gain: 0.1 });
+    },
+    severed(t) {
+      if (throttled('severed', 0.5) || voices + 6 > MAX_VOICES - AMBIENT_RESERVE) return;
+      noiseBurst(t, { type: 'bandpass', freq: 3000, q: 3, dur: 0.012, gain: 0.09 }); // the dry snap
+      noiseBurst(t + 0.004, { type: 'highpass', freq: 5200, q: 0.7, dur: 0.03, gain: 0.03 });
+      tone(76, t + 0.01, { gain: 0.12, slideTo: 44, slideTime: 0.22, decay: 0.3, attack: 0.004, lowpass: 320 }); // soft low thud
+      // a slightly unsettling minor second, barely there
+      tone(mtof(58), t + 0.04, { gain: 0.016, attack: 0.05, decay: 0.7, type: 'triangle', lowpass: 800 });
+      tone(mtof(59), t + 0.04, { gain: 0.012, attack: 0.05, decay: 0.7, type: 'triangle', lowpass: 800 });
+    },
+    'worm-caught'(t) {
+      if (throttled('worm-caught', 0.3) || voices + 8 > MAX_VOICES - AMBIENT_RESERVE) return;
+      // a small bright wooden tick with a bell tail, then two soft gulps
+      tone(1320, t, { gain: 0.06, decay: 0.09, attack: 0.002, type: 'triangle' });
+      tone(1320 * 2.76, t, { gain: 0.02, decay: 0.05, attack: 0.001 });
+      bell(88, t + 0.02, 0.035, 1.1);
+      tone(190, t + 0.14, { gain: 0.13, slideTo: 95, slideTime: 0.09, decay: 0.13, attack: 0.004, lowpass: 520 });
+      tone(160, t + 0.27, { gain: 0.1, slideTo: 80, slideTime: 0.09, decay: 0.12, attack: 0.004, lowpass: 480 });
+    },
+    'trap-placed'(t) {
+      if (throttled('trap-placed', 0.15) || voices + 3 > MAX_VOICES - AMBIENT_RESERVE) return;
+      noiseBurst(t, { type: 'bandpass', freq: 3200, q: 1.4, dur: 0.05, gain: 0.05 }); // a soft rustle
+      noiseBurst(t + 0.05, { type: 'bandpass', freq: 2400, q: 1.4, dur: 0.06, gain: 0.04 });
+      tone(560, t + 0.02, { gain: 0.05, slideTo: 380, slideTime: 0.07, decay: 0.1, attack: 0.002, lowpass: 1800 });
+    },
+    'trap-ready'(t) {
+      if (throttled('trap-ready', 0.3) || voices + 2 > MAX_VOICES - AMBIENT_RESERVE) return;
+      tone(mtof(86), t, { gain: 0.016, decay: 0.25, attack: 0.004 });
+      tone(mtof(91), t + 0.08, { gain: 0.013, decay: 0.32, attack: 0.004 });
+    },
+    'trap-denied': (t, ev) => handlers.insufficient(t, ev),
     // S2: cues live in cues.js; ignored while the seasons are off
     dawn: (t, ev) => seasonsOn && cues.dawn(t, ev),
     dusk: (t, ev) => seasonsOn && cues.dusk(t, ev),

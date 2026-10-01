@@ -4,7 +4,9 @@
 import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
 import { committedSugar } from '../src/sim/growth.js';
-import { B } from '../src/sim/balance.js';
+import { B, pressure } from '../src/sim/balance.js';
+import { mushroomCost } from '../src/sim/mushrooms.js';
+import { findRadius } from '../src/sim/finds.js';
 import { costAt, groundYAt } from '../src/world/query.js';
 
 export const DT = 1 / 60;
@@ -123,16 +125,23 @@ function route(state, grid, isTarget) {
   return null;
 }
 
-/** Plays one game. opts: { maxSeconds, mushrooms, seasons (turn day/night and seasons on), runOn (keep playing after all objectives), debug } */
+/**
+ * Plays one game. opts: { maxSeconds, mushrooms, seasons (turn day/night and seasons on), threats (worms, traps, chapters and
+ * the tighter economy: the bot then grows rings against worms and works through the later chapters), runOn (keep playing
+ * after all objectives), untilChapter (with threats: stop once this chapter's page is complete), curve (sample the state
+ * every 30 s into stats.curve), guard (false: never lay rings against worms), reaction / guardReach (how late and how
+ * close the bot reacts to a worm), debug }
+ */
 export function playBot(seed, opts = {}) {
   const maxSeconds = opts.maxSeconds ?? 1200;
   const wantMushrooms = opts.mushrooms ?? 4;
   const state = createState(seed);
   state.phase = 'playing';
   if (opts.seasons) state.flags.seasons = true;
+  if (opts.threats) state.flags.threats = true;
   const grid = costGrid(state.world);
   const { world, net } = state;
-  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null };
+  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null, chapterDone: {}, traps: 0, curve: [] };
   let nextThink = 0;
 
   const linked = (kind) => net.links.some((l) => l.kind === kind);
@@ -149,7 +158,7 @@ export function playBot(seed, opts = {}) {
     let prev = { x: net.nodes[r.nodeId].x, y: net.nodes[r.nodeId].y };
     const budget = free() - 0.5; // the sim integrates the cost a little differently across horizon edges
     for (const p of r.points) {
-      const c = Math.hypot(p.x - prev.x, p.y - prev.y) * costAt(world, p.x, p.y);
+      const c = Math.hypot(p.x - prev.x, p.y - prev.y) * costAt(world, p.x, p.y) * pressure(state).growCost;
       if (spend + c > budget) break;
       spend += c;
       n++;
@@ -197,6 +206,45 @@ export function playBot(seed, opts = {}) {
       }),
     );
 
+  const goAlly = () =>
+    grow(
+      route(state, grid, (x, y) =>
+        world.trees.some(
+          (t) =>
+            state.sim.contacts[t.id].length === 0 &&
+            t.tips.some((tip, i) => tip.minStage <= t.stage && !state.sim.tipClaimed.has(`${t.id}:${i}`) && Math.hypot(x - tip.x, y - tip.y) <= 11),
+        ),
+      ),
+    );
+  const foundKinds = () => new Set(Object.values(state.finds).map((f) => f.kind));
+  const goFind = () => {
+    const have = foundKinds();
+    return grow(route(state, grid, (x, y) => world.decor.some((d) => !state.finds[d.id] && !have.has(d.type) && Math.hypot(x - d.x, y - d.y) <= findRadius(d) * 0.6)));
+  };
+  const gravelDepth = world.horizons[world.horizons.length - 1].depth;
+  const goGravel = () => grow(route(state, grid, (x, y) => y - groundYAt(world, x) >= gravelDepth + 8));
+
+  // A ring on the hypha a worm is after (or chewing), unless a ring with catches left already covers it.
+  let nextTrapAt = 0;
+  const reaction = opts.reaction ?? 2; // s a worm is in the world before the bot notices it is after something
+  const reach = opts.guardReach ?? 70; // u: the bot reacts to a worm this close to the hypha it is after
+  const trapCovers = (x, y) => state.traps.some((t) => t.charges > 0 && Math.hypot(t.x - x, t.y - y) < B.trapRadius - 12);
+  const guard = () => {
+    if (!state.flags.threats || opts.guard === false || state.time < nextTrapAt || free() < B.trapCost + 8) return false;
+    for (const w of state.fauna) {
+      if (w.mode !== 'wander' && w.mode !== 'bite') continue;
+      const spot = w.bite ?? (w.target >= 0 ? net.nodes[w.target] : null);
+      if (!spot || w.age < reaction || Math.hypot(w.x - spot.x, w.y - spot.y) > reach || trapCovers(spot.x, spot.y)) continue;
+      const id = sim.pickNode(state, spot.x, spot.y, 30);
+      if (id !== null && sim.canTrap(state, id) && sim.commandTrap(state, id)) {
+        nextTrapAt = state.time + 4;
+        stats.traps++;
+        return true;
+      }
+    }
+    return false;
+  };
+
   const plant = () => {
     for (const n of net.nodes) {
       if (sim.canFruit(state, n.id)) {
@@ -208,11 +256,12 @@ export function playBot(seed, opts = {}) {
   };
 
   const think = () => {
+    guard();
     if (net.growing.length > 0) return;
     if (!linked('water')) return void goWater();
     if (!linked('tree')) return void goTree();
     if (state.mushrooms.length < wantMushrooms) {
-      if (free() < B.mushroomCost + 6) return;
+      if (free() < mushroomCost(state) + 6) return;
       if (plant()) return;
       return void goSurface();
     }
@@ -222,6 +271,15 @@ export function playBot(seed, opts = {}) {
     if (state.mushrooms.length < wantMushrooms + 3 && free() > 70) {
       if (plant()) return;
       return void goSurface();
+    }
+    if (state.flags.threats && state.chapter >= 2) {
+      if (!world.trees.every((t) => state.sim.contacts[t.id].length > 0)) return void goAlly();
+      if (foundKinds().size < B.chapter2Finds && free() > 20) return void goFind();
+      if (state.stats.maxDepth < gravelDepth && free() > 60) return void goGravel();
+      if (state.chapter >= 3 && state.mushrooms.length < B.chapter3Mushrooms + 1 && free() > 50) {
+        if (plant()) return;
+        return void goSurface();
+      }
     }
   };
 
@@ -233,7 +291,10 @@ export function playBot(seed, opts = {}) {
     for (const ev of state.events) {
       stats.events[ev.type] = (stats.events[ev.type] || 0) + 1;
       if (ev.type === 'objective') stats.doneAt[ev.id] = state.time;
-      if (ev.type === 'all-objectives') completed = state.time;
+      if (ev.type === 'all-objectives') {
+        stats.chapterDone[ev.chapter ?? 1] = state.time;
+        if ((ev.chapter ?? 1) === 1) completed = state.time;
+      }
       if (ev.type === 'year-end') stats.yearEnd = { time: state.time, sugar: state.res.sugar, spores: state.res.spores };
     }
     state.events.length = 0;
@@ -254,7 +315,10 @@ export function playBot(seed, opts = {}) {
       think();
       nextThink = state.time + 0.5;
     }
-    if (completed !== null && !opts.runOn) break;
+    if (opts.curve && i % 1800 === 0) {
+      stats.curve.push({ t: Math.round(state.time), sugar: Math.round(state.res.sugar), len: Math.round(state.stats.hyphaeLength), mush: state.mushrooms.length, worms: state.fauna.length, traps: state.traps.length, spores: Math.round(state.res.spores), chapter: state.chapter });
+    }
+    if (opts.untilChapter ? stats.chapterDone[opts.untilChapter] !== undefined : completed !== null && !opts.runOn) break;
   }
   return { state, completedAt: completed, stats };
 }

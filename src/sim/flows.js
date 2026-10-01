@@ -38,7 +38,7 @@ export function recomputeFlows(state, dt) {
         const from = bestNode(net, linkLists[d.id]);
         for (const t of world.trees) {
           const rate = (sim.intake[t.id][key] / dt) * share;
-          if (rate >= B.flowMinRate) push(from, bestNode(net, sim.contacts[t.id]), kind, rate);
+          if (rate >= B.flowMinRate && sim.contacts[t.id].length > 0) push(from, bestNode(net, sim.contacts[t.id]), kind, rate);
         }
         push(from, origin, kind, Math.max(0, extracted - intakeSum) * share);
       }

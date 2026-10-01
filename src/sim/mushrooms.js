@@ -1,8 +1,14 @@
 // Fruiting bodies: planting rules, growth, spore release.
 import { groundYAt } from '../world/query.js';
-import { B } from './balance.js';
+import { B, pressure } from './balance.js';
 import { fedIndex } from './economy.js';
 import { nearestNode } from './network.js';
+
+/** Sugar a mushroom costs now. */
+export const mushroomCost = (state) => {
+  const P = pressure(state);
+  return B.mushroomCost * P.mushCost * (1 + P.mushCount * state.mushrooms.length);
+};
 
 /** null when a mushroom may be planted on the node, otherwise 'deep' | 'crowded' | 'sugar'. */
 export function fruitDenial(state, nodeId) {
@@ -13,11 +19,19 @@ export function fruitDenial(state, nodeId) {
   for (const m of state.mushrooms) {
     if (Math.hypot(m.x - node.x, m.baseY - ground) < B.fruitSpacing) return 'crowded';
   }
-  if (state.res.sugar < B.mushroomCost) return 'sugar';
+  if (state.res.sugar < mushroomCost(state)) return 'sugar';
   return null;
 }
 
 export const canFruit = (state, nodeId) => fruitDenial(state, nodeId) === null;
+
+/** A mushroom id never used before (ids stay unique when cut-off mushrooms leave the list). */
+function nextMushroomId(state) {
+  let id = state.sim.nextMushroomId;
+  for (const m of state.mushrooms) id = Math.max(id, m.id + 1);
+  state.sim.nextMushroomId = id + 1;
+  return id;
+}
 
 export function commandFruit(state, nodeId) {
   const reason = fruitDenial(state, nodeId);
@@ -31,9 +45,9 @@ export function commandFruit(state, nodeId) {
     return false;
   }
   const baseY = groundYAt(state.world, node.x);
-  state.res.sugar -= B.mushroomCost;
+  state.res.sugar -= mushroomCost(state);
   const m = {
-    id: state.mushrooms.length,
+    id: nextMushroomId(state),
     nodeId,
     x: node.x,
     baseY,
@@ -66,20 +80,21 @@ export function stepMushrooms(state, dt) {
   if (mushrooms.length === 0) return;
   const fed = fedIndex(state);
   const fx = sim.fx;
+  const P = pressure(state);
   sim.fed = fed;
   for (const m of mushrooms) {
     m.age += dt;
     if (!m.mature) {
       m.growth = Math.min(1, m.growth + (dt / B.mushroomGrowSeconds) * (B.mushroomGrowFloor + (1 - B.mushroomGrowFloor) * fed) * fx.mushGrow);
-      if (fx.mushGrow > 0) drawSugar(state, B.mushroomGrowSugar * dt);
+      if (fx.mushGrow > 0) drawSugar(state, B.mushroomGrowSugar * P.mushGrowSugar * dt);
       if (m.growth >= 1) {
         m.mature = true;
         events.push({ type: 'mushroom-mature', id: m.id, x: m.x, y: m.baseY });
       }
       continue;
     }
-    drawSugar(state, B.mushroomMatureSugar * fx.mushSugar * dt);
-    const out = B.sporeRate * (0.5 + 1.5 * fed) * fx.spore * dt;
+    drawSugar(state, B.mushroomMatureSugar * P.mushMatureSugar * fx.mushSugar * dt);
+    const out = B.sporeRate * P.sporeRate * (0.5 + 1.5 * fed) * fx.spore * dt;
     m.spores += out;
     m.burst += out;
     res.spores += out;

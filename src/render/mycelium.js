@@ -256,6 +256,13 @@ export function createMycelium() {
       net = null;
       cords.clear();
     },
+    /** The meandering polyline of one edge as a flat [x0, y0, x1, y1, ...] (so overlays such as the ghosts of a cut match the drawn hypha). */
+    edgePoints(state, id) {
+      const nodes = state.net && state.net.nodes;
+      const e = state.net && state.net.edges[id];
+      if (!nodes || !e || !nodes[e.a] || !nodes[e.b]) return null;
+      return shape(nodes, e).p;
+    },
     draw(ctx, state, t, dt, frame) {
       const n = state.net;
       if (!core || !n) return;
@@ -343,6 +350,7 @@ export function createMycelium() {
       for (const gr of n.growing || []) {
         if (!gr.tip) continue;
         const last = nodes[gr.lastNode];
+        if (last && last.alive === false) continue;
         const pulse = 0.75 + 0.25 * Math.sin(t * 9 + gr.id * 1.7);
         if (last) {
           ctx.strokeStyle = 'rgba(255,246,220,0.95)';
@@ -376,7 +384,7 @@ export function createMycelium() {
       }
       for (const lk of n.links || []) {
         const nd = nodes[lk.nodeId];
-        if (!nd) continue;
+        if (!nd || nd.alive === false) continue; // a cut-off node keeps its coordinates but its link is gone
         const col = linkColor(lk, state);
         const p = 0.65 + 0.35 * Math.sin(t * 1.6 + lk.nodeId);
         glowAt(ctx, nd.x, nd.y, 13 + 3 * p, 0.55, col);
@@ -392,7 +400,7 @@ export function createMycelium() {
    */
   function fruitCord(ctx, nodes, m, t) {
     const nd = nodes[m.nodeId];
-    if (!nd || !Number.isFinite(m.x) || !Number.isFinite(m.baseY)) return;
+    if (!nd || nd.alive === false || !Number.isFinite(m.x) || !Number.isFinite(m.baseY)) return;
     const growth = Number.isFinite(m.growth) ? m.growth : 1;
     const reach = smooth01(growth / 0.2 + 0.05);
     let g = cords.get(m.id);

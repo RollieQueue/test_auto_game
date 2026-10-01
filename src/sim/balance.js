@@ -2,6 +2,9 @@
 // Verified by the bot playthroughs in tests/sim.test.mjs and tests/seasons.test.mjs (all five objectives in 5-7 game minutes
 // at x1 for the scripted bot, a human is expected to need about twice as long; with seasons on, by the end of spring or summer).
 
+/** Economy multipliers of an ordinary game: all 1. */
+export const NEUTRAL_HARD = Object.freeze({ upkeep: 1, sprawl: Infinity, treePay: 1, growCost: 1, mushCost: 1, mushCount: 0, mushGrowSugar: 1, mushMatureSugar: 1, sugarCap: 1, treeGrow: 1, sporeRate: 1 });
+
 export const B = {
   // --- Start ---
   startSugar: 100,
@@ -77,6 +80,83 @@ export const B = {
   findSugar: [4, 8, 14, 24], // one-off sugar (never above the sugar cap)
   findSpores: [0, 0, 1, 3], // one-off spores: rare finds only
 
+  // --- Threats (everything below, up to «Objectives», applies only with state.flags.threats) ---
+  // Nematodes: small soil worms that wander, graze on thin hyphae and cut them. A cut leaves the part of the network
+  // beyond it dead (nothing reaches it from the spore). Busy cords (edge.w >= biteMaxW) are too tough to bite.
+  wormGrace: 140, // s: no worms before this game time ...
+  wormMinLength: 350, // ... nor before the network is this long (u of hyphae)
+  wormFirst: 30, // worm-seconds until the first spawn (a countdown that runs at spawn rate x (1 + length / wormLenRef))
+  wormSpawnEvery: 75, // s between spawns at the start; later spawns wait this x (0.7..1.3)
+  wormLenRef: 1500, // spawn rate grows with the network: x (1 + hyphaeLength / wormLenRef)
+  wormMax: 6, // most worms alive at once ...
+  wormPerLength: 900, // ... 1 + hyphaeLength / this, up to wormMax
+  wormSpawnDist: [150, 320], // u from a random hypha node
+  wormLife: [85, 150], // s before a worm burrows away on its own
+  wormLeaveSeconds: 2.5, // s a leaving worm takes to fade out
+  wormEmergeSeconds: 1, // s a new worm takes to fade in
+  wormLen: [44, 64], // body length, u
+  wormSpeed: [17, 26], // u/s
+  wormSense: 150, // u: a worm turns towards the nearest bitable hypha within this distance
+  wormAttract: 1.25, // rad/s of turning towards it
+  wormWander: 0.9, // rad/s of random turning
+  wormTurnEvery: [0.8, 2.2], // s between new random turns
+  wormHorizonSpeed: [0.7, 1, 1, 0.5, 0.3], // speed factor in litter, humus, loam, clay, gravel (they like moist humus and loam)
+  wormDepthMin: 34, // u below the surface: worms stay in this band (steer back when outside it)
+  wormDepthMax: 360,
+  wormColdSpeed: 0.5, // speed factor in winter (seasons only)
+  wormSeason: { spring: 1.1, summer: 1.6, autumn: 1.0, winter: 0.15 }, // spawn rate by season (seasons only)
+  wormGrazer: 0.7, // share of worms that feed on hyphae; the rest only wander (and can still be caught for their nitrogen)
+  wormMaxBites: 1, // a worm that has cut this many hyphae is full and leaves
+  wormFullSeconds: 9, // s after a bite before the next one
+  biteMaxW: 1.6, // edge.w below this is thin enough to bite
+  biteReach: 9, // u from the hypha at which a worm bites
+  biteSeconds: 2.8, // s of chewing before the hypha is cut (a trap or a thickened hypha stops it)
+  biteImmuneDist: 52, // u along the network from the spore: the first hyphae around it are never cut
+  biteMinAge: 8, // s: hyphae younger than this are not bitten yet
+  wormSnareSpeed: 46, // u/s a lured worm is drawn towards the ring
+  wormSnareMax: 4, // s: the longest a lured worm takes to reach the ring
+
+  // Traps: «ловчие кольца» of nematophagous fungi (Arthrobotrys): hyphal loops that lure and snare worms, which are
+  // then digested for nitrogen.
+  trapCost: 16, // sugar
+  trapRadius: 60, // u: a worm within this distance of an armed ring is lured in
+  trapSpacing: 46, // u: no other ring this close
+  trapGrowSeconds: 2.5, // s until the ring is armed
+  trapCharges: 3, // worms one ring can digest before it dies
+  trapDigestSeconds: 14, // s after a catch during which the ring catches nothing
+  trapMinerals: 8, // minerals (nitrogen) per worm, into the pool up to its cap
+
+  // --- Pressure (threats only): the economy tightens so that sugar is a constraint all game long. Multipliers on the
+  // numbers above; the saprotrophic floor stays, so a starved network can always recover.
+  hard: {
+    upkeep: 1, // x upkeepPerLength ...
+    sprawl: 5000, // ... and then x (1 + hyphaeLength / sprawl): a big network costs more per u than a small one
+    treePay: 0.9, // x treePay
+    growCost: 1.15, // x the horizon cost of growing a hypha
+    mushCost: 1.4, // x mushroomCost ...
+    mushCount: 0.1, // ... and then x (1 + this per mushroom already standing): a crowd of fruit bodies shares one table
+    mushGrowSugar: 1.3, // x mushroomGrowSugar
+    mushMatureSugar: 2, // x mushroomMatureSugar
+    sugarCap: 0.55, // x every sugar cap
+    treeGrow: 0.8, // x the growth speed of trees
+    sporeRate: 0.7, // x the spore release of mushrooms
+  },
+  // A network that cannot pay for itself dies back at the tips (unproductive twigs wither), so there is always a way out.
+  starveSugar: 12, // sugar stock below this, not growing and barely gaining ...
+  starveRate: 0.3, // ... (net sugar per second below this) for starveAfter seconds starts the dieback
+  starveAfter: 30, // s
+  starveEvery: 10, // s between dieback steps while it goes on
+
+  // --- Chapters (threats only): the notebook turns the page after the five first observations ---
+  chapterCount: 3,
+  chapter2Finds: 4, // kinds of finds
+  chapter2Worms: 5, // nematodes caught
+  chapter2Spores: 500,
+  chapter3Mushrooms: 8, // grown mushrooms at once
+  chapter3Spores: 1500,
+  winterSugar: 80, // sugar in hand when the winter ends (seasons on)
+  reserveSugar: 120, // the same page without seasons: a stock of sugar
+
   // --- Objectives ---
   sporesGoal: 100,
 
@@ -110,3 +190,6 @@ export const B = {
       weather: { kind: 'snow', count: 3, min: 50, max: 75, peakMin: 0.6, peakMax: 1 } },
   },
 };
+
+/** The economy multipliers in force: B.hard with state.flags.threats, otherwise all 1. */
+export const pressure = (state) => (state.flags.threats ? B.hard : NEUTRAL_HARD);

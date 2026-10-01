@@ -1,6 +1,6 @@
 // Economy: pool capacity, extraction from deposits, tree exchange and growth, sugar upkeep and baseline.
 import { clamp } from '../core/geom.js';
-import { B } from './balance.js';
+import { B, pressure } from './balance.js';
 import { recheckTips } from './network.js';
 
 function updateCaps(state) {
@@ -8,7 +8,7 @@ function updateCaps(state) {
   state.cap.pool = B.poolBase + B.poolPerLength * len;
   let stages = 0;
   for (const t of state.world.trees) if (t.linked) stages += t.stage + 1;
-  state.cap.sugar = B.sugarCapBase + B.sugarCapPerLength * len + B.sugarCapPerTreeStage * stages;
+  state.cap.sugar = (B.sugarCapBase + B.sugarCapPerLength * len + B.sugarCapPerTreeStage * stages) * pressure(state).sugarCap;
 }
 
 /** Pockets refill; every linked deposit feeds the shared pool until it is empty. */
@@ -69,7 +69,7 @@ function stepTrees(state, dt) {
     res.minerals -= takeM;
     const sat = B.treeSatWater * (takeW / dW) + (1 - B.treeSatWater) * (takeM / dM); // demands are never 0
     t.health += (sat - t.health) * Math.min(1, dt / B.treeHealthTau);
-    const pay = B.treePay[t.stage] * fac(t) * sat * fx.pay * dt;
+    const pay = B.treePay[t.stage] * fac(t) * sat * fx.pay * pressure(state).treePay * dt;
     paid += pay;
     const intake = sim.intake[t.id];
     intake.water += takeW;
@@ -77,7 +77,7 @@ function stepTrees(state, dt) {
     intake.sugar += pay;
     if (t.stage < 3) {
       const g = clamp((t.health - B.treeGrowFromHealth) / (1 - B.treeGrowFromHealth), 0, 1);
-      t.growth += (g * fx.treeGrow * dt) / B.treeGrowSeconds[t.stage];
+      t.growth += (g * fx.treeGrow * pressure(state).treeGrow * dt) / B.treeGrowSeconds[t.stage];
       if (t.growth >= 1) {
         t.stage++;
         t.growth = 0;
@@ -103,7 +103,8 @@ export function stepEconomy(state, dt) {
   extract(state, dt);
   const paid = stepTrees(state, dt);
   const income = saprotrophSugar(state) + paid / dt;
-  let upkeep = B.upkeepPerLength * state.stats.hyphaeLength * sim.fx.upkeep;
+  const P = pressure(state);
+  let upkeep = B.upkeepPerLength * state.stats.hyphaeLength * (1 + state.stats.hyphaeLength / P.sprawl) * sim.fx.upkeep * P.upkeep;
   if (res.sugar < B.upkeepSoftFloor) upkeep = Math.min(upkeep, B.upkeepFloorShare * income);
   sim.income = income;
   res.sugar = clamp(res.sugar + (income - upkeep) * dt, 0, cap.sugar);

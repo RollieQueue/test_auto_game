@@ -1,5 +1,6 @@
 // Pointer input. Drag from a network node to grow a hypha (right click cancels the drag); in 'fruit'
-// mode a click plants a mushroom. Keeps state.ui.pointer / hoverNode / hoverTarget / drag / preview current.
+// mode a click plants a mushroom, in 'trap' mode it grows a «ловчее кольцо» on the node. Keeps state.ui.pointer /
+// hoverNode / hoverTarget / trapPick / drag / preview current.
 // Keyboard handling belongs to the UI (actions.cancelDrag, actions.setTool, ...).
 import { targetAt } from '../world/query.js';
 
@@ -28,10 +29,20 @@ export function attachInput(canvas, game) {
     if (state.phase !== 'playing') {
       ui.hoverNode = null;
       ui.hoverTarget = null;
+      ui.trapPick = null;
       return;
     }
     ui.hoverNode = game.sim.pickNode(state, p.x, p.y);
     ui.hoverTarget = targetAt(state.world, state.mushrooms, p.x, p.y);
+    ui.trapPick = null;
+    if (ui.tool === 'trap' && game.sim.pickTrapNode) {
+      const id = game.sim.pickTrapNode(state, p.x, p.y);
+      if (id !== null) {
+        const node = state.net.nodes[id];
+        const reason = game.sim.trapDenial(state, id);
+        ui.trapPick = { nodeId: id, x: node.x, y: node.y, ok: reason === null, reason };
+      }
+    }
   };
 
   const onDown = (ev) => {
@@ -46,6 +57,11 @@ export function attachInput(canvas, game) {
     if (state.ui.tool === 'fruit') {
       const node = game.sim.pickFruitNode(state, p.x, p.y);
       if (node !== null) game.sim.commandFruit(state, node);
+      return;
+    }
+    if (state.ui.tool === 'trap') {
+      const node = game.sim.pickTrapNode(state, p.x, p.y);
+      if (node !== null) game.sim.commandTrap(state, node);
       return;
     }
     const node = game.sim.pickNode(state, p.x, p.y);
@@ -87,6 +103,7 @@ export function attachInput(canvas, game) {
     const state = game.state;
     if (state.ui.pointer) state.ui.pointer.inside = false;
     if (!state.ui.drag) state.ui.hoverTarget = null;
+    state.ui.trapPick = null;
   };
 
   const onContextMenu = (ev) => {

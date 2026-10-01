@@ -1,7 +1,7 @@
 // Hypha growth: validating drag paths, queueing hyphae, advancing tips, paying sugar as they go.
 import { resample } from '../core/geom.js';
 import { costAt } from '../world/query.js';
-import { B } from './balance.js';
+import { B, pressure } from './balance.js';
 import { addNode } from './network.js';
 
 /** Sugar already promised to hyphae that are still growing. */
@@ -22,17 +22,19 @@ export function estimateGrowth(state, fromId, points) {
   const none = { from: fromId, points: [], blocked: null, length: 0, cost: 0, affordable: false };
   if (!from || !from.alive) return none;
   const path = resample([{ x: from.x, y: from.y }, ...points], B.pathStep);
+  const hard = pressure(state).growCost;
   const reachable = [path[0]];
   const segCost = [];
   let blocked = null;
   let length = 0;
   let cost = 0;
   for (let i = 1; i < path.length; i++) {
-    const c = costAt(state.world, path[i].x, path[i].y);
-    if (!Number.isFinite(c)) {
+    const c0 = costAt(state.world, path[i].x, path[i].y);
+    if (!Number.isFinite(c0)) {
       blocked = path[i];
       break;
     }
+    const c = c0 * hard;
     const seg = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
     length += seg;
     cost += seg * c;

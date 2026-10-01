@@ -6,6 +6,7 @@ import { createState } from './state.js';
 import { createSimData, pathBetween } from './sim/network.js';
 import { restoreTime } from './sim/clock.js';
 import { rescanFinds } from './sim/finds.js';
+import { createObjectives } from './sim/objectives.js';
 
 export const SAVE_VERSION = 1;
 
@@ -117,6 +118,9 @@ export function encodeState(state) {
     clock: encodeValue(state.clock),
     weather: encodeValue(state.weather),
     objectives: state.objectives.filter((o) => o.done).map((o) => o.id),
+    chapter: state.chapter ?? 1, // the page the notebook is on (threats); `objectives` lists the done ones of that page
+    fauna: encodeValue(state.fauna ?? []),
+    traps: encodeValue(state.traps ?? []),
     net: encodeNet(state.net),
     trees: world.trees.map((t) => [t.stage, t.growth, t.health, t.linked ? 1 : 0]),
     water: world.water.map((d) => d.amount),
@@ -181,6 +185,10 @@ export function validatePayload(p) {
   check(p.flows.every((f) => Array.isArray(f) && isId(f[0], nodes) && isId(f[1], nodes) && FLOW_KINDS.includes(f[2]) && isNum(f[3])), 'flows');
   // `finds` is optional: saves from before the atlas have none (decodeState rebuilds them from the network)
   check(p.finds === undefined || (Array.isArray(p.finds) && p.finds.every((f) => Array.isArray(f) && Number.isInteger(f[0]) && f[0] >= 0 && typeof f[1] === 'string' && isNum(f[2]))), 'finds');
+  // `chapter`, `fauna` and `traps` are optional: saves from before the threats have none
+  check(p.chapter === undefined || (Number.isInteger(p.chapter) && p.chapter >= 1 && p.chapter <= 9), 'chapter');
+  check(p.fauna === undefined || (Array.isArray(p.fauna) && p.fauna.every((w) => isObj(w) && isNum(w.x) && isNum(w.y) && isNum(w.a))), 'fauna');
+  check(p.traps === undefined || (Array.isArray(p.traps) && p.traps.every((t) => isObj(t) && isId(t.nodeId, nodes) && isNum(t.x) && isNum(t.y))), 'traps');
   check(isObj(p.sim) && Number.isInteger(p.sim.rng) && isObj(p.sim.rest), 'sim');
   return p;
 }
@@ -278,8 +286,12 @@ export function decodeState(p) {
   assignPlain(state.flags, decodeValue(p.flags));
   if (p.clock !== undefined) state.clock = decodeValue(p.clock);
   if (p.weather !== undefined) state.weather = decodeValue(p.weather);
+  state.chapter = p.chapter ?? 1;
+  if (state.chapter !== 1) state.objectives = createObjectives(state.chapter, Boolean(state.flags.seasons));
   const done = new Set(p.objectives);
   for (const o of state.objectives) o.done = done.has(o.id);
+  state.fauna = decodeValue(p.fauna ?? []);
+  state.traps = decodeValue(p.traps ?? []);
 
   net.originId = p.net.originId;
   net.version = p.net.version;
