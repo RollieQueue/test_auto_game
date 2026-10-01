@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>decor gallery</title>
+    <style>
+      html, body { margin: 0; background: #1c1612; color: #d8c8a8; font: 12px sans-serif; }
+      h3 { margin: 10px 12px 4px; font-weight: normal; }
+      #big, #real, #game { display: flex; flex-wrap: wrap; gap: 0; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <h3>x4 on a soil swatch (not part of the game)</h3>
+    <div id="big"></div>
+    <h3>actual size: scale 1, device pixel ratio 2</h3>
+    <div id="real"></div>
+    <h3>game-like: view scale 0.8333, dpr 1 (CSS px = world * 0.8333)</h3>
+    <div id="game"></div>
+    <script type="module" src="gallery-decor.js"></script>
+  </body>
+</html>

@@ -1,28 +1,35 @@
 // Procedural audio (WebAudio only, no samples). API: createAudio() -> { unlock(), update(state, dt), setMuted(bool), muted }.
+// createAudio({ context }) takes a ready (Offline)AudioContext instead of making its own (tests, src/audio/lab.html).
 //
 // Sound design (see docs/GDD.md "Звук"):
 //   ambience   filtered-noise wind + a faint high "air", a low warm drone (C2/G2/C3) that brightens with activity
 //   music      sparse kalimba-like notes on a C major pentatonic; their density follows network activity
 //   events     grow crackle, link bells (a pitch per resource), warm chord for tree growth, wooden pop for
 //              mushrooms, sparkly spore shimmer, dull thud on "not enough sugar"
+//   S2 layers  (only when state.clock exists and state.flags.seasons is on; otherwise exactly the above)
+//              day/night by clock.daylight: distant birds by day, crickets at night, a darker drone;
+//              weather: rain, drought (dry thin air, cicadas), snow/winter (muffled ambience, cold wind);
+//              seasons: kalimba scale, register and density per season; cues on dawn/dusk/season/year-end
+//              (see scales.js for the numbers, scape.js for the layers, cues.js for the cues)
 // Everything goes through one master gain and a gentle compressor; nothing starts before unlock().
+
+import { PALETTES, buildLadder, computeMix, readWorld, NO_LAYERS, muffleHz } from './scales.js';
+import { createScape, BASE } from './scape.js';
+import { createCues } from './cues.js';
 
 const STORE_KEY = 'roots-threads.muted';
 const MASTER_LEVEL = 0.9;
 const MAX_VOICES = 36;
-const PENT = [0, 2, 4, 7, 9];
+const AMBIENT_RESERVE = 8; // ambient one-shots (birds, drops) leave this many voices to event sounds
+const SCAPE_LEVEL = 1; // gain of the S2 layer bus relative to the phase fade (the base ambience uses 0.32)
+const MIX_STEP = 0.1; // seconds between pushes of the smoothed mix into the graph
+const MIX_TAU = 1.8; // seconds: crossfade time of the day/night and weather layers
 
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
-/** Note ladder of the major pentatonic starting at C4 (MIDI 60), `n` steps. */
-function ladder(n) {
-  const out = [];
-  for (let i = 0; i < n; i++) out.push(60 + Math.floor(i / 5) * 12 + PENT[i % 5]);
-  return out;
-}
-const LADDER = ladder(12); // C4 .. D6
+const LADDER = buildLadder(PALETTES.default); // C4 .. D6, the major pentatonic
 
 function readMuted() {
   try {
@@ -40,7 +47,7 @@ function writeMuted(value) {
   }
 }
 
-export function createAudio() {
+export function createAudio(options = {}) {
   let muted = readMuted();
   let ctx = null;
   let g = null; // graph nodes
@@ -50,6 +57,17 @@ export function createAudio() {
   let activity = 0;
   let noteTimer = 3;
   let ladderIdx = 4;
+  let ladder = LADDER; // note ladder of the current season palette
+  let pal = PALETTES.default;
+  let scape = null;
+  let cues = null;
+  let target = { ...NO_LAYERS }; // mix the sim asks for
+  const cur = { ...NO_LAYERS }; // the same, smoothed in JS
+  let mixTimer = 0;
+  let mixReady = false;
+  let seasonsOn = false; // the sim provides a clock and the seasons flag is on
+  let peakVoices = 0;
+  const queue = []; // { at, fn }: sounds a few seconds ahead, counted down by update()
   const lastPlayed = Object.create(null);
   const counts = Object.create(null);
 
@@ -99,9 +117,9 @@ export function createAudio() {
   }
 
   function build() {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return false;
-    ctx = new AC({ latencyHint: 'playback' });
+    const AC = options.context ? null : window.AudioContext || window.webkitAudioContext;
+    if (!AC && !options.context) return false;
+    ctx = options.context || new AC({ latencyHint: 'playback' });
 
     const master = ctx.createGain();
     master.gain.value = muted ? 0 : MASTER_LEVEL;
@@ -124,9 +142,20 @@ export function createAudio() {
     reverb.connect(reverbOut);
     reverbOut.connect(master);
 
+    // base ambience -> low-pass (opens fully unless it is winter/snow) -> master
+    const muffle = ctx.createBiquadFilter();
+    muffle.type = 'lowpass';
+    muffle.frequency.value = 20000;
+    muffle.Q.value = 0.5;
+    muffle.connect(master);
     const amb = ctx.createGain();
     amb.gain.value = 0;
-    amb.connect(master);
+    amb.connect(muffle);
+
+    // S2 layers (crickets, birds, rain, ...): phase-faded like amb, not muffled
+    const scapeBus = ctx.createGain();
+    scapeBus.gain.value = 0;
+    scapeBus.connect(master);
 
     const music = ctx.createGain();
     music.gain.value = 0.9;
@@ -149,10 +178,10 @@ export function createAudio() {
     wind.loop = true;
     const windBp = ctx.createBiquadFilter();
     windBp.type = 'bandpass';
-    windBp.frequency.value = 420;
-    windBp.Q.value = 0.6;
+    windBp.frequency.value = BASE.windHz;
+    windBp.Q.value = BASE.windQ;
     const windGain = ctx.createGain();
-    windGain.gain.value = 0.55;
+    windGain.gain.value = BASE.windGain;
     wind.connect(windBp);
     windBp.connect(windGain);
     windGain.connect(amb);
@@ -180,7 +209,7 @@ export function createAudio() {
     airLp.type = 'lowpass';
     airLp.frequency.value = 7600;
     const airGain = ctx.createGain();
-    airGain.gain.value = 0.045;
+    airGain.gain.value = BASE.airGain;
     air.connect(airHp);
     airHp.connect(airLp);
     airLp.connect(airGain);
@@ -221,16 +250,30 @@ export function createAudio() {
     g = {
       master,
       amb,
+      scapeBus,
       music,
       fx,
       droneLp,
     };
+    scape = createScape({
+      ctx,
+      out: scapeBus,
+      send: reverbIn,
+      muffle,
+      wind: { bp: windBp, gain: windGain },
+      air: { gain: airGain },
+      noiseBuffer,
+      tone,
+      room: (n) => voices + n <= MAX_VOICES - AMBIENT_RESERVE,
+    });
+    cues = createCues({ tone, pluck, bell, throttled, later, fx: () => g.fx });
     return true;
   }
 
   // ------------------------------------------------------------ voices
   function track(node, extraStop) {
     voices++;
+    if (voices > peakVoices) peakVoices = voices;
     node.onended = () => {
       voices--;
       if (extraStop) extraStop();
@@ -297,27 +340,48 @@ export function createAudio() {
     track(src);
   }
 
-  /** Kalimba-like pluck: fundamental + a short bright partial. */
-  function pluck(midi, t, gain = 0.1, bus) {
+  /** Kalimba-like pluck: fundamental + a short bright partial. `style` is a season palette (bright, decay, lowpass). */
+  function pluck(midi, t, gain = 0.1, bus, style = PALETTES.default) {
     const f = mtof(midi);
     const pan = rand(-0.4, 0.4);
-    tone(f, t, { gain, decay: 1.7 + (84 - midi) * 0.02, attack: 0.003, bus: bus || g.music, pan });
-    tone(f * 4.02, t, { gain: gain * 0.2, decay: 0.12, attack: 0.002, bus: bus || g.music, pan });
-    tone(f * 9.1, t, { gain: gain * 0.05, decay: 0.05, attack: 0.001, bus: bus || g.music, pan });
+    const lowpass = style.lowpass || undefined;
+    const b = bus || g.music;
+    tone(f, t, { gain, decay: (1.7 + (84 - midi) * 0.02) * style.decay, attack: 0.003, bus: b, pan, lowpass });
+    tone(f * 4.02, t, { gain: gain * 0.2 * style.bright, decay: 0.12, attack: 0.002, bus: b, pan, lowpass });
+    tone(f * 9.1, t, { gain: gain * 0.05 * style.bright, decay: 0.05, attack: 0.001, bus: b, pan, lowpass });
   }
 
   /** Small metallic bell: inharmonic partials with a long soft tail. */
-  function bell(midi, t, gain = 0.1, decay = 1.9) {
+  function bell(midi, t, gain = 0.1, decay = 1.9, bus) {
     const f = mtof(midi);
-    tone(f, t, { gain, decay, attack: 0.004 });
-    tone(f * 2.76, t, { gain: gain * 0.32, decay: decay * 0.5, attack: 0.003 });
-    tone(f * 5.4, t, { gain: gain * 0.1, decay: decay * 0.22, attack: 0.002 });
+    tone(f, t, { gain, decay, attack: 0.004, bus });
+    tone(f * 2.76, t, { gain: gain * 0.32, decay: decay * 0.5, attack: 0.003, bus });
+    tone(f * 5.4, t, { gain: gain * 0.1, decay: decay * 0.22, attack: 0.002, bus });
+  }
+
+  /** Run `fn(t)` `delay` seconds from now (counted down by update(); at most 16 pending). */
+  function later(delay, fn) {
+    if (queue.length < 16) queue.push({ at: delay, fn });
+  }
+  function runQueue(dt) {
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const q = queue[i];
+      q.at -= dt;
+      if (q.at <= 0.05) {
+        queue.splice(i, 1);
+        try {
+          q.fn(ctx.currentTime + Math.max(0, q.at) + 0.02);
+        } catch (err) {
+          if (typeof console !== 'undefined') console.warn('[audio] queued', err);
+        }
+      }
+    }
   }
 
   // ------------------------------------------------------------ event sounds
   const throttled = (key, gap) => {
     const now = ctx.currentTime;
-    if (now - (lastPlayed[key] || -9) < gap) return true;
+    if (now - (lastPlayed[key] ?? -Infinity) < gap) return true;
     lastPlayed[key] = now;
     return false;
   };
@@ -399,6 +463,11 @@ export function createAudio() {
     'all-objectives'(t) {
       [72, 76, 79, 84, 88].forEach((m, i) => bell(m, t + i * 0.16, 0.08, 2.6));
     },
+    // S2: cues live in cues.js; ignored while the seasons are off
+    dawn: (t, ev) => seasonsOn && cues.dawn(t, ev),
+    dusk: (t, ev) => seasonsOn && cues.dusk(t, ev),
+    season: (t, ev) => seasonsOn && cues.season(t, ev),
+    'year-end': (t, ev) => seasonsOn && cues['year-end'](t, ev),
   };
 
   function handleEvents(state) {
@@ -426,18 +495,33 @@ export function createAudio() {
     return clamp(Math.min(1, flows / 14) * 0.7 + Math.min(1, growing / 2) * 0.55, 0, 1);
   }
 
+  function setPalette(key) {
+    const next = PALETTES[key] || PALETTES.default;
+    if (next === pal) return;
+    const nl = buildLadder(next);
+    ladderIdx = Math.round((ladderIdx / Math.max(1, ladder.length - 1)) * (nl.length - 1)); // keep the relative register
+    pal = next;
+    ladder = nl;
+  }
+
   function stepMusic(dt) {
     noteTimer -= dt;
     if (noteTimer > 0) return;
-    const gap = (8.5 - 6.7 * activity) * rand(0.6, 1.4);
+    const gap = ((8.5 - 6.7 * activity) * rand(0.6, 1.4)) / target.noteDensity;
     noteTimer = gap;
-    ladderIdx = clamp(ladderIdx + Math.round(rand(-2.4, 2.4)), 0, LADDER.length - 1);
+    ladderIdx = clamp(ladderIdx + Math.round(rand(-2.4, 2.4)), 0, ladder.length - 1);
     const t = ctx.currentTime + 0.02;
-    const level = 0.07 + 0.03 * activity;
-    pluck(LADDER[ladderIdx], t, level);
+    const level = (0.07 + 0.03 * activity) * pal.level;
+    const note = (idx, at, gain) => {
+      if (pal.bellProb && Math.random() < pal.bellProb) bell(ladder[idx], at, gain * 0.7, 2.2 * pal.decay, g.music);
+      else pluck(ladder[idx], at, gain, undefined, pal);
+    };
+    note(ladderIdx, t, level);
     if (activity > 0.35 && Math.random() < activity * 0.6) {
-      const second = clamp(ladderIdx + (Math.random() < 0.5 ? 2 : -2), 0, LADDER.length - 1);
-      pluck(LADDER[second], t + rand(0.18, 0.4), level * 0.7);
+      const second = clamp(ladderIdx + (Math.random() < 0.5 ? 2 : -2), 0, ladder.length - 1);
+      note(second, t + rand(0.18, 0.4), level * 0.7);
+    } else if (pal.sigh && Math.random() < pal.sigh) {
+      note(clamp(ladderIdx - 1, 0, ladder.length - 1), t + rand(0.55, 0.9), level * 0.6); // a falling answer
     }
   }
 
@@ -447,6 +531,24 @@ export function createAudio() {
     if (!ctx && wantUnlock) api.unlock();
     else if (ctx && ctx.state === 'suspended' && !muted && !document.hidden) ctx.resume();
   };
+  const running = () => ctx.state === 'running' || Boolean(options.context); // an injected offline context only runs while rendering
+
+  const MIX_KEYS = Object.keys(NO_LAYERS).filter((k) => typeof NO_LAYERS[k] === 'number');
+  /** Follow the sim's clock and weather: target mix, note palette, smoothed layer levels. */
+  function followWorld(state, dt, now) {
+    const world = readWorld(state);
+    seasonsOn = world.active;
+    target = computeMix(world);
+    setPalette(target.season);
+    const k = mixReady ? 1 - Math.exp(-dt / MIX_TAU) : 1; // the first look snaps (a save loaded at night starts at night)
+    mixReady = true;
+    for (const key of MIX_KEYS) cur[key] += (target[key] - cur[key]) * k;
+    mixTimer -= dt;
+    if (mixTimer <= 0) {
+      mixTimer = MIX_STEP;
+      scape.apply(cur, now);
+    }
+  }
 
   function applyMute(now) {
     if (!ctx) return;
@@ -467,6 +569,10 @@ export function createAudio() {
     unlock() {
       wantUnlock = true;
       try {
+        if (!ctx && options.context) {
+          build();
+          return;
+        }
         if (!ctx) {
           const active = !navigator.userActivation || navigator.userActivation.hasBeenActive;
           if (!active) {
@@ -490,19 +596,23 @@ export function createAudio() {
     },
 
     update(state, dt) {
-      if (!ctx || muted || ctx.state !== 'running') return;
+      if (!ctx || muted || !running()) return;
       const now = ctx.currentTime;
-      const target = state.phase === 'playing' ? 1 : state.phase === 'paused' ? 0.08 : 0.35;
-      if (target !== ambTarget) {
-        ambTarget = target;
+      const phaseGain = state.phase === 'playing' ? 1 : state.phase === 'paused' ? 0.08 : 0.35;
+      if (phaseGain !== ambTarget) {
+        ambTarget = phaseGain;
         g.amb.gain.cancelScheduledValues(now);
-        g.amb.gain.setTargetAtTime(target * 0.32, now, 0.5);
+        g.amb.gain.setTargetAtTime(phaseGain * 0.32, now, 0.5);
+        g.scapeBus.gain.setTargetAtTime(phaseGain * SCAPE_LEVEL, now, 0.5);
       }
+      followWorld(state, dt, now);
       handleEvents(state); // events live one frame; one that pauses the game (summary) must still sound
+      runQueue(dt);
       if (state.phase === 'playing') {
         activity += (activityOf(state) - activity) * Math.min(1, dt * 0.7);
-        g.droneLp.frequency.setTargetAtTime(240 + activity * 260, now, 0.6);
+        g.droneLp.frequency.setTargetAtTime((240 + activity * 260) * (1 - 0.32 * cur.droneDark), now, 0.6);
         stepMusic(dt);
+        scape.step(dt, cur);
       }
     },
 
@@ -523,7 +633,16 @@ export function createAudio() {
         state: ctx ? ctx.state : 'none',
         voices,
         activity,
+        peakVoices,
+        maxVoices: MAX_VOICES,
         counts: { ...counts },
+        mix: { ...cur },
+        target: { ...target },
+        palette: Object.keys(PALETTES).find((k) => PALETTES[k] === pal),
+        seasonsOn,
+        queued: queue.length,
+        scape: scape ? scape.debug : null,
+        master: g ? g.master : null,
       };
     },
   };

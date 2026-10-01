@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Звуковая лаборатория</title>
+<style>
+  body { font: 15px/1.4 Georgia, serif; background: #efe4cc; color: #3a2a1e; margin: 2rem; max-width: 46rem; }
+  label { display: inline-block; margin: 0 1rem .5rem 0; }
+  button { font: inherit; padding: .2rem .8rem; margin-right: .5rem; }
+  pre { background: #fff6dc; padding: .8rem; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>Звуковая лаборатория</h1>
+<p>Живое прослушивание сезонных слоёв (нужен клик) и офлайн-замер уровней. Консоль: <code>await labRender({...})</code>, <code>await labReport()</code>.</p>
+<p>
+  <label>сезон <select id="season"><option>spring</option><option>summer</option><option>autumn</option><option>winter</option></select></label>
+  <label>погода <select id="weather"><option>clear</option><option>rain</option><option>drought</option><option>snow</option></select></label>
+  <label>интенсивность <input id="intensity" type="range" min="0" max="1" step="0.05" value="0.7"></label>
+  <label>свет <input id="daylight" type="range" min="0" max="1" step="0.01" value="0.9"></label>
+</p>
+<p>
+  <button id="play">Играть</button><button id="stop">Стоп</button>
+  <button data-ev="dawn">dawn</button><button data-ev="dusk">dusk</button><button data-ev="season">season</button><button data-ev="year-end">year-end</button>
+</p>
+<pre id="out"></pre>
+<script type="module" src="./lab.js"></script>
+</body>
+</html>

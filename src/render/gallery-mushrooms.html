@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>mushrooms gallery</title>
+    <style>
+      html, body { margin: 0; background: #2a211a; color: #d8c9a8; font: 13px Georgia, serif; }
+      h2 { margin: 10px 14px 4px; font-weight: normal; }
+      canvas { display: block; margin: 0 0 8px 0; }
+      #bar { padding: 6px 14px; }
+      button { font: inherit; margin-right: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <button id="puff">spores (all)</button>
+      <button id="regrow">regrow</button>
+      <span id="info"></span>
+    </div>
+    <h2>sheet x3: variants 0-3 at growth 0 .15 .3 .5 .7 .85 1</h2>
+    <canvas id="sheet"></canvas>
+    <h2>game scale</h2>
+    <canvas id="game"></canvas>
+    <h2>animated: growth + spores</h2>
+    <canvas id="anim"></canvas>
+    <script type="module" src="gallery-mushrooms.js"></script>
+  </body>
+</html>
