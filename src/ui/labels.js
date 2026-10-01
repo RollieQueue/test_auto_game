@@ -4,6 +4,7 @@ import { icons } from './icons.js';
 import { findNames } from './atlas-logic.js';
 import { THREAT_LOCAL, cutCause, threatLabel } from './threats.js';
 import { LABEL_LIFE, placeLabelY } from './labels-logic.js';
+import { RIVAL_EVENTS, RIVAL_LOCAL, createRivalTexts } from './rival.js';
 
 const LIFE = LABEL_LIFE; // s
 const MAX_LABELS = 12;
@@ -17,7 +18,7 @@ const find = (list, id) => (list ? list.find((item) => item.id === id) : undefin
 export const PARTIAL_TEXT = 'Сахара хватило на часть пути';
 
 /** Events a label is made for (notes.js skips the same ones when labels are available). */
-export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature', 'find', ...THREAT_LOCAL]);
+export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature', 'find', ...THREAT_LOCAL, ...RIVAL_LOCAL]);
 
 /** Maps an event to { key, text, tone, icon } or null. `sugarDenied` is true when this frame has a fruit-denied for sugar; `cause`: see cutCause. */
 export function describeLabel(state, ev, sugarDenied, cause = 'worm') {
@@ -73,6 +74,7 @@ export function createLabels(host, avoid = () => []) {
   let labels = [];
   let clock = 0; // s of real time, for throttling
   let lastBite = -Infinity;
+  const rival = createRivalTexts(); // the honey-fungus labels, rate-limited
 
   function remove(l) {
     l.el.remove();
@@ -124,6 +126,7 @@ export function createLabels(host, avoid = () => []) {
       labels = [];
       clock = 0;
       lastBite = -Infinity;
+      rival.reset();
     },
     /** Reads this frame's events; returns true when `view` was usable (so the note stack can skip them). */
     process(state, view) {
@@ -141,7 +144,7 @@ export function createLabels(host, avoid = () => []) {
           if (clock - lastBite < BITE_GAP) continue;
           lastBite = clock;
         }
-        const d = describeLabel(state, ev, sugarDenied, cause);
+        const d = RIVAL_EVENTS.has(ev.type) ? rival.label(state, ev) : describeLabel(state, ev, sugarDenied, cause);
         if (d) spawn(d, ev.x * view.scale + view.ox, ev.y * view.scale + view.oy - 8, view);
       }
       return true;

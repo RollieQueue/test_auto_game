@@ -6,6 +6,7 @@ import { LOCAL_EVENTS } from './labels.js';
 import { findNames } from './atlas-logic.js';
 import { THREAT_BOTH, cutCause, threatNote } from './threats.js';
 import { PARTIAL_TEXT } from './labels.js';
+import { RIVAL_BOTH, RIVAL_EVENTS, createRivalTexts } from './rival.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 
 const MAX_NOTES = 4;
@@ -95,6 +96,7 @@ export function createNotes(host) {
   /** @type {Map<string, {el: HTMLElement, cnt: HTMLElement, text: string, life: number, span: number, fade: number, count: number}>} */
   const active = new Map();
   let prevWeather = 'clear'; // the weather before the latest 'weather' event (the «кончился» notes name it)
+  const rival = createRivalTexts(); // the honey-fungus notes, rate-limited
 
   function remove(key) {
     const n = active.get(key);
@@ -155,15 +157,16 @@ export function createNotes(host) {
       host.textContent = '';
       active.clear();
       prevWeather = (state && state.weather && state.weather.kind) || 'clear';
+      rival.reset();
     },
     /** `skipLocal`: events with a place on the map get floating labels instead (labels.js). */
     process(state, skipLocal = false) {
       const events = state.events;
       const cause = cutCause(events);
       for (let i = 0; i < events.length; i++) {
-        if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find' && !THREAT_BOTH.has(events[i].type)) continue;
+        if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find' && !THREAT_BOTH.has(events[i].type) && !RIVAL_BOTH.has(events[i].type)) continue;
         const ev = events[i];
-        const d = describeNote(state, ev, prevWeather, cause);
+        const d = RIVAL_EVENTS.has(ev.type) ? rival.note(state, ev) : describeNote(state, ev, prevWeather, cause);
         if (ev.type === 'weather') prevWeather = ev.kind;
         if (d) push(d);
       }

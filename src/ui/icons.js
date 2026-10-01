@@ -71,6 +71,24 @@ export const icons = {
     `<circle cx="2.6" cy="13.4" r="1.3" fill="#fff6dc"/><circle cx="21.4" cy="11.2" r="1.3" fill="#fff6dc"/>` +
     `<path d="M9.4 4.8 L14.8 19.6 M14.6 4.8 L9.2 19.6" stroke="#a8322d" stroke-width="1.9"/>` +
     close,
+  // ---- the honey-fungus rival (S3b): a barrier round a hypha with a black rhizomorph stopped at its edge, and a honey-mushroom tuft ----
+  barrier:
+    open('ico-barrier') +
+    `<circle cx="13.4" cy="12.4" r="7.6" fill="#8fb55a" fill-opacity=".34" stroke-dasharray="2.6 2.2" stroke-width="1.3"/>` +
+    `<path d="M2.4 19 C6.8 19 8.6 14 12.6 13 S18.2 8.6 21.6 7.6" stroke-width="1.5"/>` +
+    `<circle cx="2.4" cy="19" r="1.3" fill="#fff6dc"/><circle cx="21.6" cy="7.6" r="1.3" fill="#fff6dc"/><circle cx="12.6" cy="13" r="1.2" fill="#fff6dc"/>` +
+    `<path d="M1.8 5.4 C4.6 5 6.2 7.4 8 7.4" stroke="#2b1b14" stroke-width="2.7"/>` +
+    `<path d="M8.4 4.6 L10.6 9.8 M10.8 4.6 L8.2 9.8" stroke="#a8322d" stroke-width="1.5"/>` +
+    close,
+  honey:
+    open('ico-honey') +
+    `<path d="M3.4 20.8 C5 19.4 8 19.6 11 20.8 M13.4 20.8 C15.6 19.6 18.6 19.6 20.8 20.8" stroke="#2b1b14" stroke-width="1.9"/>` +
+    `<path d="M10.6 12.6 C10.4 15.4 10 18 9 20.4 L14.6 20.4 C13.8 18 13.6 15.4 13.4 12.6" fill="#e6cf9c" fill-opacity=".92"/>` +
+    `<path d="M10.7 15.4 C11.6 16.2 12.6 16.2 13.5 15.4" stroke-width="1"/>` +
+    `<path d="M5.6 12.8 C5.4 8 8.4 5 12 5 C15.6 5 18.6 8 18.4 12.8 C15 14 9 14 5.6 12.8 Z" fill="#c9962e" fill-opacity=".72"/>` +
+    `<path d="M9 8.6 L9.4 9.4 M13 7.4 L13.4 8.2 M15.6 10.4 L16 11.2 M11.6 10.6 L12 11.4" stroke="#6b4310" stroke-width="1.2"/>` +
+    `<path d="M2.6 15 C2.4 12.6 3.6 11.2 5 11 C5.8 12 5.8 14 5.4 15.4 Z" fill="#c9962e" fill-opacity=".6"/>` +
+    close,
   // ---- seasons and weather (S2): the same ink and watercolor, for notes and the calendar ----
   sun:
     open('ico-sun') +

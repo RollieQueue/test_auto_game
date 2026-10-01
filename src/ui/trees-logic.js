@@ -2,6 +2,7 @@
 // and the tooltip of a tree. Pure, no DOM. A tree grows only while it is linked and content (sim/economy.js).
 import * as balance from '../sim/balance.js';
 import { STAGE_WORDS } from './season-logic.js';
+import { treeRisk } from './rival.js';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 export const pctText = (v) => `${Math.round(clamp01(v) * 100)} %`;
@@ -44,12 +45,28 @@ export function objectiveProgress(state, o) {
 /** The text of an objective line with its progress. */
 export const objectiveText = (state, o) => `${o.text}${objectiveProgress(state, o)}`;
 
-/** Tooltip lines of a tree: { main, sub }. */
+/** Infection share from which the tree's name turns warn-red in the tooltip. */
+const INFECTION_WARN = 0.5;
+
+/**
+ * Tooltip lines of a tree: { main, sub, sub2?, warn? }. With the honey-fungus rival: `sub2` says «заражение N % · защита N %»
+ * while either is above zero, and a lost tree is told to have been killed by the fungus and to stand as a snag.
+ */
 export function describeTree(tree) {
+  if (tree.lost) {
+    return { main: `${tree.name} · сухостой`, sub: 'дерево погубил опёнок · стоит сухостоем', warn: true };
+  }
   const stage = STAGE_WORDS[tree.stage] || '';
   const health = pctText(tree.health);
   const main = `${tree.name} · ${stage} · довольство ${health}`;
-  if (!tree.linked) return { main, sub: 'нить сюда ещё не дошла' };
-  if (!canGrow(tree)) return { main, sub: 'союз заключён · выше уже не вырастет' };
-  return { main, sub: `союз заключён · рост ${pctText(tree.growth)}` };
+  const out = { main, sub: '' };
+  if (!tree.linked) out.sub = 'нить сюда ещё не дошла';
+  else if (!canGrow(tree)) out.sub = 'союз заключён · выше уже не вырастет';
+  else out.sub = `союз заключён · рост ${pctText(tree.growth)}`;
+  const risk = treeRisk(tree);
+  if (risk) {
+    out.sub2 = risk.text;
+    if (risk.infection >= INFECTION_WARN) out.warn = true;
+  }
+  return out;
 }

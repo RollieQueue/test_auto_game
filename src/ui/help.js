@@ -4,6 +4,7 @@ import { icons, flourish } from './icons.js';
 import * as balance from '../sim/balance.js';
 import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
 import { chapterTotal, fruitCostOf, threatsOn, trapCost } from './threats.js';
+import { barrierCostOf, rivalNumbers } from './rival.js';
 
 const FALLBACK_HORIZONS = [
   { name: 'Лесная подстилка', depth: 0, cost: 0.1 },
@@ -60,6 +61,25 @@ function threatsSection(state) {
         </section>`;
 }
 
+const rivalFlag = (state) => threatsOn(state) && Boolean(state.flags.rival);
+
+/** «Опёнок»: shown only when the honey-fungus rival is on (its numbers come from balance.js). */
+export function rivalSection(state, B = balance.B) {
+  if (!rivalFlag(state)) return '';
+  const n = rivalNumbers(B);
+  const cost = barrierCostOf(state, B);
+  return `
+        <section>
+          <h3>Опёнок</h3>
+          <p>Осенний опёнок (<i>Armillaria</i>) пускает из старого пня чёрные блестящие шнуры — ризоморфы. Они гноят корни,
+          а у погибшего дерева осенью высыпают медовые опята.</p>
+          <p>Дерево защищает микориза: мантия из твоих нитей на кончиках корней. Чем лучше кормишь дерево, тем она крепче:
+          до ${n.protect} % заражения. Толстые нити ризоморфы не пробивают.</p>
+          <p>Шнур вцепился? Нажми <kbd>4</kbd> и щёлкни по нити рядом: на ${n.radius} ед. вокруг шнуры растворятся.
+          Барьер: ${cost} сахара, держится около ${n.seconds} с, не больше ${n.max} сразу.</p>
+        </section>`;
+}
+
 const KEYS = [
   ['1', '2', 'нить / гриб'],
   ['Пробел', '', 'пауза'],
@@ -81,8 +101,9 @@ export function buildHelp(state) {
   const speed = Math.round(B.growSpeed ?? 140);
   const threats = threatsOn(state);
   const keys = KEYS.map(([a, b, text]) => {
-    const toolKeys = a === '1' && threats; // «1 2 3 нить / гриб / кольцо»
-    return `<li><span class="kk"><kbd>${a}</kbd>${b ? ` <kbd>${b}</kbd>` : ''}${toolKeys ? ' <kbd>3</kbd>' : ''}</span><span>${toolKeys ? 'нить / гриб / кольцо' : text}</span></li>`;
+    const toolKeys = a === '1' && threats; // «1 2 3 нить / гриб / кольцо», «1 2 3 4 …/ барьер» with the rival
+    const four = toolKeys && rivalFlag(state);
+    return `<li><span class="kk"><kbd>${a}</kbd>${b ? ` <kbd>${b}</kbd>` : ''}${toolKeys ? ' <kbd>3</kbd>' : ''}${four ? ' <kbd>4</kbd>' : ''}</span><span>${toolKeys ? (four ? 'нить / гриб / кольцо / барьер' : 'нить / гриб / кольцо') : text}</span></li>`;
   }).join('');
 
   return `
@@ -112,6 +133,7 @@ export function buildHelp(state) {
           <ul class="help-hz">${horizonRows(state && state.world)}</ul>
         </section>
 ${threatsSection(state)}
+${rivalSection(state)}
       </div>
       <div class="help-col">
         <section>

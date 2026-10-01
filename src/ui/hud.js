@@ -17,6 +17,7 @@ import { seasonNote } from './season-logic.js';
 import { buildYearPage } from './year.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
 import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
+import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
 import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
@@ -84,6 +85,7 @@ export function createHud(root, actions) {
         <button class="tool" data-tool="grow" type="button" role="tab">${icons.thread}<span>Нить</span><kbd>1</kbd></button>
         <button class="tool" data-tool="fruit" type="button" role="tab">${icons.mushroom}<span>Гриб</span><kbd>2</kbd></button>
         <button class="tool" data-tool="trap" type="button" role="tab" hidden>${icons.ring}<span>Кольцо</span><kbd>3</kbd></button>
+        <button class="tool" data-tool="barrier" type="button" role="tab" hidden>${icons.barrier}<span>Барьер</span><kbd>4</kbd></button>
       </div>
 
       <div class="stamps">
@@ -174,6 +176,7 @@ export function createHud(root, actions) {
           <li><span class="k">Время наблюдений</span><span class="v" data-s="time"></span></li>
           <li class="threat-stat" hidden><span class="k">Поймано нематод</span><span class="v" data-s="caught"></span></li>
           <li class="threat-stat" hidden><span class="k">Отмерло узлов</span><span class="v" data-s="lost"></span></li>
+          <li class="rival-stat" hidden><span class="k">Опёнок</span><span class="v" data-s="rival"></span></li>
         </ul>
         <div class="actions">
           <button class="ink-btn" data-act="continue" data-sum="button" type="button">Продолжить наблюдения</button>
@@ -192,6 +195,7 @@ export function createHud(root, actions) {
     objCard: q('.obj-card'),
     objTitle: q('[data-k="obj-title"]'),
     trapTab: q('.tool[data-tool="trap"]'),
+    barrierTab: q('.tool[data-tool="barrier"]'),
     kbd3: q('.hint .k3'),
     objCount: q('.obj-count'),
     objCur: q('.obj-cur'),
@@ -239,6 +243,7 @@ export function createHud(root, actions) {
     time: stat('time'),
     caught: stat('caught'),
     lost: stat('lost'),
+    rival: stat('rival'),
   };
   const sumEls = {
     seal: q('[data-sum="seal"]'),
@@ -349,6 +354,7 @@ export function createHud(root, actions) {
   let muteDoneFlag = false; // a new page turned while allObjectivesDone was still set: ignore it until it drops
   let caught = 0; // worms caught and nodes lost in this game (the summary page tells them)
   let lostNodes = 0;
+  let freedTrees = 0; // trees the honey fungus let go of in this game (the summary and year pages tell them)
   let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
   let objHold = 0; // s the card stays open after the pointer left it
   let seasonIntro = false; // the first season's note was shown for this game
@@ -381,6 +387,7 @@ export function createHud(root, actions) {
     muteDoneFlag = false;
     caught = 0;
     lostNodes = 0;
+    freedTrees = 0;
     objReveal = state.time < 2 ? OBJ_REVEAL_START : 0;
     objHold = 0;
     seasonIntro = false;
@@ -425,6 +432,8 @@ export function createHud(root, actions) {
     statEls.lost.parentElement.hidden = !(threatsOn(state) && lostNodes > 0);
     statEls.caught.textContent = nf.format(caught);
     statEls.lost.textContent = nf.format(lostNodes);
+    statEls.rival.parentElement.hidden = !rivalOn(state);
+    statEls.rival.textContent = rivalSummaryLine(rivalStats(state, freedTrees));
     statEls.spores.textContent = nf.format(Math.floor(state.res.spores));
     statEls.length.textContent = `${nf.format(Math.round(state.stats.hyphaeLength))} ед.`;
     statEls.depth.textContent = `${nf.format(Math.round(state.stats.maxDepth))} ед.`;
@@ -439,7 +448,7 @@ export function createHud(root, actions) {
 
   function openYear(state, year) {
     yearOpen = true;
-    el.yearPage.innerHTML = buildYearPage(state, year);
+    el.yearPage.innerHTML = buildYearPage(state, year, { freed: freedTrees });
     setScreen(el.year, true);
     if (state.phase === 'playing') {
       pausedByYear = true; // the game waits while the page is open; «Продолжить» resumes it
@@ -544,8 +553,11 @@ export function createHud(root, actions) {
         return atlasOpen ? void closeAtlas() : openAtlas();
       case 'atlas-close':
         return void closeAtlas();
-      case 'guide-toggle':
-        return setGuideEnabled(!guideEnabled());
+      case 'guide-toggle': {
+        const next = !guideEnabled();
+        if (!next) markRivalHint(); // hints turned off by hand: no arrow at the honey fungus either
+        return setGuideEnabled(next);
+      }
       case 'resume':
       case 'pause':
         return actions.togglePause();
@@ -619,6 +631,10 @@ export function createHud(root, actions) {
       case 'Numpad3':
         if (phase !== 'title' && threatsOn(cur)) actions.setTool('trap');
         break;
+      case 'Digit4':
+      case 'Numpad4':
+        if (phase !== 'title' && barrierTabShown(cur)) actions.setTool('barrier');
+        break;
       case 'Space':
         if (ev.repeat) break;
         if (phase === 'title') startPrimary();
@@ -650,7 +666,7 @@ export function createHud(root, actions) {
         if (cur.ui.drag) actions.cancelDrag();
         else if (summaryOpen) dismissSummary();
         else if (yearOpen) dismissYear();
-        else if (cur.ui.tool === 'trap') actions.setTool('grow'); // the ring tool lets go first, a second Esc pauses
+        else if (cur.ui.tool === 'trap' || cur.ui.tool === 'barrier') actions.setTool('grow'); // the ring and barrier tools let go first, a second Esc pauses
         else if (phase === 'paused' || phase === 'playing') actions.togglePause();
         else handled = false;
         break;
@@ -892,6 +908,27 @@ export function createHud(root, actions) {
     el.trapTab.title = trapTabTitle(trapCost(balance.B));
   }
 
+  /** The barrier tab and key 4 exist once the honey fungus is awake; its title carries the price now (it can grow with the barriers standing). */
+  function updateBarrierTab(state) {
+    const on = barrierTabShown(state);
+    if (shown.barrier !== on) {
+      shown.barrier = on;
+      el.barrierTab.hidden = !on;
+    }
+    if (!on) return;
+    const title = barrierTabTitle(barrierCostOf(state));
+    if (shown.barrierTitle !== title) {
+      shown.barrierTitle = title;
+      el.barrierTab.title = title;
+    }
+  }
+
+  /** Counts the trees freed from the honey fungus for the summary and year pages. */
+  function updateRival(state) {
+    if (!rivalOn(state) || state.phase === 'title') return;
+    for (const ev of state.events) if (ev.type === 'tree-freed') freedTrees += 1;
+  }
+
   /** One-time pointer to the nematodes at the first worm ever, and the counters of the summary page. */
   function updateThreats(state) {
     if (!threatsOn(state) || state.phase === 'title') return;
@@ -909,6 +946,7 @@ export function createHud(root, actions) {
 
   function updateControls(state) {
     updateThreatTab(state);
+    updateBarrierTab(state);
     const tool = state.ui.tool;
     for (const t of el.tools) {
       const on = t.dataset.tool === tool;
@@ -962,6 +1000,7 @@ export function createHud(root, actions) {
       labels.process(state, view);
       updateFinds(state);
       updateThreats(state);
+      updateRival(state);
       if (phase === 'playing') updateNudge(state, dt);
       notes.tick(dt);
       labels.tick(dt);

@@ -3,14 +3,18 @@
 import { flourish } from './icons.js';
 import { gladeLabel } from './glade.js';
 import { yearStats, yearTitle } from './season-logic.js';
+import { rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
 
 const nf = new Intl.NumberFormat('ru-RU');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-/** `year` is the 0-based year that has just ended (the `year-end` event's field). */
-export function buildYearPage(state, year) {
+/** `year` is the 0-based year that has just ended (the `year-end` event's field); `extra.freed`: trees the honey fungus let go of. */
+export function buildYearPage(state, year, extra = {}) {
   const s = yearStats(state);
-  const trees = s.trees.map((t) => `<li><span class="k">${esc(t.name)}</span><span class="v">${esc(t.word)}</span></li>`).join('');
+  const rival = rivalOn(state) ? `<li><span class="k">Опёнок</span><span class="v">${esc(rivalSummaryLine(rivalStats(state, extra.freed)))}</span></li>` : '';
+  const world = (state.world && state.world.trees) || [];
+  // a tree the honey fungus killed stands as a snag (world.trees keeps the order of yearStats().trees)
+  const trees = s.trees.map((t, i) => `<li><span class="k">${esc(t.name)}</span><span class="v">${esc(world[i] && world[i].lost ? 'сухостой' : t.word)}</span></li>`).join('');
   return `
     <div class="stamp-seal">год<br />прошёл</div>
     <div class="overline">Тетрадь натуралиста · итог года</div>
@@ -30,7 +34,7 @@ export function buildYearPage(state, year) {
       </div>
       <div>
         <h3 class="year-sub">Деревья</h3>
-        <ul class="stats">${trees}</ul>
+        <ul class="stats">${trees}${rival}</ul>
       </div>
     </div>
     <div class="actions">
