@@ -1,8 +1,9 @@
 // Runtime shim of the single-file build (a classic inline script that runs before any module).
 // 1. Project files that were embedded at build time (<script type="application/json" id="rnt-assets">:
-//    { "assets/art/x.webp": ["image/webp", "<base64>"], ... }) are served from memory: fetch() and the <img> src
-//    setter / setAttribute resolve them, whether given as a document-relative path ("assets/art/x.webp") or as
-//    a module-relative URL (import.meta.url is rewritten at build time to "rnt://app/<module path>").
+//    { "assets/art/x.webp": ["image/webp", "<base64>"], ... }) are served from memory: fetch(), the <img> src
+//    setter / setAttribute and <img src> inside HTML strings (innerHTML, outerHTML, insertAdjacentHTML) resolve
+//    them, whether given as a document-relative path ("assets/art/x.webp") or as a module-relative URL
+//    (import.meta.url is rewritten at build time to "rnt://app/<module path>").
 //    A project path under assets/ that is not embedded fails quietly (synthetic 404 / empty image) instead of
 //    asking the file:// scheme, which browsers refuse with console errors.
 // 2. Module workers cannot load the bundle's modules (workers get no import map), so Worker is hidden: the
@@ -118,6 +119,36 @@
     if (this instanceof HTMLImageElement && String(name).toLowerCase() === 'src') value = mapImage(value);
     return realSetAttribute.call(this, name, value);
   };
+
+  // HTML strings (innerHTML, outerHTML, insertAdjacentHTML): the parser sets <img src> without the hooks above,
+  // so the atlas cards («<img src="assets/art/...">» in a template) would ask file:// and fail.
+  var IMG_SRC = /(<img\b[^>]*?\ssrc\s*=\s*)(["'])([^"']*)\2/gi;
+  function mapHtml(html) {
+    if (typeof html !== 'string' || !/<img\b/i.test(html)) return html;
+    return html.replace(IMG_SRC, function (all, head, q, url) {
+      var plain = url.replace(/&amp;/g, '&');
+      var mapped = mapImage(plain);
+      return mapped === plain ? all : head + q + mapped + q;
+    });
+  }
+  ['innerHTML', 'outerHTML'].forEach(function (prop) {
+    var d = Object.getOwnPropertyDescriptor(Element.prototype, prop);
+    if (!d || !d.set) return;
+    Object.defineProperty(Element.prototype, prop, {
+      configurable: true,
+      enumerable: d.enumerable,
+      get: d.get,
+      set: function (value) {
+        d.set.call(this, mapHtml(value));
+      },
+    });
+  });
+  var realInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+  if (typeof realInsertAdjacentHTML === 'function') {
+    Element.prototype.insertAdjacentHTML = function (position, html) {
+      return realInsertAdjacentHTML.call(this, position, mapHtml(html));
+    };
+  }
 
   // workers -----------------------------------------------------------------
   try {
