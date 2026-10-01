@@ -13,6 +13,11 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 - `window.__game` exposes `{ state, view, sim, actions, renderer, hud, audio }` for browser automation.
 - `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit')`,
   `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`. Keyboard shortcuts live in the UI task.
+- Browser checks: `node tools/shot.mjs` drives headless Edge/Chrome over the DevTools protocol with no
+  dependencies; it starts its own server for a `/path` URL and runs actions in order, e.g.
+  `node tools/shot.mjs --url "/?autostart=1&seed=7" --wait 1000 --drag 717,297,760,380 --wait 2000
+  --eval "__game.state.res" --shot .tmp/a.png` (also `--click`, `--key`, `--clip`, `--size`, `--dpr`; see
+  its header). Console errors and exceptions are printed and make the exit code 1.
 - Screenshots: start the server, then use the Playwright MCP tools if you have them, otherwise
   headless Edge/Chrome, e.g.
   `"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu
