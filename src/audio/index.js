@@ -267,7 +267,16 @@ export function createAudio(options = {}) {
       tone,
       room: (n) => voices + n <= MAX_VOICES - AMBIENT_RESERVE,
     });
-    cues = createCues({ tone, pluck, bell, throttled, later, fx: () => g.fx });
+    cues = createCues({
+      tone,
+      pluck,
+      bell,
+      noise: noiseBurst,
+      throttled,
+      later,
+      fx: () => g.fx,
+      room: (n) => voices + n <= MAX_VOICES - AMBIENT_RESERVE,
+    });
     return true;
   }
 
@@ -313,8 +322,20 @@ export function createAudio(options = {}) {
       out = lp;
     }
     out.connect(o.bus || g.fx);
+    const end = t + (o.sustain || 0) + attack + decay + 0.05;
+    if (o.wobble) {
+      // slow pitch wobble (cents): an LFO into the detune, stopped with the voice
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = o.wobble.rate || 3;
+      const depth = ctx.createGain();
+      depth.gain.value = o.wobble.depth || 20;
+      lfo.connect(depth);
+      depth.connect(osc.detune);
+      lfo.start(t);
+      lfo.stop(end);
+    }
     osc.start(t);
-    osc.stop(t + (o.sustain || 0) + attack + decay + 0.05);
+    osc.stop(end);
     track(osc);
   }
 
@@ -331,7 +352,7 @@ export function createAudio(options = {}) {
     const env = ctx.createGain();
     const dur = o.dur || 0.03;
     env.gain.setValueAtTime(0.0001, t);
-    env.gain.linearRampToValueAtTime(o.gain ?? 0.05, t + 0.002);
+    env.gain.linearRampToValueAtTime(o.gain ?? 0.05, t + (o.attack || 0.002));
     env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(f);
     f.connect(env);
@@ -515,6 +536,18 @@ export function createAudio(options = {}) {
     },
     'trap-denied': (t, ev) => handlers.insufficient(t, ev),
     'worm-sense': (t, ev) => voices + 4 <= MAX_VOICES - AMBIENT_RESERVE && cues['worm-sense'](t, ev),
+    // The honey-fungus rival (state.flags.rival): quieter than the threat cues, built in cues.js. There is no
+    // 'barrier-gone' cue on purpose; a denied barrier sounds like any other "not allowed".
+    'rival-wake': (t, ev) => cues['rival-wake'](t, ev),
+    'rival-grip': (t, ev) => cues['rival-grip'](t, ev),
+    'tree-infected': (t, ev) => cues['tree-infected'](t, ev),
+    'tree-lost': (t, ev) => cues['tree-lost'](t, ev),
+    'tree-freed': (t, ev) => cues['tree-freed'](t, ev),
+    'barrier-placed': (t, ev) => cues['barrier-placed'](t, ev),
+    'barrier-denied': (t, ev) => handlers.insufficient(t, ev),
+    'rival-cut': (t, ev) => cues['rival-cut'](t, ev),
+    'rival-fruit': (t, ev) => cues['rival-fruit'](t, ev),
+    'rival-tip': (t, ev) => cues['rival-tip'](t, ev),
     // S2: cues live in cues.js; ignored while the seasons are off
     dawn: (t, ev) => seasonsOn && cues.dawn(t, ev),
     dusk: (t, ev) => seasonsOn && cues.dusk(t, ev),

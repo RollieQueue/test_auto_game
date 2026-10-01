@@ -1337,6 +1337,149 @@ export function crownSteps(ctx, m, v, W, H, season) {
   return steps;
 }
 
+/* ------------------------------------------------------------------ snag: a tree the honey fungus has killed */
+
+const SNAG = {
+  oak: { fill: '#85735c', shade: '#3b2f25', light: '#c2b08c' },
+  birch: { fill: '#b7b0a2', shade: '#4a443d', light: '#e3ddcd' },
+  pine: { fill: '#80664f', shade: '#392a20', light: '#bd9d78' },
+};
+const SNAG_BARE = '#d4c6a2'; // bare wood where the bark has gone
+const SNAG_PEEL = '#5b4a3b'; // the underside of a peeling strip of bark
+
+/**
+ * A dead tree as painting steps (same contract as trunkSteps): the lower part of the trunk still stands in weathered grey
+ * wood, bark peels off in strips, a few limbs are broken stubs, and the top ends in a jagged break. No crown.
+ */
+export function snagSteps(ctx, m, W, H) {
+  const steps = [];
+  const rng = mulberry(m.seed ^ 0x5a6e ^ (m.stage * 311));
+  const sp = SNAG[m.species] ? m.species : 'oak';
+  const pal = SNAG[sp];
+  const T = m.trunk;
+  const n = Math.max(4, Math.round(T.pts.length * clamp(0.5 + 0.2 * rng(), 0.45, 0.72)));
+  const pts = T.pts.slice(0, n);
+  const ws = T.w.slice(0, n);
+  const topY = pts[n - 1].y;
+  const hold = { rb: null };
+  steps.push(() => groundHatch(ctx, T.w0, rng));
+  // broken limb stubs on the standing part
+  const stubs = m.limbs.filter((L) => L.pts.length > 3 && L.w0 >= 1.6 && L.pts[0].y > topY + 8).sort((a, b) => b.w0 - a.w0).slice(0, 3);
+  stubs.forEach((L, i) => {
+    steps.push(() => {
+      const k = Math.max(3, Math.round(L.pts.length * (0.2 + 0.22 * rng())));
+      const rb = ribbon(L.pts.slice(0, k), L.w.slice(0, k), m.seed + 700 + i, 0.2);
+      fillBand(ctx, rb.L, rb.R, SNAG_PEEL, 0.95);
+      edges(ctx, rb, 1, SEP, m.seed + 710 + i, 0.8);
+      const e = rb.C[rb.n - 1];
+      ctx.fillStyle = rgba(SNAG_BARE, 0.95);
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, Math.max(1.2, rb.hw[rb.n - 1]), Math.max(0.9, rb.hw[rb.n - 1] * 0.6), 0.4, 0, TAU);
+      ctx.fill();
+    });
+  });
+  // the standing trunk
+  steps.push(() => {
+    const rb = ribbon(pts, ws, m.seed + 99, 0.4);
+    hold.rb = rb;
+    fillBand(ctx, rb.L, rb.R, pal.fill, 0.96, 0.6, 0.35);
+    const [a, b] = lateral(rb, 0.1, 1.0);
+    fillBand(ctx, a, b, pal.shade, 0.6, 0.5, 0.3);
+    const [c, d] = lateral(rb, -1.0, -0.4);
+    fillBand(ctx, c, d, pal.light, 0.4, 0.5, 0.3);
+    // the lower trunk is darker (damp, rot)
+    const [e, f] = lateral(rb, -1, 1);
+    const cut = Math.max(3, Math.round(rb.n * 0.28));
+    fillBand(ctx, e.slice(0, cut), f.slice(0, cut), '#1c140e', 0.22, 0.4, 0.3);
+  });
+  steps.push(() => {
+    const rb = hold.rb;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(rb.L[0].x, rb.L[0].y);
+    for (let i = 1; i < rb.n; i++) ctx.lineTo(rb.L[i].x, rb.L[i].y);
+    for (let i = rb.n - 1; i >= 0; i--) ctx.lineTo(rb.R[i].x, rb.R[i].y);
+    ctx.closePath();
+    ctx.clip();
+    // long dry cracks along the grain
+    furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 2.4, 8, 60)), minLen: 14, maxLen: 60, wMin: 0.5, wMax: 1.3, color: '#241a12', aLo: 0.4, aHi: 0.9, bias: 1.0, ticks: 0.1 });
+    // bare wood where the bark came off
+    for (let q = 0; q < 3 + m.stage; q++) {
+      const i = Math.floor(rr(rng, 0.1, 0.8) * (rb.n - 1));
+      const side = rng() < 0.5 ? -1 : 1;
+      const hw = rb.hw[i];
+      const x = rb.C[i].x + rb.P[i].x * hw * side * rr(rng, 0.1, 0.5);
+      const ry = rr(rng, 8, 22);
+      ctx.fillStyle = rgba(SNAG_BARE, 0.78);
+      ctx.beginPath();
+      ctx.ellipse(x, rb.C[i].y, Math.max(1.5, hw * rr(rng, 0.25, 0.5)), ry, 0.05 * side, 0, TAU);
+      ctx.fill();
+      inkStroke(ctx, [{ x: x - hw * 0.1, y: rb.C[i].y - ry * 0.8 }, { x: x + hw * 0.08 * side, y: rb.C[i].y }, { x: x, y: rb.C[i].y + ry * 0.8 }], { w: 0.8, color: '#3b2c1f', alpha: 0.7, taperStart: 0.3, taperEnd: 0.3, seed: 900 + q, step: 2 });
+    }
+    ctx.restore();
+  });
+  // strips of bark peeling away from the edges
+  steps.push(() => {
+    const rb = hold.rb;
+    const count = 4 + m.stage * 2;
+    for (let q = 0; q < count; q++) {
+      const i = Math.floor(rr(rng, 0.1, 0.9) * (rb.n - 1));
+      const side = rng() < 0.5 ? -1 : 1;
+      const hw = rb.hw[i];
+      if (hw < 1.6) continue;
+      const bx = rb.C[i].x + rb.P[i].x * hw * side * 0.95;
+      const by = rb.C[i].y;
+      const len = rr(rng, 9, 24);
+      const out = hw * 0.4 + rr(rng, 3, 8);
+      ctx.beginPath();
+      ctx.moveTo(bx, by - len * 0.5);
+      ctx.quadraticCurveTo(bx + side * out * 1.1, by - len * 0.15, bx + side * out * 0.55, by + len * 0.5);
+      ctx.quadraticCurveTo(bx + side * out * 0.15, by + len * 0.1, bx, by + len * 0.5);
+      ctx.closePath();
+      ctx.fillStyle = rgba(SNAG_PEEL, 0.92);
+      ctx.fill();
+      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = rgba(SEP, 0.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bx + side * 0.4, by - len * 0.3);
+      ctx.quadraticCurveTo(bx + side * out * 0.6, by, bx + side * out * 0.3, by + len * 0.35);
+      ctx.strokeStyle = rgba(pal.light, 0.6);
+      ctx.stroke();
+    }
+    edges(ctx, rb, clamp(0.9 + T.w0 * 0.05, 1, 2.2), SEP, m.seed + 5, 0.9);
+  });
+  // the jagged break at the top
+  steps.push(() => {
+    const rb = hold.rb;
+    const c = rb.C[rb.n - 1];
+    const hw = rb.hw[rb.n - 1];
+    const k = 5 + Math.floor(rng() * 3);
+    const lean = rng() < 0.5 ? -1 : 1;
+    const poly = [{ x: c.x - hw, y: c.y + 1.5 }];
+    for (let i = 0; i <= k; i++) {
+      const u = -1 + (2 * i) / k;
+      const tall = rr(rng, 0.35, 1) * (0.6 + hw * 0.5) * (1 + 0.5 * lean * u);
+      poly.push({ x: c.x + hw * u, y: c.y - (i % 2 ? tall * 0.45 : tall) * 1.8 });
+    }
+    poly.push({ x: c.x + hw, y: c.y + 1.5 });
+    ctx.beginPath();
+    tracePath(ctx, poly, true, false);
+    ctx.fillStyle = rgba(SNAG_BARE, 0.96);
+    ctx.fill();
+    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = rgba(SEP, 0.92);
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    for (let i = 0; i < 4; i++) {
+      const x = c.x + hw * rr(rng, -0.8, 0.8);
+      inkStroke(ctx, [{ x, y: c.y - rr(rng, 3, 9) }, { x: x + rr(rng, -0.5, 0.5), y: c.y + rr(rng, 1, 5) }], { w: 0.7, color: '#3b2c1f', alpha: 0.7, taperStart: 0.2, taperEnd: 0.5, seed: 950 + i, step: 2 });
+    }
+  });
+  steps.push(() => granulate(ctx, W, H, 0.12, 0.45));
+  return steps;
+}
+
 export function paintTrunk(ctx, m, W, H) {
   for (const f of trunkSteps(ctx, m, W, H)) f();
 }

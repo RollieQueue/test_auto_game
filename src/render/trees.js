@@ -4,7 +4,8 @@
 import { makeCanvas, glowSprite, noise1, mulberry, mix, catmull, smooth01 } from './ink.js';
 import { resample } from '../core/geom.js';
 import { buildModel, STAGE_H } from './trees-model.js';
-import { trunkSteps, crownSteps } from './trees-paint.js';
+import { trunkSteps, crownSteps, snagSteps } from './trees-paint.js';
+import { infBucket, infectedVitality, sallowAmount, isLost, mantleOf, INF_BUCKETS } from './rival-logic.js';
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -18,6 +19,8 @@ const MAX_SPRITE = 2300; // device px
 const HEALTH_FADE = 0.8; // crown cross-fade after a health change, seconds
 const SEASON_FADE = 20; // crown cross-fade after a season change, seconds (globalThis.__seasonFade overrides it: a test knob)
 const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'];
+const LOST_FADE = 1.6; // the crown of a tree the honey fungus has killed lets go, seconds
+const SNAG_SWAY = 0.1; // a dead trunk hardly moves
 
 /** The season to paint ('' = the picture without seasons: flag off or no clock). */
 function seasonOf(state) {
@@ -473,20 +476,45 @@ export function createTrees() {
     return rec.bucket;
   }
 
+  /** Infection bucket 0..INF_BUCKETS, sticky near a boundary so a flickering value does not repaint the crown. */
+  function infFor(rec, inf) {
+    const b = infBucket(inf);
+    if (rec.ib === undefined || Math.abs(Math.min(1, Math.max(0, num(inf))) * INF_BUCKETS - rec.ib) > 0.62) return b;
+    return rec.ib;
+  }
+
   /** A look = trunk sprite + crown sprite for (stage, bucket, px); painted as a job made of small steps. */
-  function makeLookJob(tree, stage, bucket, reuseTrunk, season) {
+  function makeLookJob(tree, stage, bucket, reuseTrunk, season, ib = 0, lost = false) {
     const model = modelFor(tree, stage);
     const b = spriteBox(model);
     const pf = fitPx(px, b.w, b.h);
     const steps = [];
-    let trunk = reuseTrunk;
+    let trunk = lost ? null : reuseTrunk;
     if (!trunk) {
       trunk = makeSprite(b.w, b.h, pf, b.ax, b.ay);
-      steps.push(...trunkSteps(trunk.ctx, model, trunk.cw, trunk.ch));
+      steps.push(...(lost ? snagSteps(trunk.ctx, model, trunk.cw, trunk.ch) : trunkSteps(trunk.ctx, model, trunk.cw, trunk.ch)));
     }
-    const crown = makeSprite(b.w, b.h, pf, b.ax, b.ay);
-    steps.push(...crownSteps(crown.ctx, model, bucket / BUCKETS, crown.cw, crown.ch, season || undefined));
-    return { stage, bucket, season, fadeDur: HEALTH_FADE, fadeSeason: false, px, model, trunk, crown, steps, ctxs: reuseTrunk ? [crown.ctx] : [trunk.ctx, crown.ctx], i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1 };
+    let crown;
+    if (lost) {
+      crown = makeSprite(2, 2, 1, 1, 1); // a snag has no crown: an empty sprite to fade the old one into
+    } else {
+      crown = makeSprite(b.w, b.h, pf, b.ax, b.ay);
+      // honey fungus: an infected crown thins (the painter's own vitality) and turns sallow
+      steps.push(...crownSteps(crown.ctx, model, infectedVitality(bucket / BUCKETS, ib), crown.cw, crown.ch, season || undefined));
+      if (ib > 0) {
+        steps.push(() => {
+          const g = crown.ctx;
+          g.save();
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.globalCompositeOperation = 'source-atop';
+          g.globalAlpha = sallowAmount(ib);
+          g.fillStyle = '#d2b240';
+          g.fillRect(0, 0, crown.cw, crown.ch);
+          g.restore();
+        });
+      }
+    }
+    return { stage, bucket, ib, lost, season, fadeDur: HEALTH_FADE, fadeSeason: false, px, model, trunk, crown, steps, ctxs: trunk === reuseTrunk ? [crown.ctx] : [trunk.ctx, crown.ctx], i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1 };
   }
 
   function upRecord(tree) {
@@ -521,15 +549,15 @@ export function createTrees() {
   }
 
   /** Make sure rec.look is up to date: painted synchronously the first time, later in a background job and swapped in. */
-  function updateLook(rec, tree, stage, bucket, season) {
+  function updateLook(rec, tree, stage, bucket, season, ib = 0, lost = false) {
     if (!rec.look) {
-      const job = makeLookJob(tree, stage, bucket, null, season);
+      const job = makeLookJob(tree, stage, bucket, null, season, ib, lost);
       runAll(job);
       rec.look = job;
       return;
     }
     const L = rec.look;
-    const mismatch = L.stage !== stage || L.px !== px || L.bucket !== bucket || L.season !== season;
+    const mismatch = L.stage !== stage || L.px !== px || L.bucket !== bucket || L.season !== season || L.ib !== ib || L.lost !== lost;
     if (!mismatch) {
       if (rec.job) {
         cancel(rec.job);
@@ -538,9 +566,9 @@ export function createTrees() {
       return;
     }
     let J = rec.job;
-    if (!J || J.stage !== stage || J.px !== px || J.bucket !== bucket || J.season !== season) {
+    if (!J || J.stage !== stage || J.px !== px || J.bucket !== bucket || J.season !== season || J.ib !== ib || J.lost !== lost) {
       cancel(J);
-      J = makeLookJob(tree, stage, bucket, L.stage === stage && L.px === px ? L.trunk : null, season);
+      J = makeLookJob(tree, stage, bucket, L.stage === stage && L.px === px && !L.lost ? L.trunk : null, season, ib, lost);
       rec.job = J;
       queue.push(J);
     }
@@ -552,8 +580,8 @@ export function createTrees() {
     } else if (L.px === J.px) {
       J.fadeOld = onScreenCrown(L);
       J.fadeT = 0;
-      J.fadeSeason = L.season !== J.season;
-      J.fadeDur = J.fadeSeason ? seasonFadeSeconds() : HEALTH_FADE;
+      J.fadeSeason = L.season !== J.season || J.lost !== L.lost;
+      J.fadeDur = J.lost !== L.lost ? LOST_FADE : J.fadeSeason ? seasonFadeSeconds() : HEALTH_FADE;
     }
     rec.look = J;
   }
@@ -596,9 +624,12 @@ export function createTrees() {
         if (!tree || !Number.isFinite(tree.x) || !Number.isFinite(tree.baseY)) return;
         const stage = stageOf(tree);
         const rec = upRecord(tree);
-        const bucket = bucketFor(rec, tree.health);
+        const lost = isLost(tree);
+        const bucket = lost ? 0 : bucketFor(rec, tree.health);
         rec.bucket = bucket;
-        updateLook(rec, tree, stage, bucket, season);
+        const ib = lost ? 0 : infFor(rec, tree.infection);
+        rec.ib = ib;
+        updateLook(rec, tree, stage, bucket, season, ib, lost);
         const look = rec.look;
         if (look.fadeOld) {
           look.fadeT += d / look.fadeDur;
@@ -607,7 +638,7 @@ export function createTrees() {
             look.fadeOld = null;
           }
         }
-        const sw = SWAY[look.model.species] || 1;
+        const sw = (SWAY[look.model.species] || 1) * (look.lost ? SNAG_SWAY : 1);
         const own = noise1(tt * 0.31 + rec.phase) * 0.5 + noise1(tt * 0.77 + rec.phase * 1.7) * 0.25;
         const flut = noise1(tt * 1.15 + rec.phase * 2.3) * 0.5 + noise1(tt * 2.3 + rec.phase) * 0.3;
         const k1 = sw * 0.0075 * (0.7 * wind + 0.7 * own);
@@ -711,6 +742,51 @@ export function createTrees() {
   }
 
   const GLOW = { c: null };
+  let sheath = null;
+
+  /** One white sheath sprite: a soft pale halo with a few fine hairs, drawn at every fine-root tip. */
+  function sheathSprite() {
+    if (sheath) return sheath;
+    const S = 64;
+    sheath = makeCanvas(S, S);
+    const g = sheath.getContext('2d');
+    const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    grad.addColorStop(0, 'rgba(250,246,232,0.8)');
+    grad.addColorStop(0.35, 'rgba(244,238,220,0.4)');
+    grad.addColorStop(1, 'rgba(244,238,220,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, S, S);
+    const rng = mulberry(77);
+    g.strokeStyle = 'rgba(252,248,236,0.75)';
+    g.lineWidth = 1;
+    g.lineCap = 'round';
+    for (let i = 0; i < 14; i++) {
+      const a = rng() * Math.PI * 2;
+      const r0 = 5 + rng() * 5;
+      const r1 = r0 + 6 + rng() * 9;
+      g.beginPath();
+      g.moveTo(S / 2 + Math.cos(a) * r0, S / 2 + Math.sin(a) * r0);
+      g.lineTo(S / 2 + Math.cos(a + 0.12) * r1, S / 2 + Math.sin(a + 0.12) * r1);
+      g.stroke();
+    }
+    return sheath;
+  }
+
+  function drawMantle(ctx, tree, stage, mantle, tt, phase) {
+    const tips = Array.isArray(tree.tips) ? tree.tips : [];
+    if (!tips.length) return;
+    const sp = sheathSprite();
+    ctx.save();
+    for (let i = 0; i < tips.length; i++) {
+      const tp = tips[i];
+      if (!tp || !Number.isFinite(tp.x) || !Number.isFinite(tp.y) || num(tp.minStage, 0) > stage) continue;
+      const pulse = 0.88 + 0.12 * Math.sin(tt * 0.9 + phase + i * 2.3);
+      const sz = 26 + 8 * mantle;
+      ctx.globalAlpha = 0.5 * mantle * pulse;
+      ctx.drawImage(sp, tp.x - sz / 2, tp.y - sz / 2, sz, sz);
+    }
+    ctx.restore();
+  }
 
   function drawRoots(ctx, state, t, dt) {
     const d = frameDt(t, dt);
@@ -772,9 +848,11 @@ export function createTrees() {
           rec.job = null;
         }
 
-        ctx.globalAlpha = 1;
+        const dead = isLost(tree); // the roots of a tree the honey fungus has killed fade to a ghost
+        ctx.globalAlpha = dead ? 0.5 : 1;
         const sp = rec.sprite.sp;
         ctx.drawImage(sp.canvas, rec.box.x0, rec.box.y0, sp.w, sp.h);
+        ctx.globalAlpha = 1;
         const heads = [];
         if (rec.anim) {
           for (const it of rec.anim.items) {
@@ -783,6 +861,9 @@ export function createTrees() {
             if (head) heads.push(head);
           }
         }
+        // mycorrhizal mantle: a faint white sheath around the root tips of a well-fed tree
+        const mantle = dead ? 0 : mantleOf(tree);
+        if (mantle > 0.03) drawMantle(ctx, tree, stage, mantle, tt, rec.phase);
         // tip glow of a linked tree and the heads of growing roots
         const target = tree.linked ? 1 : 0;
         rec.link += (target - rec.link) * (1 - Math.exp(-d * 2.5));

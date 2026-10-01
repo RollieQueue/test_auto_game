@@ -14,7 +14,7 @@ const optional = (path) =>
   });
 // illustrations (assets/art): loaded in the background; startup waits for them only briefly, and never fails without them
 const spritesLoaded = Promise.race([loadSprites(), new Promise((ok) => setTimeout(ok, 2500))]);
-const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod, faunaMod] = await Promise.all([
+const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod, faunaMod, rivalMod] = await Promise.all([
   optional('./trees.js'),
   optional('./mushrooms.js'),
   optional('./deposits.js'),
@@ -25,6 +25,7 @@ const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod
   optional('./ambient.js'),
   optional('./atmosphere.js'),
   optional('./fauna.js'),
+  optional('./rival.js'),
   spritesLoaded,
 ]);
 
@@ -80,6 +81,7 @@ export function createRenderer(canvas) {
   const ambient = add('ambient', ambientMod?.createAmbient);
   const atmos = add('atmos', atmosMod?.createAtmosphere); // day, night, weather, snow (only with state.flags.seasons)
   const fauna = add('fauna', faunaMod?.createFauna); // nematodes, cut-off hyphae dying away, trap rings (state.fauna / state.traps)
+  const rival = add('rival', rivalMod?.createRival); // honey fungus: stump, rhizomorphs, rot stains, barriers (state.rival / state.barriers)
   const refs = { trees: trees?.api, mushrooms: mushrooms?.api, mycelium: mycelium?.api };
   fauna?.api.attach?.(refs);
   let modsWorld = null;
@@ -327,14 +329,17 @@ export function createRenderer(canvas) {
     call(atmos, 'drawSoil', ctx, state, t, dt);
     call(mycelium, 'draw', ctx, state, t, dt, frame);
     call(flows, 'draw', ctx, state, t, dt, frame);
+    call(rival, 'drawSoil', ctx, state, t, dt, frame); // the rhizomorph web creeps through the soil, under the worms
     call(fauna, 'draw', ctx, state, t, dt, frame); // worms live in the soil, over the mycelium and its flows
     call(trees, 'drawTrees', ctx, state, t, dt);
+    call(rival, 'drawSurface', ctx, state, t, dt); // the old stump and honey-mushroom tufts stand over the tree trunks
     call(ambient, 'draw', ctx, state, t, dt, frame);
     call(mushrooms, 'draw', ctx, state, t, dt);
     call(fauna, 'drawTop', ctx, state, t, dt); // ghosts of mushrooms that wilted when their node was cut off
     call(atmos, 'drawOver', ctx, state, t, dt);
     call(feedback, 'draw', ctx, state, t, dt, frame);
     call(effects, 'draw', ctx, state, t, dt, frame);
+    call(rival, 'drawFx', ctx, state, t, dt); // barrier tool cursor and the rival's event effects
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // a new plate comes up out of the paper

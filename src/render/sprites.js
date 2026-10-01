@@ -199,6 +199,8 @@ export function washed(src, sw, sh) {
 /* ------------------------------------------------------------------ which look a mushroom gets */
 
 export const TREE_MUSHROOM = { birch: 'fly_agaric', oak: 'porcini', pine: 'saffron_milk_cap' };
+// mushroom images that belong to the honey-fungus rival (mushroom.honey.N): the player's fruit bodies never wear them
+export const RIVAL_MUSHROOM_TYPES = new Set(['honey']);
 const OWN_SPECIES = new Set(['fly_agaric', 'porcini', 'chanterelle', 'saffron_milk_cap']);
 const TREE_REACH = 300; // world units: a mushroom farther from every trunk keeps to the open-ground kinds
 const hashInt = (...v) => {
@@ -222,7 +224,7 @@ const hashInt = (...v) => {
  * four beside a tree), else common / chanterelle by its variant.
  */
 export function mushroomLook(m, trees) {
-  if (m && OWN_SPECIES.has(m.species)) return m.species;
+  if (m && OWN_SPECIES.has(m.species) && !RIVAL_MUSHROOM_TYPES.has(m.species)) return m.species;
   const id = m && m.id !== undefined ? m.id : 0;
   const variant = m && m.variant !== undefined ? m.variant : 0;
   const roll = hashInt('mushroom-look', id, variant) % 100;
@@ -241,9 +243,20 @@ export function mushroomLook(m, trees) {
 
 /** The sprite entry for a mushroom (falls back to the common species when its own has no image), or null. */
 export function mushroomSprite(m, trees) {
-  const type = mushroomLook(m, trees);
+  let type = mushroomLook(m, trees);
+  if (RIVAL_MUSHROOM_TYPES.has(type)) type = 'common';
   const pick = hashInt('mushroom-sprite', m && m.id !== undefined ? m.id : 0, m && m.variant !== undefined ? m.variant : 0);
   return getSprite('mushroom', type, pick) || getSprite('mushroom', 'common', pick);
+}
+
+/** The rival's old cut stump illustration (decor.stump.N) for a stump id, or null (the renderer then paints it in ink). */
+export function stumpSprite(id = 0) {
+  return getSprite('decor', 'stump', hashInt('stump-sprite', id));
+}
+
+/** A honey-mushroom (mushroom.honey.N) illustration for a cluster id, or null (procedural caps then). */
+export function honeySprite(id = 0) {
+  return getSprite('mushroom', 'honey', hashInt('honey-sprite', id));
 }
 
 /* ------------------------------------------------------------------ small pure helpers of the scene */
