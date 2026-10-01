@@ -133,12 +133,15 @@ test('hyphae cannot grow through rocks or above ground; commands are cut at the 
   assert.equal(sim.commandGrow(s, 0, [{ x: from.x, y: from.y }]), false, 'zero-length command rejected');
 });
 
-test('insufficient sugar: command rejected with an event; sugar running out mid-way stops the hypha', () => {
+test('insufficient sugar: a step nobody can pay is refused with an event; sugar running out mid-way stops the hypha', () => {
   const s = fresh();
   const from = s.net.nodes[1];
-  s.res.sugar = 2;
+  s.res.sugar = 0.3;
   assert.equal(sim.commandGrow(s, 1, [{ x: from.x - 300, y: from.y }]), false);
-  assert.equal(evs(s.events, 'insufficient').length, 1);
+  const refusal = evs(s.events, 'insufficient');
+  assert.equal(refusal.length, 1);
+  assert.equal(refusal[0].partial, undefined, 'a plain refusal has no partial flag');
+  assert.deepEqual([refusal[0].x, refusal[0].y], [from.x, from.y]);
   s.events.length = 0;
   assert.equal(sim.estimateGrowth(s, 1, [{ x: from.x - 300, y: from.y }]).affordable, false);
 

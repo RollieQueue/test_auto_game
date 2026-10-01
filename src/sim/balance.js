@@ -51,6 +51,22 @@ export const B = {
   treeSatWater: 0.6, // weight of water in satisfaction (minerals get the rest)
   treeGrowFromHealth: 0.3, // growth starts above this health, full speed at 1
   treeContactFactor: [0.6, 0.8, 1], // share of the sugar payout by number of root-tip contacts (1, 2, 3+)
+  // Species of tree (world.trees[].species): grow x growth speed, drinkW / drinkM x water / mineral demand, pay x sugar payout by
+  // stage 0..3. Birch races ahead but is thirsty and pays little when old; an oak is slow, yet an ancient one pays a fortune;
+  // a pine sips water and wants minerals.
+  species: {
+    birch: { grow: 1.2, drinkW: 1.2, drinkM: 0.9, pay: [1, 1, 0.95, 0.9] },
+    oak: { grow: 0.8, drinkW: 1.05, drinkM: 1.1, pay: [1, 1, 1.1, 1.5] },
+    pine: { grow: 1, drinkW: 0.85, drinkM: 0.85, pay: [1, 1, 1.05, 1.1] },
+  },
+  // Glades (world.biome): worm x spawn rate, wormSpeed x crawl speed, water x extraction per link, minerals x extraction per link.
+  // The soil itself differs too (src/world/biomes.js: pockets, rocks, deposits, regeneration).
+  biomes: {
+    birch: { worm: 1.35, wormSpeed: 1.12, water: 1.2, minerals: 0.9 }, // wet and lively
+    oak: { worm: 1, wormSpeed: 1, water: 1, minerals: 1.1 }, // rich, slow
+    pine: { worm: 0.8, wormSpeed: 0.95, water: 0.85, minerals: 1.35 }, // dry, stony, mineral
+    mixed: { worm: 1, wormSpeed: 1, water: 1, minerals: 1 }, // balanced
+  },
 
   // --- Mushrooms ---
   mushroomCost: 24,
@@ -110,7 +126,9 @@ export const B = {
   wormFullSeconds: 9, // s after a bite before the next one
   biteMaxW: 1.6, // edge.w below this is thin enough to bite
   biteReach: 9, // u from the hypha at which a worm bites
-  biteSeconds: 2.8, // s of chewing before the hypha is cut (a trap or a thickened hypha stops it)
+  biteSeconds: 2.8, // s of chewing before the hypha is cut (a trap or a thickened hypha stops it): the last chapter's value
+  biteSecondsByChapter: [5, 3.4, 2.8], // ... by chapter: the first page chews slowly, so a ring (2.5 s to arm) is in time after the warning
+  biteLead: 3, // s: a worm bites no sooner than this after its `worm-sense` (the warning always comes first)
   biteImmuneDist: 52, // u along the network from the spore: the first hyphae around it are never cut
   biteMinAge: 8, // s: hyphae younger than this are not bitten yet
   wormSnareSpeed: 46, // u/s a lured worm is drawn towards the ring
@@ -131,14 +149,14 @@ export const B = {
   hard: {
     upkeep: 1, // x upkeepPerLength ...
     sprawl: 5000, // ... and then x (1 + hyphaeLength / sprawl): a big network costs more per u than a small one
-    treePay: 0.9, // x treePay
+    treePay: 0.85, // x treePay
     growCost: 1.15, // x the horizon cost of growing a hypha
     mushCost: 1.4, // x mushroomCost ...
     mushCount: 0.1, // ... and then x (1 + this per mushroom already standing): a crowd of fruit bodies shares one table
     mushGrowSugar: 1.3, // x mushroomGrowSugar
     mushMatureSugar: 2, // x mushroomMatureSugar
     sugarCap: 0.55, // x every sugar cap
-    treeGrow: 0.8, // x the growth speed of trees
+    treeGrow: 0.7, // x the growth speed of trees
     sporeRate: 0.7, // x the spore release of mushrooms
   },
   // A network that cannot pay for itself dies back at the tips (unproductive twigs wither), so there is always a way out.
@@ -154,6 +172,8 @@ export const B = {
   chapter2Spores: 500,
   chapter3Mushrooms: 8, // grown mushrooms at once
   chapter3Spores: 1500,
+  // the glade's own observation on page 2 (see objectives.js): birch wet (a pool kept full), oak slow (every oak grown), pine stony (phosphorus), mixed (a mushroom under every species)
+  glade: { birchWater: 55, holdSeconds: 30, pinePhosphorus: 2, mixedReach: 150 },
   winterSugar: 80, // sugar in hand when the winter ends (seasons on)
   reserveSugar: 120, // the same page without seasons: a stock of sugar
 
@@ -168,7 +188,10 @@ export const B = {
   seasonSeconds: 300, // a year is 4 seasons = 20 game minutes at x1
   startDayFrac: 0.3, // a game starts in spring, shortly after sunrise (0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset)
   daylightEdge: 0.45, // daylight = smoothstep over sin(sun) in +-this: dawn and dusk take ~15 s each
-  photoFloor: 0.25, // tree sugar payout = x (photoFloor + (1 - photoFloor) * daylight)
+  photoFloor: 0.4, // tree sugar payout = x (photoFloor + (1 - photoFloor) * daylight)
+  // The first minutes are gentle: the night floor starts at `floor` (a night pays almost like a day), holds for `until` s of game
+  // time and then falls linearly to photoFloor over `fade` s, so a new player is not punished for the first dusk (at ~45 s).
+  firstLight: { floor: 0.85, until: 240, fade: 120 },
   nightSpores: 0.3, // spore release is up to +30% at night (humid air)
   weatherLead: 20, // s at the start of every season without an episode
   weatherRampIn: 8, // s for an episode to reach its strength
@@ -190,6 +213,23 @@ export const B = {
       weather: { kind: 'snow', count: 3, min: 50, max: 75, peakMin: 0.6, peakMax: 1 } },
   },
 };
+
+/** Night floor of tree payout at game time t (see B.firstLight); plain photoFloor without a time. */
+export function nightFloor(t) {
+  const g = B.firstLight;
+  if (t === undefined || t >= g.until + g.fade) return B.photoFloor;
+  const k = Math.max(0, (t - g.until) / g.fade);
+  return g.floor + (B.photoFloor - g.floor) * k;
+}
+
+/** Tree numbers of a species: { grow, drinkW, drinkM, pay } with pay for the tree's current stage. */
+export function treeFx(tree) {
+  const s = B.species[tree.species] ?? { grow: 1, drinkW: 1, drinkM: 1, pay: [1, 1, 1, 1] };
+  return { grow: s.grow, drinkW: s.drinkW, drinkM: s.drinkM, pay: s.pay[tree.stage] };
+}
+
+/** The glade's multipliers (B.biomes); all 1 for an unknown biome. */
+export const biomeFx = (world) => B.biomes[world.biome] ?? B.biomes.mixed;
 
 /** The economy multipliers in force: B.hard with state.flags.threats, otherwise all 1. */
 export const pressure = (state) => (state.flags.threats ? B.hard : NEUTRAL_HARD);

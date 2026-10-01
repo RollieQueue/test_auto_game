@@ -4,7 +4,7 @@
 // choice comes from state.sim.threat.rs, so a seed and its commands replay exactly.
 import { clamp, closestOnSegment } from '../core/geom.js';
 import { costAt, groundYAt, horizonIndexAt } from '../world/query.js';
-import { B } from './balance.js';
+import { B, biomeFx } from './balance.js';
 import { eachNodeNear, nearestNode, severBranch } from './network.js';
 
 const TAU = Math.PI * 2;
@@ -152,6 +152,7 @@ function crawl(state, w, dt, cold) {
     w.target = w.full > 0 || !w.grazer ? -1 : (nearestNode(state, w.x, w.y, B.wormSense, (n) => biteEdge(state, n) !== null) ?? -1);
     if (w.target >= 0 && !w.sensed) {
       w.sensed = true; // once per worm: it has caught the scent of a hypha (the HUD may warn)
+      w.senseAge = w.age; // ... and it bites no sooner than B.biteLead after this
       const n = net.nodes[w.target];
       state.events.push({ type: 'worm-sense', id: w.id, x: w.x, y: w.y, tx: n.x, ty: n.y });
     }
@@ -187,9 +188,15 @@ function crawl(state, w, dt, cold) {
   w.phase += speed * dt * 0.4;
 }
 
-/** Starts chewing the nearest bitable hypha within reach, if any. */
+/** Seconds of chewing in the current chapter (B.biteSecondsByChapter; B.biteSeconds without chapters). */
+export function biteSecondsFor(state) {
+  return state.flags.threats ? (B.biteSecondsByChapter[(state.chapter ?? 1) - 1] ?? B.biteSeconds) : B.biteSeconds;
+}
+
+/** Starts chewing the nearest bitable hypha within reach, if any: never before the warning (`worm-sense`) has had its lead. */
 function tryBite(state, w) {
   const { net } = state;
+  if (!w.sensed || w.age - (w.senseAge ?? -Infinity) < B.biteLead) return;
   let best = null;
   let bestD = B.biteReach * B.biteReach;
   eachNodeNear(state, w.x, w.y, B.biteReach + 20, (n) => {
@@ -204,7 +211,7 @@ function tryBite(state, w) {
   });
   if (!best) return;
   w.mode = 'bite';
-  w.bite = { edge: best.e.id, x: best.c.x, y: best.c.y, t: 0, dur: B.biteSeconds };
+  w.bite = { edge: best.e.id, x: best.c.x, y: best.c.y, t: 0, dur: biteSecondsFor(state) };
   w.x = best.c.x;
   w.y = best.c.y;
   w.speed = 0;
@@ -453,7 +460,7 @@ function stepSpawn(state, dt, season) {
   const th = sim.threat;
   const len = state.stats.hyphaeLength;
   if (sim.clock < B.wormGrace || len < B.wormMinLength) return;
-  th.spawnT -= dt * (1 + len / B.wormLenRef) * (season ? B.wormSeason[season] : 1);
+  th.spawnT -= dt * (1 + len / B.wormLenRef) * (season ? B.wormSeason[season] : 1) * biomeFx(state.world).worm;
   if (th.spawnT > 0) return;
   if (state.fauna.length >= maxWorms(len)) {
     th.spawnT = B.wormSpawnEvery * 0.4; // no room: try again a little later
@@ -466,7 +473,7 @@ function stepSpawn(state, dt, season) {
 export function stepThreats(state, dt) {
   if (!state.flags.threats) return;
   const season = state.flags.seasons && state.clock ? state.clock.season : null;
-  const cold = season === 'winter' ? B.wormColdSpeed : 1;
+  const cold = (season === 'winter' ? B.wormColdSpeed : 1) * biomeFx(state.world).wormSpeed;
   stepTraps(state, dt);
   lure(state);
   const { fauna, events } = state;

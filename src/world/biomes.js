@@ -26,7 +26,7 @@ export const BIOMES = {
     water: {
       plan: [[60, 150], [70, 180], [85, 200], [220, 400], [240, 430], [470, 650]],
       size: 1.08,
-      regen: 1.15,
+      regen: 1.4, // wet soil: pockets refill quickly (regen is not part of a save's world fingerprint)
     },
     minerals: ['nitrogen', 'nitrogen', 'phosphorus', 'phosphorus'],
     mineralScale: { nitrogen: 1, phosphorus: 1 },

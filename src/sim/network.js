@@ -31,6 +31,7 @@ export function createSimData(state) {
     income: 0, // current sugar income per second (diagnostics)
     nextGrowId: 0,
     treeStageUps: 0,
+    holdT: 0, // seconds a hold-type glade observation (objectives.js) has been kept up
     nextMushroomId: 0,
     // threats (state.flags.threats): plain numbers only, saved with the rest of state.sim
     threat: { rs: hash32(state.seed, 'threat'), spawnT: B.wormFirst, nextWorm: 0, nextTrap: 0, starve: 0, caught: 0, bites: 0, severed: 0, lostLength: 0 },

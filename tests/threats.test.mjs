@@ -5,7 +5,7 @@ import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
 import { addNode, nearestNode } from '../src/sim/network.js';
 import { B } from '../src/sim/balance.js';
-import { cutEdge, spawnWormAt, stepThreats, biteEdge } from '../src/sim/threats.js';
+import { biteSecondsFor, cutEdge, spawnWormAt, stepThreats, biteEdge } from '../src/sim/threats.js';
 import { groundYAt, horizonIndexAt, isPassable } from '../src/world/query.js';
 import { encodeState, decodeState } from '../src/persist-codec.js';
 
@@ -63,6 +63,11 @@ function worm(s, x, y, extra = {}) {
   w.grazer = true;
   Object.assign(w, extra);
   return w;
+}
+
+/** A worm that has long since caught the scent (`worm-sense` came and the lead B.biteLead is over): it bites as soon as it is at a hypha. */
+function warned(s, x, y, extra = {}) {
+  return worm(s, x, y, { sensed: true, senseAge: -1e6, ...extra });
 }
 
 /** True when the straight way from (x0, y0) to (x1, y1) touches no pocket, deposit or root tip (nothing that would link). */
@@ -172,15 +177,15 @@ test('worms wander slowly, stay in passable soil and in their depth band, and he
 test('a worm bites a thin hypha, chews for biteSeconds, and the branch beyond the cut dies', () => {
   const { s, ids } = arena();
   const target = s.net.nodes[ids[7]];
-  const w = worm(s, target.x, target.y + 2);
+  const w = warned(s, target.x, target.y + 2);
   const before = s.stats.hyphaeLength;
   const first = run(s, 0.5);
   const bite = evs(first, 'bite')[0];
   assert.ok(bite, 'it starts chewing at once');
   assert.equal(w.mode, 'bite');
-  assert.ok(w.bite.t > 0 && w.bite.dur === B.biteSeconds);
+  assert.ok(w.bite.t > 0 && w.bite.dur === biteSecondsFor(s) && w.bite.dur === B.biteSecondsByChapter[0]);
   assert.equal(evs(first, 'severed').length, 0, 'not cut yet');
-  assert.equal(evs(run(s, B.biteSeconds - 1), 'severed').length, 0, 'still chewing');
+  assert.equal(evs(run(s, biteSecondsFor(s) - 1), 'severed').length, 0, 'still chewing');
   const seen = run(s, 1.5);
   const cut = evs(seen, 'severed')[0];
   assert.ok(cut, 'cut');
@@ -205,7 +210,7 @@ test('only thin hyphae are bitten: busy cords, the stretch near the spore and br
   const { s, ids } = arena();
   for (const id of ids) s.net.edges[s.sim.parentEdge[id]].w = B.biteMaxW + 0.2;
   const mid = s.net.nodes[ids[7]];
-  const w = worm(s, mid.x, mid.y + 2);
+  const w = warned(s, mid.x, mid.y + 2);
   const seen = run(s, 30);
   assert.equal(evs(seen, 'bite').length, 0, 'a thick cord is left alone');
   assert.equal(w.bites, 0);
@@ -244,11 +249,11 @@ test('only grazing worms smell hyphae: one that catches the scent says so once, 
 test('a hypha that thickens while it is being chewed is let go', () => {
   const { s, ids } = arena();
   const target = s.net.nodes[ids[7]];
-  const w = worm(s, target.x, target.y + 2);
+  const w = warned(s, target.x, target.y + 2);
   run(s, 1);
   assert.equal(w.mode, 'bite');
   s.net.edges[w.bite.edge].w = B.biteMaxW + 0.5;
-  const seen = run(s, B.biteSeconds + 1);
+  const seen = run(s, biteSecondsFor(s) + 1);
   assert.equal(evs(seen, 'severed').length, 0);
   assert.equal(evs(seen, 'bite-abort').length, 1);
   assert.equal(s.net.edges[s.sim.parentEdge[ids[7]]].alive, true);
@@ -358,7 +363,7 @@ test('a ring costs sugar, may not crowd another, grows for a few seconds, then l
 test('a ring finished while a worm is chewing makes it let go, and a ring with no catches left withers away', () => {
   const { s, ids } = arena();
   const target = s.net.nodes[ids[7]];
-  const w = worm(s, target.x, target.y + 2);
+  const w = warned(s, target.x, target.y + 2);
   run(s, 0.3);
   assert.equal(w.mode, 'bite');
   w.bite.dur = B.trapGrowSeconds + 1.5; // a slow chew, so the ring is there in time (a real bite is short: rings must be laid ahead)
@@ -379,8 +384,8 @@ test('a ring finished while a worm is chewing makes it let go, and a ring with n
 test('worms leave when full or old, and fade out first', () => {
   const { s, ids } = arena();
   const target = s.net.nodes[ids[9]];
-  const w = worm(s, target.x, target.y + 2, { bites: B.wormMaxBites - 1 });
-  run(s, B.biteSeconds + 1);
+  const w = warned(s, target.x, target.y + 2, { bites: B.wormMaxBites - 1 });
+  run(s, biteSecondsFor(s) + 1);
   assert.equal(w.mode, 'leave', 'a full worm burrows away');
   const v0 = w.fade;
   const seen = run(s, B.wormLeaveSeconds + 0.5);

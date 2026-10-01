@@ -14,15 +14,33 @@ export const OBJECTIVES = [
 /** Page titles, for the HUD (chapter 3 differs with and without seasons only in its first observation). */
 export const CHAPTER_TITLES = { 1: 'Первые нити', 2: 'Тревожная почва', 3: 'Большая грибница' };
 
-/** The observations of a chapter (1..3); `seasons` picks the winter observation for page 3, a sugar reserve without it. */
-export function pageObjectives(chapter, seasons = false) {
+/** The one observation of page 2 that belongs to the glade (its biome), as a function of B.glade. */
+const GLADE_OBJECTIVES = {
+  birch: () => ({ id: 'gladeBirch', text: `Напоить рощу: держать ${B.glade.birchWater} воды в запасе ${B.glade.holdSeconds} с подряд` }),
+  oak: () => ({ id: 'gladeOak', text: 'Довести каждый дуб поляны до зрелости' }),
+  pine: () => ({ id: 'gladePine', text: `Освоить ${B.glade.pinePhosphorus} фосфорных кристалла` }),
+  mixed: () => ({ id: 'gladeMixed', text: 'Вырастить гриб у корней дерева каждого вида' }),
+};
+
+/** The glade observation that must be kept up for B.glade.holdSeconds in a row (state.sim.holdT counts the seconds). */
+const HOLDS = {
+  gladeBirch: (state) => state.res.water >= B.glade.birchWater,
+};
+
+/**
+ * The observations of a chapter (1..3); `seasons` picks the winter observation for page 3, a sugar reserve without it;
+ * `biome` (world.biome) adds the glade's own observation to page 2.
+ */
+export function pageObjectives(chapter, seasons = false, biome = null) {
   if (chapter === 2) {
+    const glade = GLADE_OBJECTIVES[biome]?.();
     return [
       { id: 'allies', text: 'Подружиться со всеми деревьями поляны' },
       { id: 'ancient', text: 'Вырастить вековое дерево' },
       { id: 'gravel', text: 'Протянуть нить до галечника' },
       { id: 'finds', text: `Записать в тетрадь ${B.chapter2Finds} вида находок` },
       { id: 'worms', text: `Поймать ${B.chapter2Worms} нематод в ловчие кольца` },
+      ...(glade ? [glade] : []),
       { id: 'spores500', text: `Собрать ${B.chapter2Spores} спор` },
     ];
   }
@@ -38,8 +56,8 @@ export function pageObjectives(chapter, seasons = false) {
   return OBJECTIVES;
 }
 
-export function createObjectives(chapter = 1, seasons = false) {
-  return pageObjectives(chapter, seasons).map((o) => ({ ...o, done: false }));
+export function createObjectives(chapter = 1, seasons = false, biome = null) {
+  return pageObjectives(chapter, seasons, biome).map((o) => ({ ...o, done: false }));
 }
 
 /** Depth (below the surface) at which the gravel horizon begins in this world. */
@@ -58,6 +76,18 @@ const CHECKS = {
   finds: (state) => new Set(Object.values(state.finds ?? {}).map((f) => f.kind)).size >= B.chapter2Finds,
   worms: (state) => state.sim.threat.caught >= B.chapter2Worms,
   spores500: (state) => state.res.spores >= B.chapter2Spores,
+  gladeBirch: (state) => state.sim.holdT >= B.glade.holdSeconds,
+  gladeOak: (state) => state.world.trees.filter((t) => t.species === 'oak').every((t) => t.stage >= 2),
+  gladePine: (state) =>
+    new Set(state.net.links.filter((l) => l.kind === 'mineral' && state.world.minerals[l.targetId].kind === 'phosphorus').map((l) => l.targetId)).size >=
+    B.glade.pinePhosphorus,
+  // a grown mushroom within B.glade.mixedReach (horizontally) of a tree of every species of the glade
+  gladeMixed: (state) => {
+    const grown = state.mushrooms.filter((m) => m.mature);
+    return [...new Set(state.world.trees.map((t) => t.species))].every((sp) =>
+      state.world.trees.some((t) => t.species === sp && grown.some((m) => Math.abs(m.x - t.x) <= B.glade.mixedReach)),
+    );
+  },
   // chapter 3
   winter: (state) => state.clock.season === 'winter' && state.clock.seasonFrac >= 0.9 && state.res.sugar >= B.winterSugar,
   reserve: (state) => state.res.sugar >= B.reserveSugar,
@@ -71,10 +101,12 @@ const CHECKS = {
  * means «page 1 is complete» and stays true (without threats there is only page 1, as before); flags.pagesDone counts
  * the completed pages (threats only).
  */
-export function stepObjectives(state) {
+export function stepObjectives(state, dt = 0) {
   const { flags, events } = state;
   const chapters = Boolean(flags.threats);
   if (flags.bookDone || (flags.allObjectivesDone && !chapters)) return;
+  const holding = state.objectives.find((o) => !o.done && HOLDS[o.id]);
+  if (holding) state.sim.holdT = HOLDS[holding.id](state) ? state.sim.holdT + dt : 0;
   let all = true;
   for (const o of state.objectives) {
     if (!o.done && CHECKS[o.id](state)) {
@@ -91,7 +123,7 @@ export function stepObjectives(state) {
   flags.pagesDone = n;
   if (n < B.chapterCount) {
     state.chapter = n + 1;
-    state.objectives = createObjectives(n + 1, Boolean(flags.seasons));
+    state.objectives = createObjectives(n + 1, Boolean(flags.seasons), state.world.biome);
     events.push({ type: 'chapter', chapter: n + 1 });
   } else {
     flags.bookDone = true;

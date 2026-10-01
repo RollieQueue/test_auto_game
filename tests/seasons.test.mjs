@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
 import { addNode } from '../src/sim/network.js';
-import { B } from '../src/sim/balance.js';
+import { B, treeFx } from '../src/sim/balance.js';
 import { NEUTRAL_FX, clockAt, daylightAt, restoreTime, weatherAt } from '../src/sim/clock.js';
 import { groundYAt } from '../src/world/query.js';
 import { DT, playBot } from './bot.mjs';
@@ -132,7 +132,7 @@ test('the clock always advances; without the flag nothing else changes (no event
   // effects are exactly neutral: a lone tree income equals the base table
   const { s: s2, tree } = scene(20, { seasons: false });
   const pay = treeSugar(s2, tree);
-  assert.ok(Math.abs(pay - B.treePay[tree.stage] * B.treeContactFactor[0] * 0.3) < 1e-9);
+  assert.ok(Math.abs(pay - B.treePay[tree.stage] * treeFx(tree).pay * B.treeContactFactor[0] * 0.3) < 1e-9);
 });
 
 test('a full year: event order, times and counts; the year ends once and play continues', () => {
@@ -214,23 +214,24 @@ test('restoring the clock reproduces the live clock, weather and effects (what a
   }
 });
 
-test('photosynthesis: tree sugar follows daylight (noon 4x midnight), smoothly through dusk', () => {
-  const noon = scene(20);
-  const midnight = scene(70);
+test('photosynthesis: tree sugar follows daylight (noon 1/photoFloor x midnight), smoothly through dusk', () => {
+  const Y = YEAR; // the second spring: the gentle first minutes (B.firstLight) are over
+  const noon = scene(Y + 20);
+  const midnight = scene(Y + 70);
   const dayPay = treeSugar(noon.s, noon.tree);
   const nightPay = treeSugar(midnight.s, midnight.tree);
   assert.ok(Math.abs(dayPay / nightPay - 1 / B.photoFloor) < 1e-9, `noon/midnight ${dayPay / nightPay}`);
-  assert.ok(Math.abs(dayPay - B.seasons.spring.pay * B.treePay[noon.tree.stage] * B.treeContactFactor[0] * 0.3) < 1e-9);
+  assert.ok(Math.abs(dayPay - B.seasons.spring.pay * B.treePay[noon.tree.stage] * treeFx(noon.tree).pay * B.treeContactFactor[0] * 0.3) < 1e-9);
   // through the evening the income falls without steps
   const samples = [];
   for (let t = 35; t <= 60; t += 0.5) {
-    const { s, tree } = scene(t);
+    const { s, tree } = scene(Y + t);
     samples.push(treeSugar(s, tree));
   }
   for (let i = 1; i < samples.length; i++) assert.ok(samples[i] <= samples[i - 1] + 1e-12 && samples[i - 1] - samples[i] < 0.5 * samples[0] * 0.2);
   assert.ok(samples[0] > samples.at(-1) * 2);
   // dawn and dusk matter equally: same daylight at the same distance from noon
-  assert.ok(Math.abs(treeSugar(scene(5).s, scene(5).tree) - treeSugar(scene(35).s, scene(35).tree)) < 0.02);
+  assert.ok(Math.abs(treeSugar(scene(Y + 5).s, scene(Y + 5).tree) - treeSugar(scene(Y + 35).s, scene(Y + 35).tree)) < 0.02);
 });
 
 test('spring rain refills water pockets much faster than clear weather', () => {

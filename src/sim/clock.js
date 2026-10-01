@@ -3,7 +3,7 @@
 // so a save needs no weather or season internals beyond the clock itself.
 import { clamp } from '../core/geom.js';
 import { createRng, hash32 } from '../core/rng.js';
-import { B } from './balance.js';
+import { B, nightFloor } from './balance.js';
 
 export const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'];
 
@@ -79,13 +79,13 @@ export function weatherAt(state, t) {
   return { kind: 'clear', intensity: 0 };
 }
 
-/** The multipliers the rest of the sim reads (state.sim.fx), from the clock and the weather. */
-export function effectsFor(clock, weather) {
+/** The multipliers the rest of the sim reads (state.sim.fx), from the clock and the weather (and `t`, the game time: see B.firstLight). */
+export function effectsFor(clock, weather, t) {
   const S = B.seasons[clock.season];
   const rain = weather.kind === 'rain' ? weather.intensity : 0;
   const drought = weather.kind === 'drought' ? weather.intensity : 0;
   return {
-    pay: S.pay * (B.photoFloor + (1 - B.photoFloor) * clock.daylight),
+    pay: S.pay * (nightFloor(t) + (1 - nightFloor(t)) * clock.daylight),
     drinkW: S.drinkW * (1 + B.droughtThirst * drought),
     drinkM: S.drinkM,
     regen: S.regen * (1 + S.rain * rain) * (1 - B.droughtRegenCut * drought),
@@ -116,7 +116,7 @@ export function restoreTime(state) {
   state.sim.marks = marksAt(t);
   if (state.flags.seasons) {
     state.weather = weatherAt(state, t);
-    state.sim.fx = effectsFor(state.clock, state.weather);
+    state.sim.fx = effectsFor(state.clock, state.weather, t);
   } else {
     state.weather = { kind: 'clear', intensity: 0 };
     state.sim.fx = NEUTRAL_FX;
@@ -148,5 +148,5 @@ export function stepTime(state) {
   if (w.kind !== state.weather.kind) events.push({ type: 'weather', kind: w.kind });
   state.weather.kind = w.kind;
   state.weather.intensity = w.intensity;
-  sim.fx = effectsFor(clock, state.weather);
+  sim.fx = effectsFor(clock, state.weather, t);
 }

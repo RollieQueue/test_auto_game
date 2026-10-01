@@ -51,7 +51,7 @@ export function updateSim(state, dt) {
     recomputeFlows(state, sim.flowDt);
     sim.flowDt = 0;
   }
-  stepObjectives(state);
+  stepObjectives(state, dt);
   // Smoothed net change per second (commands run between steps, so their one-off costs are not counted).
   const k = Math.min(1, dt / B.rateTau);
   for (const key of ['sugar', 'water', 'minerals', 'spores']) rates[key] += ((res[key] - before[key]) / dt - rates[key]) * k;

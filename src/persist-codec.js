@@ -287,7 +287,7 @@ export function decodeState(p) {
   if (p.clock !== undefined) state.clock = decodeValue(p.clock);
   if (p.weather !== undefined) state.weather = decodeValue(p.weather);
   state.chapter = p.chapter ?? 1;
-  if (state.chapter !== 1) state.objectives = createObjectives(state.chapter, Boolean(state.flags.seasons));
+  if (state.chapter !== 1) state.objectives = createObjectives(state.chapter, Boolean(state.flags.seasons), state.world.biome);
   const done = new Set(p.objectives);
   for (const o of state.objectives) o.done = done.has(o.id);
   state.fauna = decodeValue(p.fauna ?? []);

@@ -42,17 +42,61 @@ export function estimateGrowth(state, fromId, points) {
     reachable.push(path[i]);
   }
   const free = state.res.sugar - committedSugar(state.net);
-  return { from: fromId, points: reachable, blocked, length, cost, affordable: cost <= free + 1e-9, segCost };
+  const plan = { from: fromId, points: reachable, blocked, length, cost, affordable: cost <= free + 1e-9, segCost };
+  // the part of the path the purse pays for (what commandGrow grows when the whole is out of reach)
+  plan.affordableLength = plan.affordable ? length : affordablePrefix(plan, free).length;
+  return plan;
 }
 
-/** Queues a growing hypha. Returns false for zero-length or unaffordable commands (`insufficient` is emitted for the latter). */
+/** The longest prefix of the planned path that costs at most `budget` sugar: { points, segCost, length }. */
+function affordablePrefix(plan, budget) {
+  const points = [plan.points[0]];
+  const segCost = [];
+  let length = 0;
+  let spent = 0;
+  for (let i = 1; i < plan.points.length; i++) {
+    const a = plan.points[i - 1];
+    const b = plan.points[i];
+    const seg = Math.hypot(b.x - a.x, b.y - a.y);
+    const c = plan.segCost[i - 1];
+    if (spent + seg * c <= budget + 1e-9) {
+      spent += seg * c;
+      length += seg;
+      points.push(b);
+      segCost.push(c);
+      continue;
+    }
+    const part = Math.max(0, (budget - spent) / c); // the last bit, up to where the sugar runs out
+    if (part > 0.01) {
+      const t = part / seg;
+      points.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      segCost.push(c);
+      length += part;
+    }
+    break;
+  }
+  return { points, segCost, length };
+}
+
+/**
+ * Queues a growing hypha. When the whole path is out of reach of the purse the affordable first part is grown instead
+ * (`insufficient { partial: true, got, want }` at the new tip, lengths in u); when not even a minimal step is affordable
+ * the command is refused with a plain `insufficient` at the start node. Returns false for refusals and zero-length commands.
+ */
 export function commandGrow(state, fromId, points) {
-  const p = estimateGrowth(state, fromId, points);
-  if (p.points.length < 2 || p.length < B.minGrowLength) return false;
-  if (!p.affordable) {
-    const from = state.net.nodes[fromId];
-    state.events.push({ type: 'insufficient', x: from.x, y: from.y });
-    return false;
+  const plan = estimateGrowth(state, fromId, points);
+  if (plan.points.length < 2 || plan.length < B.minGrowLength) return false;
+  const from = state.net.nodes[fromId];
+  let p = plan;
+  if (!plan.affordable) {
+    const part = affordablePrefix(plan, state.res.sugar - committedSugar(state.net) - 1e-6);
+    if (part.length < B.minGrowLength) {
+      state.events.push({ type: 'insufficient', x: from.x, y: from.y });
+      return false;
+    }
+    p = { ...plan, points: part.points, segCost: part.segCost, length: part.length };
+    const tip = part.points[part.points.length - 1];
+    state.events.push({ type: 'insufficient', x: tip.x, y: tip.y, partial: true, got: Math.round(part.length), want: Math.round(plan.length) });
   }
   const cum = [0];
   for (let i = 1; i < p.points.length; i++) {
@@ -60,7 +104,6 @@ export function commandGrow(state, fromId, points) {
     const b = p.points[i];
     cum.push(cum[i - 1] + Math.hypot(b.x - a.x, b.y - a.y));
   }
-  const from = state.net.nodes[fromId];
   state.net.growing.push({
     id: state.sim.nextGrowId++,
     from: fromId,

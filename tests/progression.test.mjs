@@ -54,6 +54,31 @@ function roomy(s) {
   }
 }
 
+const GLADE_ID = { birch: 'gladeBirch', oak: 'gladeOak', pine: 'gladePine', mixed: 'gladeMixed' };
+
+/** Makes the glade's own observation of page 2 true (see objectives.js). */
+function satisfyGlade(s) {
+  s.stats.hyphaeLength = Math.max(s.stats.hyphaeLength, 2000); // pool caps grow with the network
+  switch (s.world.biome) {
+    case 'birch':
+      for (let i = 0; i < B.glade.holdSeconds + 2; i++) {
+        s.res.water = B.glade.birchWater + 20; // the pool is kept up for the hold time
+        step(s, 1);
+      }
+      break;
+    case 'oak':
+      for (const t of s.world.trees) if (t.species === 'oak') t.stage = 2;
+      break;
+    case 'pine':
+      for (const m of s.world.minerals.filter((d) => d.kind === 'phosphorus').slice(0, B.glade.pinePhosphorus)) branch(s, 0, m.x, m.y);
+      break;
+    default:
+      s.world.trees.forEach((t, i) =>
+        s.mushrooms.push({ id: 900 + i, nodeId: 0, x: t.x + 20, baseY: t.baseY, mature: true, growth: 1, variant: 0, age: 99, spores: 0, burst: 0, burstT: 0 }),
+      );
+  }
+}
+
 /** Makes every objective of the first page true at once. */
 function finishPageOne(s) {
   for (const o of s.objectives.slice(0, 4)) o.done = true;
@@ -85,7 +110,7 @@ test('with threats, completing a page opens the next one: all-objectives, then c
   assert.deepEqual(evs(seen, 'all-objectives')[0], { type: 'all-objectives', chapter: 1 });
   assert.deepEqual(evs(seen, 'chapter')[0], { type: 'chapter', chapter: 2 });
   assert.equal(s.chapter, 2);
-  assert.deepEqual(ids(s), ['allies', 'ancient', 'gravel', 'finds', 'worms', 'spores500']);
+  assert.deepEqual(ids(s), ['allies', 'ancient', 'gravel', 'finds', 'worms', GLADE_ID[s.world.biome], 'spores500']);
   assert.ok(s.objectives.every((o) => !o.done && typeof o.text === 'string' && o.text.length > 5));
   assert.equal(s.flags.allObjectivesDone, true, 'it keeps meaning «page 1 is complete»');
   assert.equal(s.flags.pagesDone, 1);
@@ -132,6 +157,11 @@ test('chapter 2: every observation can be ticked, one by one, and the page turns
   s.sim.threat.caught = B.chapter2Worms;
   step(s);
   assert.ok(done().includes('worms'));
+  // the glade's own observation
+  assert.ok(!done().includes(GLADE_ID[s.world.biome]));
+  satisfyGlade(s);
+  step(s);
+  assert.ok(done().includes(GLADE_ID[s.world.biome]), `${GLADE_ID[s.world.biome]} ticked`);
   // spores
   s.res.spores = B.chapter2Spores - 1;
   const before = step(s);
@@ -242,8 +272,8 @@ test('pressure: with threats on, mushrooms and hyphae cost more and a big networ
 const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 
 for (const seed of [1, 7, 42]) {
-  test(`bot with threats, seed ${seed}: chapter 1 in 8-15 minutes, chapter 2 within 30, sugar stays a constraint without ever sticking at zero`, () => {
-    const { state, completedAt, stats } = playBot(seed, { maxSeconds: 1800, threats: true, untilChapter: 2, curve: true });
+  test(`bot with threats, seed ${seed}: chapter 1 in 8-15 minutes, chapter 2 within 35, sugar stays a constraint without ever sticking at zero`, () => {
+    const { state, completedAt, stats } = playBot(seed, { maxSeconds: 2100, threats: true, untilChapter: 2, curve: true });
     const t1 = stats.chapterDone[1];
     const t2 = stats.chapterDone[2];
     const sugar = stats.curve.map((c) => c.sugar);
@@ -258,7 +288,7 @@ for (const seed of [1, 7, 42]) {
     assert.equal(completedAt, t1, 'the first closing event is page 1');
     assert.ok(t1 >= 480 && t1 <= 900, `chapter 1 took ${t1} s`);
     assert.notEqual(t2, undefined, 'chapter 2 completed');
-    assert.ok(t2 <= 1800, `chapter 2 took ${t2} s`);
+    assert.ok(t2 <= 2100, `chapter 2 took ${t2} s`);
     assert.equal(state.chapter, 3);
     assert.ok(Math.max(...early) < 200, 'sugar never piles up in the first 15 minutes');
     assert.ok(median(early) < 70, `typical stock in the first 15 minutes: ${median(early)}`);

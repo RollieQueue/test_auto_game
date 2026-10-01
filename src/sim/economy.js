@@ -1,6 +1,6 @@
 // Economy: pool capacity, extraction from deposits, tree exchange and growth, sugar upkeep and baseline.
 import { clamp } from '../core/geom.js';
-import { B, pressure } from './balance.js';
+import { B, biomeFx, pressure, treeFx } from './balance.js';
 import { recheckTips } from './network.js';
 
 function updateCaps(state) {
@@ -14,12 +14,13 @@ function updateCaps(state) {
 /** Pockets refill; every linked deposit feeds the shared pool until it is empty. */
 function extract(state, dt) {
   const { world, res, cap, sim, events } = state;
+  const biome = biomeFx(world);
   for (const w of world.water) {
     w.amount = Math.min(w.max, w.amount + w.regen * sim.fx.regen * dt);
     const links = sim.waterLinks[w.id].length;
     if (links === 0) continue;
     if (sim.emptyFlag.water[w.id] && w.amount >= B.emptyRearm * w.max) sim.emptyFlag.water[w.id] = false;
-    const take = Math.min(Math.min(links, B.maxLinksPerDeposit) * B.waterPerLink * dt, w.amount, Math.max(0, cap.pool - res.water));
+    const take = Math.min(Math.min(links, B.maxLinksPerDeposit) * B.waterPerLink * biome.water * dt, w.amount, Math.max(0, cap.pool - res.water));
     if (take <= 0) continue;
     w.amount -= take;
     res.water += take;
@@ -32,7 +33,7 @@ function extract(state, dt) {
   for (const m of world.minerals) {
     const links = sim.mineralLinks[m.id].length;
     if (links === 0 || m.amount <= 0) continue;
-    const take = Math.min(Math.min(links, B.maxLinksPerDeposit) * B.mineralPerLink * dt, m.amount, Math.max(0, cap.pool - res.minerals));
+    const take = Math.min(Math.min(links, B.maxLinksPerDeposit) * B.mineralPerLink * biome.minerals * dt, m.amount, Math.max(0, cap.pool - res.minerals));
     if (take <= 0) continue;
     m.amount -= take;
     res.minerals += take;
@@ -54,22 +55,24 @@ function stepTrees(state, dt) {
   let wantW = 0;
   let wantM = 0;
   for (const t of linked) {
-    wantW += B.treeDemandWater[t.stage] * fx.drinkW * dt;
-    wantM += B.treeDemandMinerals[t.stage] * fx.drinkM * dt;
+    const sp = treeFx(t);
+    wantW += B.treeDemandWater[t.stage] * sp.drinkW * fx.drinkW * dt;
+    wantM += B.treeDemandMinerals[t.stage] * sp.drinkM * fx.drinkM * dt;
   }
   const scaleW = wantW > res.water ? res.water / wantW : 1;
   const scaleM = wantM > res.minerals ? res.minerals / wantM : 1;
   let paid = 0;
   for (const t of linked) {
-    const dW = B.treeDemandWater[t.stage] * fx.drinkW * dt;
-    const dM = B.treeDemandMinerals[t.stage] * fx.drinkM * dt;
+    const sp = treeFx(t);
+    const dW = B.treeDemandWater[t.stage] * sp.drinkW * fx.drinkW * dt;
+    const dM = B.treeDemandMinerals[t.stage] * sp.drinkM * fx.drinkM * dt;
     const takeW = dW * scaleW;
     const takeM = dM * scaleM;
     res.water -= takeW;
     res.minerals -= takeM;
     const sat = B.treeSatWater * (takeW / dW) + (1 - B.treeSatWater) * (takeM / dM); // demands are never 0
     t.health += (sat - t.health) * Math.min(1, dt / B.treeHealthTau);
-    const pay = B.treePay[t.stage] * fac(t) * sat * fx.pay * pressure(state).treePay * dt;
+    const pay = B.treePay[t.stage] * sp.pay * fac(t) * sat * fx.pay * pressure(state).treePay * dt;
     paid += pay;
     const intake = sim.intake[t.id];
     intake.water += takeW;
@@ -77,7 +80,7 @@ function stepTrees(state, dt) {
     intake.sugar += pay;
     if (t.stage < 3) {
       const g = clamp((t.health - B.treeGrowFromHealth) / (1 - B.treeGrowFromHealth), 0, 1);
-      t.growth += (g * fx.treeGrow * pressure(state).treeGrow * dt) / B.treeGrowSeconds[t.stage];
+      t.growth += (g * sp.grow * fx.treeGrow * pressure(state).treeGrow * dt) / B.treeGrowSeconds[t.stage];
       if (t.growth >= 1) {
         t.stage++;
         t.growth = 0;

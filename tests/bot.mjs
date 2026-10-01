@@ -141,13 +141,13 @@ export function playBot(seed, opts = {}) {
   if (opts.threats) state.flags.threats = true;
   const grid = costGrid(state.world);
   const { world, net } = state;
-  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null, chapterDone: {}, traps: 0, curve: [] };
+  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null, chapterDone: {}, traps: 0, curve: [], firstAt: {}, senseAt: {}, senseLead: [] };
   let nextThink = 0;
 
   const linked = (kind) => net.links.some((l) => l.kind === kind);
   const free = () => state.res.sugar - committedSugar(net);
 
-  const grow = (r) => {
+  const grow = (r, minPartial = Infinity) => {
     if (!r) {
       stats.noRoute = (stats.noRoute || 0) + 1;
       return false;
@@ -167,7 +167,7 @@ export function playBot(seed, opts = {}) {
     const full = n === r.points.length;
     if (opts.debug) console.log('grow', state.time.toFixed(1), 'pts', r.points.length, 'affordable', n, 'cost', r.cost.toFixed(0), 'budget', budget.toFixed(0), 'cap', state.cap.sugar.toFixed(0));
     // wait for the full route unless the purse is nearly at its cap
-    if (!full && free() < state.cap.sugar - 6) return false;
+    if (!full && free() < state.cap.sugar - 6 && spend < minPartial) return false; // (a long drag may go ahead as far as `minPartial` sugar reaches)
     if (n < 1) return false;
     stats.commands++;
     const ok = sim.commandGrow(state, r.nodeId, r.points.slice(0, n));
@@ -222,7 +222,38 @@ export function playBot(seed, opts = {}) {
     return grow(route(state, grid, (x, y) => world.decor.some((d) => !state.finds[d.id] && !have.has(d.type) && Math.hypot(x - d.x, y - d.y) <= findRadius(d) * 0.6)));
   };
   const gravelDepth = world.horizons[world.horizons.length - 1].depth;
-  const goGravel = () => grow(route(state, grid, (x, y) => y - groundYAt(world, x) >= gravelDepth + 8));
+  const goGravel = () => grow(route(state, grid, (x, y) => y - groundYAt(world, x) >= gravelDepth + 8), 30);
+  const goPhosphorus = () =>
+    grow(
+      route(state, grid, (x, y) =>
+        world.minerals.some((m) => m.kind === 'phosphorus' && m.amount > 15 && state.sim.mineralLinks[m.id].length === 0 && Math.hypot(x - m.x, y - m.y) <= m.r * 0.7),
+      ),
+      30,
+    );
+  // glade observations (chapter 2): a mushroom at the roots of every species of tree
+  const pending = (id) => state.objectives.some((o) => o.id === id && !o.done);
+  const uncoveredTree = () => {
+    const near = (t, slack) => state.mushrooms.some((m) => Math.abs(m.x - t.x) <= B.glade.mixedReach - slack);
+    const covered = new Set(world.trees.filter((t) => near(t, 15)).map((t) => t.species));
+    return world.trees.find((t) => !covered.has(t.species));
+  };
+  const goSpecies = (tree) =>
+    grow(
+      route(state, grid, (x, y) => {
+        const depth = y - groundYAt(world, x);
+        return depth >= 16 && depth <= 32 && Math.abs(x - tree.x) <= B.glade.mixedReach - 40 && state.mushrooms.every((m) => Math.abs(m.x - x) > B.fruitSpacing + 14);
+      }),
+      30,
+    );
+  const plantNear = (tree) => {
+    for (const n of net.nodes) {
+      if (Math.abs(n.x - tree.x) <= B.glade.mixedReach - 20 && sim.canFruit(state, n.id)) {
+        stats.commands++;
+        return sim.commandFruit(state, n.id);
+      }
+    }
+    return false;
+  };
 
   // A ring on the hypha a worm is after (or chewing), unless a ring with catches left already covers it.
   let nextTrapAt = 0;
@@ -275,7 +306,15 @@ export function playBot(seed, opts = {}) {
     if (state.flags.threats && state.chapter >= 2) {
       if (!world.trees.every((t) => state.sim.contacts[t.id].length > 0)) return void goAlly();
       if (foundKinds().size < B.chapter2Finds && free() > 20) return void goFind();
-      if (state.stats.maxDepth < gravelDepth && free() > 60) return void goGravel();
+      if (pending('gladePine') && free() > 35) return void goPhosphorus();
+      if (pending('gladeMixed') && free() > 35) {
+        const tree = uncoveredTree();
+        if (tree) {
+          if (free() >= mushroomCost(state) + 6 && plantNear(tree)) return;
+          return void goSpecies(tree);
+        }
+      }
+      if (state.stats.maxDepth < gravelDepth && free() > 40) return void goGravel();
       if (state.chapter >= 3 && state.mushrooms.length < B.chapter3Mushrooms + 1 && free() > 50) {
         if (plant()) return;
         return void goSurface();
@@ -290,6 +329,9 @@ export function playBot(seed, opts = {}) {
     state.time += DT;
     for (const ev of state.events) {
       stats.events[ev.type] = (stats.events[ev.type] || 0) + 1;
+      stats.firstAt[ev.type] ??= state.time;
+      if (ev.type === 'worm-sense') stats.senseAt[ev.id] = state.time;
+      if (ev.type === 'bite' && stats.senseAt[ev.id] !== undefined) stats.senseLead.push(state.time - stats.senseAt[ev.id]);
       if (ev.type === 'objective') stats.doneAt[ev.id] = state.time;
       if (ev.type === 'all-objectives') {
         stats.chapterDone[ev.chapter ?? 1] = state.time;
@@ -299,12 +341,13 @@ export function playBot(seed, opts = {}) {
     }
     state.events.length = 0;
     stats.minSugar = Math.min(stats.minSugar, state.res.sugar);
-    const ss = (stats.bySeason[state.clock.season + state.clock.year] ??= { min: Infinity, sum: 0, n: 0, zero: 0, spores0: state.res.spores, spores1: 0, waterMin: Infinity, health: 0 });
+    const ss = (stats.bySeason[state.clock.season + state.clock.year] ??= { min: Infinity, sum: 0, n: 0, zero: 0, spores0: state.res.spores, spores1: 0, waterMin: Infinity, health: 0, waterSum: 0 });
     ss.min = Math.min(ss.min, state.res.sugar);
     ss.sum += state.res.sugar;
     ss.n++;
     ss.spores1 = state.res.spores;
     ss.waterMin = Math.min(ss.waterMin, state.res.water);
+    ss.waterSum += state.res.water;
     if (i % 60 === 0) ss.health += mean(state.world.trees.filter((t) => t.linked).map((t) => t.health));
     if (state.res.sugar < 0.5) ss.zero += DT;
     if (state.res.sugar < 0.5) {
