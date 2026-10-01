@@ -139,13 +139,23 @@ export const THREAT_BOTH = new Set(['severed', 'worm-caught', 'trap-spent', 'mus
 const nodesLost = (ev) => (isNum(ev.nodes) ? ev.nodes : isNum(ev.lost) ? ev.lost : null);
 const mineralsOf = (ev) => (isNum(ev.minerals) ? Math.max(0, Math.round(ev.minerals)) : null);
 
-/** Floating label for a threat event: { key, text, tone, icon } or null. Bite throttling is the caller's job. */
-export function threatLabel(ev) {
+/**
+ * Why the net was cut in this frame: the cause of the first 'severed' event ('worm' when it says nothing). The
+ * 'mushroom-wilted' events of the same cut do not carry it, and a mushroom lost to starvation did not meet a worm.
+ */
+export function cutCause(events) {
+  for (const e of events || []) if (e && e.type === 'severed') return e.cause === 'starved' ? 'starved' : 'worm';
+  return 'worm';
+}
+
+/** Floating label for a threat event: { key, text, tone, icon } or null. Bite throttling is the caller's job. `cause`: see cutCause. */
+export function threatLabel(ev, cause = 'worm') {
   switch (ev.type) {
     case 'bite':
       return { key: 'bite', text: 'укус', tone: 'bite', icon: 'worm' };
     case 'severed': {
       const n = nodesLost(ev);
+      if (ev.cause === 'starved') return { key: 'severed:starved', text: n ? `отмерло: −${n}` : 'нить отмерла', tone: 'warn', icon: 'snip' };
       return { key: 'severed', text: n ? `перекушено: −${n}` : 'перекушено', tone: 'warn', icon: 'snip' };
     }
     case 'worm-caught': {
@@ -170,17 +180,21 @@ export function threatLabel(ev) {
       return { key: `trap:denied:${ev.reason}`, text, tone: 'warn', icon: ev.reason === 'sugar' ? 'sugar' : 'ring' };
     }
     case 'mushroom-wilted':
-      return { key: 'wilted', text: 'завял', tone: 'warn', icon: 'mushroom' };
+      return { key: 'wilted', text: cause === 'starved' ? 'гриб погиб: нить отмерла' : 'гриб погиб: нить перекушена', tone: 'warn', icon: 'mushroom' };
     default:
       return null;
   }
 }
 
-/** Margin note for a threat event: { key, text, tone, icon, life? } or null. */
-export function threatNote(ev) {
+/** Margin note for a threat event: { key, text, tone, icon, life? } or null. `cause`: see cutCause. */
+export function threatNote(ev, cause = 'worm') {
   switch (ev.type) {
     case 'severed': {
       const n = nodesLost(ev);
+      if (ev.cause === 'starved') {
+        const text = n ? `Нить отмерла без сахара: отмерло ${count(n, 'узел', 'узла', 'узлов')}` : 'Нить отмерла без сахара: часть сети погибла';
+        return { key: 'threat:starved', text, tone: 'warn', icon: 'snip' };
+      }
       const text = n ? `Нить перекушена: отмерло ${count(n, 'узел', 'узла', 'узлов')}` : 'Нить перекушена: часть сети отмерла';
       return { key: 'threat:severed', text, tone: 'warn', icon: 'snip' };
     }
@@ -196,7 +210,12 @@ export function threatNote(ev) {
     case 'trap-spent':
       return { key: 'threat:spent', text: 'Кольцо истощилось', tone: 'warn', icon: 'ring' };
     case 'mushroom-wilted':
-      return { key: 'threat:wilted', text: 'Гриб завял', tone: 'warn', icon: 'mushroom' };
+      return {
+        key: 'threat:wilted',
+        text: cause === 'starved' ? 'Гриб погиб: нить отмерла без сахара' : 'Гриб погиб: нить перекушена',
+        tone: 'warn',
+        icon: 'mushroom',
+      };
     case 'chapter': {
       const n = isNum(ev.chapter) ? Math.floor(ev.chapter) : null;
       return {
@@ -210,6 +229,29 @@ export function threatNote(ev) {
     default:
       return null;
   }
+}
+
+export const WORM_SENSE_NOTE = 'Нематода учуяла нить — поставь ловчее кольцо (3) у неё на пути';
+
+/**
+ * Rate limit of the «нематода учуяла нить» note: at most `max` times per game and `gap` seconds of game time
+ * apart (every worm senses once, and a glade can hold several). `take(now)` says whether to show it now.
+ */
+export function createSenseGate(max = 3, gap = 30) {
+  let shown = 0;
+  let last = -Infinity;
+  return {
+    take(now) {
+      if (shown >= max || now - last < gap) return false;
+      shown += 1;
+      last = now;
+      return true;
+    },
+    reset() {
+      shown = 0;
+      last = -Infinity;
+    },
+  };
 }
 
 export const FIRST_WORM_NOTE = 'В почве нематоды: они перекусывают тонкие нити. Поставь ловчее кольцо — клавиша 3';

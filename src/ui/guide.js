@@ -228,13 +228,15 @@ export function createGuide(host, obstacles) {
   let doneHandled = false;
   let wormLive = false; // the first-worm arrow is on screen (it was marked seen when it appeared)
   let wormT = 0;
+  let tipOver = false; // the pointer tooltip sits on the note: the note is hidden
 
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => (layoutDirty = true)) : null;
   ro?.observe(noteEl);
 
   function hideDom() {
-    host.classList.remove('on', 'dim', 'leaving');
+    host.classList.remove('on', 'dim', 'leaving', 'tip-over');
     dimmed = false;
+    tipOver = false;
     noteEl.classList.remove('in', 'out');
     ringG.classList.remove('draw');
     arrowG.classList.remove('draw');
@@ -374,6 +376,17 @@ export function createGuide(host, obstacles) {
   return {
     reset() {
       cur = null;
+    },
+    /** Screen rect of the note while it is on screen (the pointer tooltip keeps clear of it), else null. */
+    noteBox() {
+      return shown && mode === 'in' && noteRect ? noteRect : null;
+    },
+    /** The pointer tooltip had no free spot and sits on the note: the note steps out of the way until it is gone. */
+    tipOver(on) {
+      const want = Boolean(on) && Boolean(shown);
+      if (want === tipOver) return;
+      tipOver = want;
+      host.classList.toggle('tip-over', want);
     },
     /**
      * @param {object} state  game state

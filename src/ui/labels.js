@@ -2,9 +2,10 @@
 // mushroom). Global news (objectives, tree stages) stays in the note stack at the top (notes.js).
 import { icons } from './icons.js';
 import { findNames } from './atlas-logic.js';
-import { THREAT_LOCAL, threatLabel } from './threats.js';
+import { THREAT_LOCAL, cutCause, threatLabel } from './threats.js';
+import { LABEL_LIFE, placeLabelY } from './labels-logic.js';
 
-const LIFE = 2.7; // s
+const LIFE = LABEL_LIFE; // s
 const MAX_LABELS = 12;
 const BITE_GAP = 2.6; // s between two «укус» labels: a worm chews for a while, the label should not nag
 const MERGE_RADIUS = 70; // CSS px: a repeat this close restarts the label instead of adding another
@@ -12,11 +13,14 @@ const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
+/** The label of a hypha that grew only as far as the sugar allowed (event insufficient { partial: true, got, want }). */
+export const PARTIAL_TEXT = 'Сахара хватило на часть пути';
+
 /** Events a label is made for (notes.js skips the same ones when labels are available). */
 export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature', 'find', ...THREAT_LOCAL]);
 
-/** Maps an event to { key, text, tone, icon } or null. `sugarDenied` is true when this frame has a fruit-denied for sugar. */
-function describe(state, ev, sugarDenied) {
+/** Maps an event to { key, text, tone, icon } or null. `sugarDenied` is true when this frame has a fruit-denied for sugar; `cause`: see cutCause. */
+export function describeLabel(state, ev, sugarDenied, cause = 'worm') {
   const world = state.world;
   switch (ev.type) {
     case 'link':
@@ -33,6 +37,7 @@ function describe(state, ev, sugarDenied) {
       return null;
     case 'insufficient':
       if (sugarDenied) return null; // the fruit-denied label says it already
+      if (ev.partial) return { key: 'insufficient:partial', text: PARTIAL_TEXT, tone: 'warn', icon: 'sugar' };
       return { key: 'insufficient', text: 'не хватает сахара', tone: 'warn', icon: 'sugar' };
     case 'fruit-denied': {
       const text =
@@ -59,11 +64,11 @@ function describe(state, ev, sugarDenied) {
     case 'mushroom-mature':
       return { key: 'mature', text: 'созрел!', tone: 'good', icon: 'spores' };
     default:
-      return threatLabel(ev);
+      return threatLabel(ev, cause);
   }
 }
 
-export function createLabels(host) {
+export function createLabels(host, avoid = () => []) {
   /** @type {{el: HTMLElement, cnt: HTMLElement, key: string, sx: number, sy: number, age: number, count: number}[]} */
   let labels = [];
   let clock = 0; // s of real time, for throttling
@@ -97,21 +102,14 @@ export function createLabels(host) {
     el.querySelector('.txt').textContent = d.text;
     host.appendChild(el);
 
-    // keep the label inside the viewport and apart from the labels already there
+    // keep the label inside the viewport, apart from the labels already there and out of the column of notes
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const x = Math.min(view.cssW - w / 2 - 8, Math.max(w / 2 + 8, sx));
-    let y = Math.max(h + 8, sy);
-    for (let guard = 0; guard < 6; guard++) {
-      // an older label has floated up by now: compare against where it really is
-      const clash = labels.some(
-        (l) => Math.abs(l.x - x) < (l.w + w) / 2 + 4 && Math.abs(l.y - (l.age / LIFE) * 1.1 * l.h - y) < h + 2,
-      );
-      if (!clash) break;
-      y -= h + 3;
-    }
+    // (an older label has floated up by now: placeLabelY compares against where it really is)
+    const y = placeLabelY({ x, y: Math.max(h + 8, sy), w, h }, labels, avoid(), { w: view.cssW, h: view.cssH });
     el.style.left = `${Math.round(x)}px`;
-    el.style.top = `${Math.round(Math.max(h + 4, y))}px`;
+    el.style.top = `${Math.round(y)}px`;
     el.style.setProperty('--tilt', `${(((sx * 7 + sy * 13) % 5) - 2) * 0.6}deg`);
     el.classList.add('go');
 
@@ -132,6 +130,7 @@ export function createLabels(host) {
       if (!view || !(view.scale > 0)) return false;
       const events = state.events;
       let sugarDenied = false;
+      const cause = cutCause(events);
       for (let i = 0; i < events.length; i++) {
         if (events[i].type === 'fruit-denied' && events[i].reason === 'sugar') sugarDenied = true;
       }
@@ -142,7 +141,7 @@ export function createLabels(host) {
           if (clock - lastBite < BITE_GAP) continue;
           lastBite = clock;
         }
-        const d = describe(state, ev, sugarDenied);
+        const d = describeLabel(state, ev, sugarDenied, cause);
         if (d) spawn(d, ev.x * view.scale + view.ox, ev.y * view.scale + view.oy - 8, view);
       }
       return true;

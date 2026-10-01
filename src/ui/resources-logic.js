@@ -1,6 +1,8 @@
 // The resources card without the DOM: what to show for each stock and the tooltip over its row.
 // Sugar is capped by state.cap.sugar, water and minerals each by state.cap.pool, spores are not capped.
 import { RESOURCE_INFO, fillWords } from '../content/resources.js';
+import { groundYAt } from '../world/query.js';
+import * as balance from '../sim/balance.js';
 
 export const RESOURCES = [
   { k: 'sugar', label: 'Сахар', cap: 'sugar' },
@@ -42,5 +44,57 @@ export function resourceTip(state, k) {
     sub: v.capped && v.cap > 0 ? fillWords(v.frac) : '',
     body: lines,
     warn: v.full,
+  };
+}
+
+// ---- sugar at its cap: a nudge toward the mushroom tool ----------------------------------------------------------
+
+export const NUDGE = Object.freeze({
+  fullFor: 7, // s the stock has to sit at its cap before the note comes
+  cooldown: 90, // s of game time between two notes
+  max: 5, // notes per game
+  lit: 9, // s the «Гриб» tab stays lit
+});
+
+/** True when some alive node is close enough to the ground for a mushroom (the player has a place to click). */
+export function hasFruitSpot(state) {
+  const maxDepth = (balance.B && balance.B.fruitMaxDepth) ?? 45;
+  return state.net.nodes.some((n) => n.alive && n.y - groundYAt(state.world, n.x) <= maxDepth);
+}
+
+/**
+ * Watches the sugar stock: when it sits at its cap for a while with nothing growing out of it, fires one note
+ * (rate-limited by game time) and keeps the «Гриб» tab lit for a few seconds.
+ * `update(state, dt)` -> { fire, active } (dt = real seconds; frozen while the game is not playing).
+ */
+export function createSugarNudge(cfg = NUDGE) {
+  let full = 0;
+  let last = -Infinity;
+  let sent = 0;
+  let litUntil = -Infinity;
+  return {
+    reset() {
+      full = 0;
+      last = -Infinity;
+      sent = 0;
+      litUntil = -Infinity;
+    },
+    update(state, dt) {
+      const now = state.time;
+      if (state.phase !== 'playing') return { fire: false, active: now < litUntil };
+      const winter = Boolean(state.flags && state.flags.seasons && state.clock && state.clock.season === 'winter');
+      const v = resourceView(state, 'sugar');
+      // a mushroom does not grow in winter, and with no node near the ground there is nowhere to click
+      full = v.full && !winter ? full + dt : 0;
+      let fire = false;
+      if (full >= cfg.fullFor && sent < cfg.max && now - last >= cfg.cooldown && hasFruitSpot(state)) {
+        fire = true;
+        sent += 1;
+        last = now;
+        litUntil = now + cfg.lit;
+        full = 0;
+      }
+      return { fire, active: now < litUntil && v.full };
+    },
   };
 }

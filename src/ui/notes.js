@@ -4,7 +4,8 @@
 import { icons } from './icons.js';
 import { LOCAL_EVENTS } from './labels.js';
 import { findNames } from './atlas-logic.js';
-import { THREAT_BOTH, threatNote } from './threats.js';
+import { THREAT_BOTH, cutCause, threatNote } from './threats.js';
+import { PARTIAL_TEXT } from './labels.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 
 const MAX_NOTES = 4;
@@ -17,7 +18,7 @@ const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
 /** Maps an event to { key, text, tone, icon, life? } or null when the event has no note. `prevWeather`: kind before this frame. */
-function describe(state, ev, prevWeather = 'clear') {
+export function describeNote(state, ev, prevWeather = 'clear', cause = 'worm') {
   const world = state.world;
   switch (ev.type) {
     case 'link':
@@ -49,6 +50,7 @@ function describe(state, ev, prevWeather = 'clear') {
     case 'mushroom-mature':
       return { key: 'mush:mature', text: 'Гриб созрел — пошли споры', tone: 'good', icon: 'spores' };
     case 'insufficient':
+      if (ev.partial) return { key: 'insufficient:partial', text: PARTIAL_TEXT, tone: 'warn', icon: 'sugar' };
       return { key: 'insufficient', text: 'Не хватает сахара', tone: 'warn', icon: 'sugar' };
     case 'deposit-empty':
       return {
@@ -82,7 +84,7 @@ function describe(state, ev, prevWeather = 'clear') {
     case 'objective':
       return { key: `obj:${ev.id}`, text: `Отмечено: ${ev.text ? ev.text.charAt(0).toLowerCase() + ev.text.slice(1) : ''}`, tone: 'good', icon: 'check' };
     default:
-      return threatNote(ev);
+      return threatNote(ev, cause);
   }
 }
 
@@ -157,10 +159,11 @@ export function createNotes(host) {
     /** `skipLocal`: events with a place on the map get floating labels instead (labels.js). */
     process(state, skipLocal = false) {
       const events = state.events;
+      const cause = cutCause(events);
       for (let i = 0; i < events.length; i++) {
         if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find' && !THREAT_BOTH.has(events[i].type)) continue;
         const ev = events[i];
-        const d = describe(state, ev, prevWeather);
+        const d = describeNote(state, ev, prevWeather, cause);
         if (ev.type === 'weather') prevWeather = ev.kind;
         if (d) push(d);
       }

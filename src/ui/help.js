@@ -142,5 +142,6 @@ ${seasonsSection(state)}
         </section>
       </div>
     </div>
-    <div class="actions"><button class="ink-btn" data-act="help-close" type="button">Закрыть <kbd>H</kbd></button></div>`;
+    <div class="actions"><button class="ink-btn" data-act="help-close" type="button">Закрыть <kbd>H</kbd></button></div>
+    <div class="help-more" aria-hidden="true"><span>дальше ↓</span></div>`;
 }

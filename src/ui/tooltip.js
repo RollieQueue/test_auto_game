@@ -5,8 +5,9 @@ import * as sim from '../sim/index.js';
 import * as mushrooms from '../sim/mushrooms.js';
 import * as balance from '../sim/balance.js';
 import { describeTrapPick, fruitCostOf, threatsOn, trapCost } from './threats.js';
+import { describeTree } from './trees-logic.js';
+import { placeTip } from './tip-logic.js';
 
-const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
@@ -32,11 +33,7 @@ function describeTarget(state, t) {
     case 'tree': {
       const tree = find(world.trees, t.id);
       if (!tree) return { main: 'Дерево' };
-      const stage = STAGE_WORDS[tree.stage] || '';
-      return {
-        main: `${tree.name} · ${stage} · довольство ${pct(tree.health)}`,
-        sub: tree.linked ? 'союз заключён' : 'нить сюда ещё не дошла',
-      };
+      return describeTree(tree);
     }
     case 'rock':
       return { main: 'Камень — нить не пройдёт' };
@@ -126,8 +123,12 @@ export function createTooltip(host) {
       hide();
       key = '';
     },
-    /** `extra`: a tooltip { main, sub, body: string[], warn, at?: {x, y} } for what the HUD itself is hovered over (a resources row). */
-    update(state, extra = null) {
+    /**
+     * `extra`: a tooltip { main, sub, body: string[], warn, at?: {x, y} } for what the HUD itself is hovered over (a resources row).
+     * `avoid`: screen rects it keeps clear of when it can (the guide's note). Returns { l, t, r, b, covers } (screen px)
+     * for the tooltip on screen, null when none; `covers` is true when it had to sit on an avoided rect.
+     */
+    update(state, extra = null, avoid = []) {
       const ui = state.ui;
       const p = ui.pointer;
       const live = state.phase === 'playing' || state.phase === 'paused';
@@ -143,7 +144,7 @@ export function createTooltip(host) {
       }
       if (!info) {
         hide();
-        return;
+        return null;
       }
       const body = info.body || null;
       const k = `${info.main}|${info.sub || ''}|${info.warn ? 1 : 0}|${body ? body.join('/') : ''}`;
@@ -169,19 +170,15 @@ export function createTooltip(host) {
         w = host.offsetWidth;
         h = host.offsetHeight;
       }
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
       // a tooltip with an anchor (a resources row) sits beside it; the others follow the pointer
       const at = info.at;
-      let x = at ? at.x : p.sx + 16;
-      let y = at ? at.y : p.sy + 20;
-      if (x + w > vw - 6) x = (at ? at.x : p.sx) - w - 12;
-      if (y + h > vh - 6) y = (at ? at.y : p.sy) - h - 14;
-      const transform = `translate(${Math.max(4, x).toFixed(0)}px, ${Math.max(4, y).toFixed(0)}px) rotate(-0.6deg)`;
+      const spot = placeTip(at || { x: p.sx, y: p.sy }, { w, h }, { vw: window.innerWidth, vh: window.innerHeight }, avoid, Boolean(at));
+      const transform = `translate(${spot.x.toFixed(0)}px, ${spot.y.toFixed(0)}px) rotate(-0.6deg)`;
       if (transform !== lastTransform) {
         lastTransform = transform;
         host.style.transform = transform;
       }
+      return { ...spot.rect, covers: spot.covers };
     },
   };
 }

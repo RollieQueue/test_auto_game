@@ -103,7 +103,7 @@ test('labels and notes for the threat events', () => {
   assert.equal(threatNote({ type: 'worm-caught', minerals: 2 }).text, 'Кольцо поймало нематоду: +2 минерала');
   assert.equal(threatNote({ type: 'worm-caught' }).text, 'Кольцо поймало нематоду');
   assert.equal(threatNote({ type: 'trap-spent' }).text, 'Кольцо истощилось');
-  assert.equal(threatNote({ type: 'mushroom-wilted' }).text, 'Гриб завял');
+  assert.equal(threatNote({ type: 'mushroom-wilted' }).text, 'Гриб погиб: нить перекушена');
   assert.match(threatNote({ type: 'chapter', chapter: 2 }).text, /Глава 2/);
   assert.equal(threatLabel({ type: 'trap-denied', reason: 'crowded' }).text, 'рядом уже есть кольцо');
   assert.equal(threatLabel({ type: 'trap-denied', reason: 'sugar' }).icon, 'sugar');

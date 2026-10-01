@@ -1,7 +1,9 @@
 // DOM HUD: a naturalist's notebook around the scene. API: createHud(root, actions) -> { update(state, dt, view) }.
 // update() runs every frame, so every write below is guarded by a "changed?" check.
 import { icons, checkbox, flourish, capBar } from './icons.js';
-import { RESOURCES, resourceView, resourceTip } from './resources-logic.js';
+import { RESOURCES, resourceView, resourceTip, createSugarNudge } from './resources-logic.js';
+import { coverage, cardMode, pointerIn } from './cards-logic.js';
+import { objectiveText } from './trees-logic.js';
 import { gladeLabel } from './glade.js';
 import { createNotes } from './notes.js';
 import { createTooltip } from './tooltip.js';
@@ -14,7 +16,7 @@ import { calendarHtml, createCalendar } from './calendar.js';
 import { seasonNote } from './season-logic.js';
 import { buildYearPage } from './year.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
-import { FIRST_WORM_NOTE, chapterOf, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
+import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
 import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
@@ -26,6 +28,9 @@ const OBJ_REVEAL_TICK = 6; // s it opens when an objective is ticked off
 const OBJ_HOLD = 0.35; // s it stays open after the pointer moved away
 
 const nf = new Intl.NumberFormat('ru-RU');
+
+// keys that scroll the help page: pixels, or a share of the page height (±1), or 'start' / 'end'
+const HELP_SCROLL = { ArrowDown: 60, ArrowUp: -60, PageDown: 1, PageUp: -1, Home: 'start', End: 'end' };
 
 function formatTime(seconds) {
   const total = Math.max(0, Math.floor(seconds));
@@ -252,7 +257,24 @@ export function createHud(root, actions) {
   const atlas = createAtlas(el.atlasPage, atlasStore);
   const calendar = createCalendar(q('.res-card'));
   const tooltip = createTooltip(el.tip);
-  const labels = createLabels(el.labels);
+  // floating labels keep out of the column of margin notes: the notes on screen and the slot of the next one
+  const labels = createLabels(el.labels, () => {
+    const out = [];
+    let bottom = -Infinity;
+    for (const n of el.notes.children) {
+      const r = n.getBoundingClientRect();
+      if (r.width < 2) continue;
+      out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+      bottom = Math.max(bottom, r.bottom);
+    }
+    const z = el.notesZone.getBoundingClientRect();
+    const top = out.length ? bottom + 6 : z.top;
+    const slot = 3.4 * (parseFloat(getComputedStyle(root).fontSize) || 16);
+    out.push({ l: z.left, t: top, r: z.right, b: top + slot });
+    return out;
+  });
+  const nudge = createSugarNudge();
+  const senseGate = createSenseGate();
   const guide = createGuide(el.guide, () => [
     q('.res-card'),
     q('.obj-card'),
@@ -310,6 +332,8 @@ export function createHud(root, actions) {
   let objKeys = [];
   let objLen = -1;
   let objRows = [];
+  let objTxt = []; // the text elements of the rows and what they show now (the progress changes without a rebuild)
+  let objTxtShown = [];
   let objDone = [];
   let summaryOpen = false;
   let summaryShown = false;
@@ -328,6 +352,7 @@ export function createHud(root, actions) {
   let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
   let objHold = 0; // s the card stays open after the pointer left it
   let seasonIntro = false; // the first season's note was shown for this game
+  let cardT = 0; // s until the cards look again at what lies under them
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
   let hasSave = false;
   const shown = {}; // text cache of the DOM
@@ -339,6 +364,8 @@ export function createHud(root, actions) {
     objKeys = [];
     objLen = -1;
     objRows = [];
+    objTxt = [];
+    objTxtShown = [];
     objDone = [];
     summaryOpen = false;
     summaryShown = Boolean(state.flags && state.flags.allObjectivesDone);
@@ -357,6 +384,9 @@ export function createHud(root, actions) {
     objReveal = state.time < 2 ? OBJ_REVEAL_START : 0;
     objHold = 0;
     seasonIntro = false;
+    cardT = 0;
+    nudge.reset();
+    senseGate.reset();
     atlas.close();
     for (const key of Object.keys(shown)) delete shown[key];
     for (const key of Object.keys(lastVal)) delete lastVal[key];
@@ -426,11 +456,21 @@ export function createHud(root, actions) {
     return true;
   }
 
+  // a help page taller than the window scrolls; «дальше ↓» fades in at its foot while there is more below
+  function updateHelpMore() {
+    const p = el.helpPage;
+    p.classList.toggle('more', p.scrollHeight - p.clientHeight - p.scrollTop > 10);
+  }
+  el.helpPage.addEventListener('scroll', updateHelpMore, { passive: true });
+  window.addEventListener('resize', () => helpOpen && updateHelpMore());
+
   function openHelp() {
     if (helpOpen || atlasOpen || summaryOpen || yearOpen || !cur) return;
     helpOpen = true;
     el.helpPage.innerHTML = buildHelp(cur);
+    el.helpPage.scrollTop = 0;
     setScreen(el.help, true);
+    requestAnimationFrame(() => requestAnimationFrame(updateHelpMore)); // after the page has its size
     if (cur.phase === 'playing') {
       pausedByHelp = true; // the game waits while the page is open
       actions.togglePause();
@@ -536,9 +576,16 @@ export function createHud(root, actions) {
     const phase = cur.phase;
     let handled = true;
     if (helpOpen) {
-      // the help page owns the keyboard: H, Esc, Space and Enter close it
+      // the help page owns the keyboard: H, Esc, Space and Enter close it; arrows, PageUp/PageDown, Home/End scroll it
       if (['KeyH', 'Escape', 'Space', 'Enter'].includes(ev.code)) {
         if (!ev.repeat) closeHelp();
+        ev.preventDefault();
+      } else if (HELP_SCROLL[ev.code]) {
+        const page = el.helpPage;
+        const by = HELP_SCROLL[ev.code];
+        if (by === 'start') page.scrollTop = 0;
+        else if (by === 'end') page.scrollTop = page.scrollHeight;
+        else page.scrollBy({ top: by * (Math.abs(by) > 1 ? 1 : page.clientHeight * 0.85), behavior: 'smooth' });
         ev.preventDefault();
       }
       return;
@@ -704,10 +751,17 @@ export function createHud(root, actions) {
         .map((o) => `<li class="obj"><span class="box">${checkbox}</span><span class="txt"></span></li>`)
         .join('');
       objRows = [...el.objList.children];
-      objRows.forEach((row, i) => {
-        row.querySelector('.txt').textContent = list[i].text;
-      });
+      objTxt = objRows.map((row) => row.querySelector('.txt'));
+      objTxtShown = list.map(() => null);
       objDone = list.map(() => null);
+    }
+    // the line with its progress («Помочь дереву подрасти · 40 %»)
+    const lines = list.map((o) => objectiveText(state, o));
+    for (let i = 0; i < list.length; i++) {
+      if (objTxtShown[i] !== lines[i]) {
+        objTxtShown[i] = lines[i];
+        objTxt[i].textContent = lines[i];
+      }
     }
     for (let i = 0; i < list.length; i++) {
       const done = Boolean(list[i].done);
@@ -723,8 +777,8 @@ export function createHud(root, actions) {
     const doneCount = list.filter((o) => o.done).length;
     setText(el.objTitle, shown, 'obj.title', objectivesTitle(state));
     setText(el.objCount, shown, 'obj.count', `${doneCount} / ${list.length}`);
-    const next = list.find((o) => !o.done);
-    setText(el.objCur, shown, 'obj.cur', next ? next.text : list.length ? 'всё отмечено' : '');
+    const nextAt = list.findIndex((o) => !o.done);
+    setText(el.objCur, shown, 'obj.cur', nextAt >= 0 ? lines[nextAt] : list.length ? 'всё отмечено' : '');
     setText(el.objGlade, shown, 'obj.glade', gladeLabel(state));
   }
 
@@ -747,6 +801,51 @@ export function createHud(root, actions) {
     if (shown.objOpen !== open) {
       shown.objOpen = open;
       el.objCard.classList.toggle('open', open);
+    }
+  }
+
+  /**
+   * The two cards must not hide the game: while a mushroom or a tree crown lies under a card it turns see-through
+   * (and a little see-through while the pointer is on it), so nothing important stays hidden.
+   */
+  function updateCards(state, dt, view) {
+    const live = (state.phase === 'playing' || state.phase === 'paused') && view && view.scale > 0;
+    cardT -= dt;
+    if (cardT > 0 && live) return;
+    cardT = 0.12;
+    const p = state.ui.pointer;
+    const pointer = Boolean(live && p && p.inside !== false);
+    for (const [key, card] of [['res', el.resCard], ['obj', el.objCard]]) {
+      let mode = 'solid';
+      if (live) {
+        const b = card.getBoundingClientRect();
+        const rect = { l: b.left, t: b.top, r: b.right, b: b.bottom };
+        mode = cardMode(coverage(state, view, rect), pointer && pointerIn(p, rect, 4));
+      }
+      if (shown[`card.${key}`] !== mode) {
+        const prev = shown[`card.${key}`];
+        shown[`card.${key}`] = mode;
+        if (prev) card.classList.remove(`m-${prev}`);
+        if (mode !== 'solid') card.classList.add(`m-${mode}`);
+      }
+    }
+  }
+
+  /** Sugar sits at its cap: say what to do with it (a short, rate-limited note and the «Гриб» tab lit up for a while). */
+  function updateNudge(state, dt) {
+    const r = nudge.update(state, dt);
+    if (r.fire) {
+      const text =
+        state.ui.tool === 'fruit'
+          ? 'Сахар на пределе: щёлкни по узлу у земли, и вырастет гриб'
+          : 'Сахар на пределе: нажми 2 и вырасти гриб у самой земли';
+      notes.say({ key: 'nudge:fruit', text, tone: 'good', icon: 'mushroom', life: 9 });
+    }
+    const lit = r.active && state.ui.tool !== 'fruit';
+    if (shown.nudge !== lit) {
+      shown.nudge = lit;
+      const tab = el.tools.find((t) => t.dataset.tool === 'fruit');
+      if (tab) tab.classList.toggle('nudge', lit);
     }
   }
 
@@ -799,7 +898,9 @@ export function createHud(root, actions) {
     for (const ev of state.events) {
       if (ev.type === 'worm-caught') caught += 1;
       else if (ev.type === 'severed') lostNodes += Number.isFinite(ev.nodes) ? ev.nodes : Number.isFinite(ev.lost) ? ev.lost : 0;
-      else if (ev.type === 'worm-spawn' && !wormNoteSeen()) {
+      else if (ev.type === 'worm-sense' && state.ui.tool !== 'trap' && senseGate.take(state.time)) {
+        notes.say({ key: 'threat:sense', text: WORM_SENSE_NOTE, tone: 'warn', icon: 'worm', life: 9 });
+      } else if (ev.type === 'worm-spawn' && !wormNoteSeen()) {
         markWormNote();
         notes.say({ key: 'threat:first-worm', text: FIRST_WORM_NOTE, tone: 'warn', icon: 'worm', life: 13 });
       }
@@ -853,12 +954,15 @@ export function createHud(root, actions) {
       updateObjCard(state, dt);
       updateControls(state);
       updateSeasons(state);
+      updateCards(state, dt, view);
 
       // events -> floating labels at their place (local) and margin notes (global), summary trigger
-      const labelled = labels.process(state, view);
-      notes.process(state, labelled);
+      // (notes first: the labels then see the stack they must keep out of)
+      notes.process(state, Boolean(view && view.scale > 0));
+      labels.process(state, view);
       updateFinds(state);
       updateThreats(state);
+      if (phase === 'playing') updateNudge(state, dt);
       notes.tick(dt);
       labels.tick(dt);
       guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
@@ -892,7 +996,10 @@ export function createHud(root, actions) {
         pendingYear = null;
       }
 
-      tooltip.update(state, resourceHover(state));
+      // the pointer tooltip keeps clear of the guide's note; when it cannot, the note steps out of its way
+      const box = guide.noteBox();
+      const tipSpot = tooltip.update(state, resourceHover(state), box ? [box] : []);
+      guide.tipOver(Boolean(tipSpot && tipSpot.covers));
     },
   };
 }
