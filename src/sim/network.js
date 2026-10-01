@@ -3,6 +3,7 @@ import { createRng, hash32 } from '../core/rng.js';
 import { dist2 } from '../core/geom.js';
 import { groundYAt, horizonIndexAt } from '../world/query.js';
 import { B } from './balance.js';
+import { checkFinds } from './finds.js';
 
 const CELL = 40;
 
@@ -92,6 +93,7 @@ export function addNode(state, x, y, parentId) {
   gridInsert(sim, node);
   net.version++;
   checkLinks(state, node);
+  checkFinds(state, node);
   return node;
 }
 

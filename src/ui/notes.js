@@ -3,6 +3,7 @@
 // Unknown event types are ignored.
 import { icons } from './icons.js';
 import { LOCAL_EVENTS } from './labels.js';
+import { findNames } from './atlas-logic.js';
 
 const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MAX_NOTES = 4;
@@ -64,6 +65,11 @@ function describe(state, ev) {
               ? 'Не хватает сахара на гриб'
               : 'Здесь гриб не вырастет';
       return { key: `denied:${ev.reason}`, text, tone: 'warn', icon: 'mushroom' };
+    }
+    case 'find': {
+      // only rare finds (rarity 3+) get a note on the stack; every find gets its label on the map
+      const f = findNames(ev.kind);
+      return f && f.rarity >= 3 ? { key: `find:${ev.id}`, text: `В атлас записано: ${f.lower}`, tone: 'good', icon: 'find' } : null;
     }
     case 'objective':
       return { key: `obj:${ev.id}`, text: `Отмечено: ${ev.text ? ev.text.charAt(0).toLowerCase() + ev.text.slice(1) : ''}`, tone: 'good', icon: 'check' };
@@ -141,10 +147,14 @@ export function createNotes(host) {
     process(state, skipLocal = false) {
       const events = state.events;
       for (let i = 0; i < events.length; i++) {
-        if (skipLocal && LOCAL_EVENTS.has(events[i].type)) continue;
+        if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find') continue;
         const d = describe(state, events[i]);
         if (d) push(d);
       }
+    },
+    /** A note that does not come from an event: `{ key, text, tone?, icon? }`. */
+    say(d) {
+      push(d);
     },
     tick(dt) {
       for (const [key, n] of active) {

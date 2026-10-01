@@ -15,6 +15,7 @@ export function initSim(state) {
   state.sim = createSimData(state);
   net.version ??= 0;
   net.growing ??= [];
+  state.finds = {}; // decor id -> { kind, at }, see finds.js
   net.links ??= [];
   state.res.sugar = B.startSugar;
   state.res.water = 0;

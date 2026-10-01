@@ -5,6 +5,7 @@ import { hash32 } from './core/rng.js';
 import { createState } from './state.js';
 import { createSimData, pathBetween } from './sim/network.js';
 import { restoreTime } from './sim/clock.js';
+import { rescanFinds } from './sim/finds.js';
 
 export const SAVE_VERSION = 1;
 
@@ -120,6 +121,7 @@ export function encodeState(state) {
     trees: world.trees.map((t) => [t.stage, t.growth, t.health, t.linked ? 1 : 0]),
     water: world.water.map((d) => d.amount),
     minerals: world.minerals.map((d) => d.amount),
+    finds: Object.entries(state.finds ?? {}).map(([id, f]) => [Number(id), f.kind, round2(f.at)]),
     mushrooms: encodeValue(state.mushrooms),
     flows: state.flows.map((f) => [f.from, f.to, f.kind, f.rate]),
     sim: encodeSim(state.sim),
@@ -177,6 +179,8 @@ export function validatePayload(p) {
   check(p.water.every(isNum) && p.minerals.every(isNum), 'deposits');
   check(p.mushrooms.every((m) => isObj(m) && isId(m.nodeId, nodes) && isNum(m.x) && isNum(m.baseY) && isNum(m.age) && isNum(m.growth)), 'mushrooms');
   check(p.flows.every((f) => Array.isArray(f) && isId(f[0], nodes) && isId(f[1], nodes) && FLOW_KINDS.includes(f[2]) && isNum(f[3])), 'flows');
+  // `finds` is optional: saves from before the atlas have none (decodeState rebuilds them from the network)
+  check(p.finds === undefined || (Array.isArray(p.finds) && p.finds.every((f) => Array.isArray(f) && Number.isInteger(f[0]) && f[0] >= 0 && typeof f[1] === 'string' && isNum(f[2]))), 'finds');
   check(isObj(p.sim) && Number.isInteger(p.sim.rng) && isObj(p.sim.rest), 'sim');
   return p;
 }
@@ -245,6 +249,18 @@ function restoreWorld(world, p) {
   world.minerals.forEach((d, i) => (d.amount = p.minerals[i]));
 }
 
+function restoreFinds(state, p) {
+  if (p.finds === undefined) {
+    rescanFinds(state);
+    return;
+  }
+  const { decor } = state.world;
+  for (const [id, kind, at] of p.finds) {
+    check(id < decor.length && decor[id].type === kind, 'find');
+    state.finds[id] = { kind, at };
+  }
+}
+
 /** Builds a fresh, playable state (phase 'paused') from a validated payload. Throws when it does not fit. */
 export function decodeState(p) {
   validatePayload(p);
@@ -272,6 +288,7 @@ export function decodeState(p) {
   net.growing = decodeValue(p.net.growing);
   restoreWorld(state.world, p);
   state.mushrooms = decodeValue(p.mushrooms);
+  restoreFinds(state, p);
   state.flows = p.flows.map(([from, to, kind, rate]) => ({ from, to, kind, rate, path: pathBetween(net, from, to) }));
   sim.rng.setState(p.sim.rng);
   assignPlain(sim, decodeValue(p.sim.rest));

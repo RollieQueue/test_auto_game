@@ -45,3 +45,24 @@ export function onGuideChange(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
+
+// One-time pointer to the finds atlas after the first find ever (kept like the guide flag).
+const ATLAS_HINT_KEY = 'roots-threads.atlas.hint';
+let memoryHint = false;
+
+export function atlasHintSeen() {
+  try {
+    return window.localStorage.getItem(ATLAS_HINT_KEY) === '1';
+  } catch {
+    return memoryHint;
+  }
+}
+
+export function markAtlasHint() {
+  memoryHint = true;
+  try {
+    window.localStorage.setItem(ATLAS_HINT_KEY, '1');
+  } catch {
+    // in-memory flag is enough for this session
+  }
+}

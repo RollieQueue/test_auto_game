@@ -71,6 +71,12 @@ export const B = {
   edgeLoadScale: 2.5, // w target = 1 + (maxW - 1) * (1 - exp(-load / scale))
   edgeThickenTau: 20, // s
 
+  // --- Finds (world.decor items touched by a hypha node; rewards by rarity 1..4, see src/content/finds.js) ---
+  findRadiusBase: 8, // a node within base + perScale * decor.scale of an item discovers it
+  findRadiusPerScale: 10,
+  findSugar: [4, 8, 14, 24], // one-off sugar (never above the sugar cap)
+  findSpores: [0, 0, 1, 3], // one-off spores: rare finds only
+
   // --- Objectives ---
   sporesGoal: 100,
 

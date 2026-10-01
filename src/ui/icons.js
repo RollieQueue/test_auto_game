@@ -43,6 +43,12 @@ export const icons = {
     `<path d="M9.8 14 C9.6 16.8 9.6 18.6 8.8 20.6 L15.2 20.6 C14.4 18.6 14.4 16.8 14.2 14" fill="#f1e6c8" fill-opacity=".9"/>` +
     `<circle cx="8.6" cy="9.2" r="1.1" fill="#f6ecd2" stroke="none"/><circle cx="13.4" cy="7.6" r="1.3" fill="#f6ecd2" stroke="none"/><circle cx="16.4" cy="10.8" r=".9" fill="#f6ecd2" stroke="none"/>` +
     close,
+  find:
+    open('ico-find') +
+    `<circle cx="10.2" cy="10.2" r="6.2" fill="#f1e6c8" fill-opacity=".7"/>` +
+    `<path d="M14.8 14.8 L20.6 20.6" stroke-width="2.6"/>` +
+    `<path d="M7.4 8.6 C8 7.2 9 6.6 10.4 6.5" stroke="#fff6dc" stroke-width="1.1" opacity=".9"/>` +
+    close,
   pause: open('ico-pause') + `<path d="M8 5.5 L8 18.5 M16 5.5 L16 18.5" stroke-width="2.6"/>` + close,
   play: open('ico-play') + `<path d="M7.4 4.8 L19 12 L7.4 19.2 Z" fill="${INK}" fill-opacity=".85"/>` + close,
   speed:

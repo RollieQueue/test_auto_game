@@ -1,6 +1,7 @@
 // Short ink labels that float up from the place where a local event happened (a link, a refusal, a ripe
 // mushroom). Global news (objectives, tree stages) stays in the note stack at the top (notes.js).
 import { icons } from './icons.js';
+import { findNames } from './atlas-logic.js';
 
 const LIFE = 2.7; // s
 const MAX_LABELS = 12;
@@ -10,7 +11,7 @@ const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
 /** Events a label is made for (notes.js skips the same ones when labels are available). */
-export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature']);
+export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature', 'find']);
 
 /** Maps an event to { key, text, tone, icon } or null. `sugarDenied` is true when this frame has a fruit-denied for sugar. */
 function describe(state, ev, sugarDenied) {
@@ -49,6 +50,10 @@ function describe(state, ev, sugarDenied) {
         tone: 'warn',
         icon: ev.kind === 'water' ? 'water' : 'minerals',
       };
+    case 'find': {
+      const f = findNames(ev.kind);
+      return f ? { key: `find:${ev.kind}`, text: `Находка: ${f.lower}`, tone: 'find', icon: 'find' } : null;
+    }
     case 'mushroom-mature':
       return { key: 'mature', text: 'созрел!', tone: 'good', icon: 'spores' };
     default:

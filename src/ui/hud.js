@@ -6,7 +6,8 @@ import { createTooltip } from './tooltip.js';
 import { createLabels } from './labels.js';
 import { createGuide } from './guide.js';
 import { buildHelp } from './help.js';
-import { guideEnabled, setGuideEnabled, onGuideChange } from './prefs.js';
+import { createAtlas } from './atlas.js';
+import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint } from './prefs.js';
 
 const RESOURCES = [
   { k: 'sugar', label: 'Сахар' },
@@ -71,6 +72,7 @@ export function createHud(root, actions) {
         <button class="stamp" data-act="pause" type="button" title="Пауза (Пробел)"><span class="sp-ico"></span><span class="cap">Пробел</span></button>
         <button class="stamp" data-act="speed" type="button" title="Скорость (F)"><span class="sp-text">×1</span><span class="cap">F</span></button>
         <button class="stamp" data-act="sound" type="button" title="Звук (M)"><span class="sp-ico"></span><span class="cap">M</span></button>
+        <button class="stamp small" data-act="atlas" type="button" title="Атлас находок (A)"><span class="sp-ico">${icons.find}</span><span class="badge" hidden></span><span class="cap">A</span></button>
         <button class="stamp small" data-act="help" type="button" title="Как играть (H)"><span class="sp-text">?</span><span class="cap">H</span></button>
       </div>
     </div>
@@ -130,6 +132,10 @@ export function createHud(root, actions) {
       <div class="page help-page" role="dialog" aria-label="Как играть"></div>
     </div>
 
+    <div class="screen atlas-screen">
+      <div class="page atlas-page" role="dialog" aria-label="Атлас находок"></div>
+    </div>
+
     <div class="screen summary-screen">
       <div class="page sum-page">
         <div class="stamp-seal">наблюдения<br />завершены</div>
@@ -163,6 +169,9 @@ export function createHud(root, actions) {
     labels: q('.labels'),
     help: q('.help-screen'),
     helpPage: q('.help-page'),
+    atlas: q('.atlas-screen'),
+    atlasPage: q('.atlas-page'),
+    atlasBadge: q('[data-act="atlas"] .badge'),
     continueBtn: q('[data-act="continue-save"]'),
     startBtn: q('[data-act="start"]'),
     newBtn: q('[data-act="start-new"]'),
@@ -192,6 +201,7 @@ export function createHud(root, actions) {
   const soundIco = el.sound.querySelector('.sp-ico');
 
   const notes = createNotes(el.notes);
+  const atlas = createAtlas(el.atlasPage);
   const tooltip = createTooltip(el.tip);
   const labels = createLabels(el.labels);
   const guide = createGuide(el.guide, () => [
@@ -255,6 +265,8 @@ export function createHud(root, actions) {
   let pausedBySummary = false;
   let helpOpen = false;
   let pausedByHelp = false;
+  let atlasOpen = false;
+  let pausedByAtlas = false;
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
   let hasSave = false;
   const shown = {}; // text cache of the DOM
@@ -272,6 +284,9 @@ export function createHud(root, actions) {
     pausedBySummary = false;
     helpOpen = false;
     pausedByHelp = false;
+    atlasOpen = false;
+    pausedByAtlas = false;
+    atlas.close();
     for (const key of Object.keys(shown)) delete shown[key];
     for (const key of Object.keys(lastVal)) delete lastVal[key];
     for (const r of RESOURCES) smooth[r.k] = (state.rates && state.rates[r.k]) || 0;
@@ -281,6 +296,7 @@ export function createHud(root, actions) {
     setScreen(el.summary, false);
     setScreen(el.pauseScreen, false);
     setScreen(el.help, false);
+    setScreen(el.atlas, false);
   }
 
   // ---- actions -----------------------------------------------------------
@@ -308,7 +324,7 @@ export function createHud(root, actions) {
   }
 
   function openHelp() {
-    if (helpOpen || summaryOpen || !cur) return;
+    if (helpOpen || atlasOpen || summaryOpen || !cur) return;
     helpOpen = true;
     el.helpPage.innerHTML = buildHelp(cur);
     setScreen(el.help, true);
@@ -324,6 +340,27 @@ export function createHud(root, actions) {
     setScreen(el.help, false);
     if (pausedByHelp && cur && cur.phase === 'paused') actions.togglePause();
     pausedByHelp = false;
+    return true;
+  }
+
+  function openAtlas() {
+    if (atlasOpen || helpOpen || summaryOpen || !cur || cur.phase === 'title') return;
+    atlasOpen = true;
+    atlas.open(cur);
+    setScreen(el.atlas, true);
+    if (cur.phase === 'playing') {
+      pausedByAtlas = true; // the game waits while the page is open
+      actions.togglePause();
+    }
+  }
+
+  function closeAtlas() {
+    if (!atlasOpen) return false;
+    atlasOpen = false;
+    atlas.close();
+    setScreen(el.atlas, false);
+    if (pausedByAtlas && cur && cur.phase === 'paused') actions.togglePause();
+    pausedByAtlas = false;
     return true;
   }
 
@@ -360,6 +397,10 @@ export function createHud(root, actions) {
         return helpOpen ? void closeHelp() : openHelp();
       case 'help-close':
         return void closeHelp();
+      case 'atlas':
+        return atlasOpen ? void closeAtlas() : openAtlas();
+      case 'atlas-close':
+        return void closeAtlas();
       case 'guide-toggle':
         return setGuideEnabled(!guideEnabled());
       case 'resume':
@@ -391,6 +432,14 @@ export function createHud(root, actions) {
       }
       return;
     }
+    if (atlasOpen) {
+      // the atlas owns the keyboard: A, Esc, Space and Enter close it
+      if (['KeyA', 'Escape', 'Space', 'Enter'].includes(ev.code)) {
+        if (!ev.repeat) closeAtlas();
+        ev.preventDefault();
+      }
+      return;
+    }
     switch (ev.code) {
       case 'Digit1':
       case 'Numpad1':
@@ -414,6 +463,9 @@ export function createHud(root, actions) {
         break;
       case 'KeyH':
         if (!ev.repeat) openHelp();
+        break;
+      case 'KeyA':
+        if (!ev.repeat) openAtlas();
         break;
       case 'KeyF':
         if (!ev.repeat && phase !== 'title') toggleSpeed();
@@ -505,6 +557,26 @@ export function createHud(root, actions) {
     }
   }
 
+  /** Count badge on the atlas stamp, and a one-time pointer to the atlas after the very first find. */
+  function updateFinds(state) {
+    const n = Object.keys(state.finds || {}).length;
+    if (shown.finds !== n) {
+      const grew = shown.finds !== undefined && n > shown.finds;
+      shown.finds = n;
+      el.atlasBadge.hidden = n === 0;
+      el.atlasBadge.textContent = String(n);
+      if (grew) {
+        el.atlasBadge.classList.remove('bump');
+        void el.atlasBadge.offsetWidth;
+        el.atlasBadge.classList.add('bump');
+      }
+    }
+    if (state.phase === 'playing' && state.events.some((e) => e.type === 'find') && !atlasHintSeen()) {
+      markAtlasHint();
+      notes.say({ key: 'atlas-hint', text: 'Находка записана в атлас: клавиша A', icon: 'find' });
+    }
+  }
+
   function updateControls(state) {
     const tool = state.ui.tool;
     for (const t of el.tools) {
@@ -543,7 +615,7 @@ export function createHud(root, actions) {
       if (phase === 'title' && saveFor !== state) refreshSave(state);
 
       setScreen(el.title, phase === 'title');
-      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen);
+      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen);
 
       updateResources(state, dt);
       updateObjectives(state);
@@ -552,9 +624,10 @@ export function createHud(root, actions) {
       // events -> floating labels at their place (local) and margin notes (global), summary trigger
       const labelled = labels.process(state, view);
       notes.process(state, labelled);
+      updateFinds(state);
       notes.tick(dt);
       labels.tick(dt);
-      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen);
+      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen);
       if (!summaryShown && phase !== 'title') {
         let trigger = Boolean(state.flags && state.flags.allObjectivesDone);
         if (!trigger) {

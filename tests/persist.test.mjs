@@ -80,6 +80,7 @@ function view(state) {
     trees: world.trees.map((t) => ({ stage: t.stage, growth: t.growth, health: t.health, linked: t.linked })),
     water: world.water.map((d) => d.amount),
     minerals: world.minerals.map((d) => d.amount),
+    finds: Object.fromEntries(Object.entries(state.finds).map(([id, f]) => [id, { kind: f.kind, at: round2(f.at) }])),
     mushrooms: state.mushrooms,
     flows: state.flows,
     sim: simData,
@@ -264,6 +265,43 @@ test('clearSave removes the save', () => {
   });
 });
 
+test('finds round-trip, and a save from before finds existed gets them from its network', () => {
+  withStorage(shim(), () => {
+    const { state } = playBot(42, { maxSeconds: 60 });
+    state.phase = 'playing';
+    // Touch three items of different kinds by hand (the bot stays near the surface).
+    const items = state.world.decor.slice(0, 3);
+    for (const d of items) {
+      state.time += 1.234;
+      addNode(state, d.x + 2, d.y, state.net.originId);
+    }
+    assert.equal(Object.keys(state.finds).length, 3);
+    const before = view(state);
+    assert.equal(Object.keys(before.finds).length, 3);
+    persist.saveNow(state);
+    const raw = JSON.parse(localStorage.getItem(KEY));
+    assert.equal(raw.v, 1, 'the save version is unchanged: finds are an optional field');
+    assert.equal(raw.finds.length, 3);
+    const loaded = persist.loadSave();
+    assert.deepEqual(loaded.finds, view(state).finds);
+    assert.deepEqual(view(loaded), before);
+    // continuing: items already found are not announced again, new ones are
+    const next = state.world.decor[3];
+    addNode(loaded, items[0].x, items[0].y, loaded.net.originId);
+    assert.equal(loaded.events.filter((e) => e.type === 'find').length, 0);
+    addNode(loaded, next.x, next.y, loaded.net.originId);
+    assert.deepEqual(loaded.events.filter((e) => e.type === 'find').map((e) => e.id), [next.id]);
+
+    // an old save without the field: rebuilt from the network, silently, with the node's birth time
+    delete raw.finds;
+    localStorage.setItem(KEY, JSON.stringify(raw));
+    const old = persist.loadSave();
+    assert.deepEqual(Object.keys(old.finds).sort(), Object.keys(state.finds).sort());
+    for (const id of Object.keys(old.finds)) assert.equal(old.finds[id].kind, state.finds[id].kind);
+    assert.deepEqual(old.events, []);
+  });
+});
+
 test('damaged, truncated, old and inconsistent saves are ignored without throwing', () => {
   withStorage(shim(), (st) => {
     const { state } = playBot(7, { maxSeconds: 120 });
@@ -301,6 +339,9 @@ test('damaged, truncated, old and inconsistent saves are ignored without throwin
       'tree count': mutate((p) => p.trees.pop()),
       'text resource': mutate((p) => (p.res.sugar = 'lots')),
       'no rng': mutate((p) => delete p.sim.rng),
+      'finds not a list': mutate((p) => (p.finds = { 0: ['acorn', 1] })),
+      'find of a wrong kind': mutate((p) => (p.finds = [[0, 'unicorn', 1]])),
+      'find of a missing item': mutate((p) => (p.finds = [[999, 'acorn', 1]])),
       'other world': mutate((p) => (p.wf = (p.wf + 1) >>> 0)),
     };
     for (const [name, raw] of Object.entries(bad)) {
