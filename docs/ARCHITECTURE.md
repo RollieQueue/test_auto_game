@@ -278,6 +278,27 @@ Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-g
 `rival-cut {x, y, edges}`, `rival-fruit {treeId, x, y, n}`, `barrier-placed {id, x, y}`,
 `barrier-denied {reason, x, y}`, `barrier-gone {id}`.
 
+Pinned details (sim, render and UI are built in parallel against them):
+- Trees are `state.world.trees`; `infection`, `mantle`, `lost` live on those objects (missing on old saves = 0 / 0 / false).
+- `born` is `state.time` at creation, like the player's network. Every random choice comes from `state.rival.rs`
+  (an integer mulberry32 state like `state.sim.threat.rs`), so a seed and its commands replay exactly. `state.rival`,
+  `state.barriers` and the tree fields are saved; saves without them still load.
+- `state.rival.ver`: an integer the sim bumps whenever rival nodes or edges are added or an edge dies, so the renderer can
+  cache the static rhizomorph drawing. `wither` changes do not bump it.
+- `world.stumps` never changes after generation and comes from its own derived rng, so trees, deposits and decor of
+  existing seeds stay the same. A lost tree becomes a new source of rhizomorphs inside the sim and is drawn as a snag by the
+  tree renderer. Stumps and rhizomorphs are drawn in the main pass (`src/render/rival.js`), not in the world worker.
+- Barrier `{ id, nodeId, x, y, r, t, dur }`: `t` counts seconds since it was placed, it ends at `t ≥ dur` with
+  `barrier-gone`. `state.ui.barrierPick = null | { nodeId, x, y, r, ok, reason, cost }` is set by `src/input/pointer.js`
+  while the tool is `'barrier'`.
+- Numbers live in `B` (`src/sim/balance.js`): `rivalWakeDelay`, `rivalBlockW`, `mantleProtect`, `barrierCost` (base),
+  `barrierRadius`, `barrierDur`, `barrierMax`. `src/ui` reaches the API through namespace imports
+  (`import * as sim from '../sim/index.js'`) and falls back to `B.barrierCost` when a function is missing.
+- `src/main.js` sets `state.flags.rival` (on together with threats unless `?rival=0`); `?rival=1` wakes the rival at the
+  start. The barrier tab and key `4` show once `state.rival && state.rival.awake`.
+- Art: manifest ids `decor.stump.1` (group `decor`, type `stump`) and `mushroom.honey.1` / `mushroom.honey.2` (group
+  `mushroom`, type `honey`). The player's mushrooms never pick type `honey`; procedural drawing stays the fallback.
+
 ## Illustrated assets (art task)
 
 Generated illustrations are cut out to transparent images in `assets/art/` and listed in
