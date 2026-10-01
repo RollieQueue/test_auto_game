@@ -916,3 +916,420 @@ kbd {
     margin-top: 0.6em;
   }
 }
+
+/* ------------------------------------------------------------------ first-session guide, labels, help */
+
+#hud [hidden] {
+  display: none !important;
+}
+
+/* an invisible box where the top note stack grows: the guide keeps its note out of it */
+.notes-zone {
+  position: absolute;
+  top: 0.9em;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26em;
+  max-width: calc(100vw - 33em);
+  height: 9.5em;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.guide-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.guide.on .guide-svg {
+  opacity: 1;
+}
+.guide.leaving .guide-svg {
+  opacity: 0;
+  transition-duration: 0.3s;
+}
+.guide.dim .guide-svg {
+  opacity: 0.3;
+}
+.guide.no-target .guide-svg {
+  display: none;
+}
+.guide-svg path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 1;
+}
+/* cream halo + ink: legible on the dark soil and on the pale sky alike */
+.guide-svg .halo {
+  stroke: rgba(247, 239, 219, 0.92);
+  stroke-width: 6.5;
+}
+.guide-svg .ink {
+  stroke: var(--indigo);
+  stroke-width: 2.7;
+}
+.g-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: guide-pulse 2.2s ease-in-out infinite;
+}
+.g-ring .halo {
+  stroke-width: 6;
+}
+.g-ring .ink {
+  stroke: var(--wax);
+  stroke-width: 2.6;
+}
+.g-ring.draw path {
+  animation: guide-draw 0.8s ease-out forwards;
+}
+.g-arrow {
+  animation: guide-bob 1.5s ease-in-out 1.3s infinite;
+}
+.g-arrow.draw path {
+  animation: guide-draw 0.7s 0.55s ease-out forwards;
+}
+@keyframes guide-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes guide-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.07);
+    opacity: 0.72;
+  }
+}
+@keyframes guide-bob {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(var(--bx, 0), var(--by, 0));
+  }
+}
+
+.guide .guide-note {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 15.5em;
+  padding: 0.5em 1.1em 0.62em 0.95em;
+  font-size: 1.3em;
+  line-height: 1.1;
+  text-align: left;
+  color: var(--sepia);
+  opacity: 0;
+  transform: translateY(0.6em) rotate(-1deg);
+  transition:
+    opacity 0.45s ease,
+    transform 0.45s ease;
+}
+.guide .guide-note.in {
+  opacity: 1;
+  transform: rotate(-1deg);
+}
+.guide .guide-note.out {
+  opacity: 0;
+  transform: translateY(0.3em) rotate(-1deg);
+  transition-duration: 0.3s;
+}
+.guide.dim .guide-note.in {
+  opacity: 0.28;
+}
+.guide-note .g-title {
+  font-family: var(--font-script);
+  font-size: 1.22em;
+  line-height: 1;
+  color: var(--indigo);
+  margin: 0 1.2em 0.18em 0;
+}
+.guide-note .g-text {
+  margin: 0;
+  font-size: 1.04em;
+  line-height: 1.12;
+}
+.guide-note kbd {
+  font-size: 0.72em;
+}
+.guide-note .g-x {
+  position: absolute;
+  top: 0.12em;
+  right: 0.22em;
+  width: 1.5em;
+  height: 1.5em;
+  display: grid;
+  place-items: center;
+  font: 400 1.3em/1 var(--font-serif);
+  color: rgba(58, 42, 30, 0.55);
+  border-radius: 50%;
+  pointer-events: auto;
+  z-index: 3;
+}
+.guide-note .g-x:hover {
+  color: var(--wax);
+  background: rgba(168, 50, 45, 0.1);
+}
+
+/* floating event labels */
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.lab {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.08em 0.62em 0.16em 0.42em;
+  font-size: 1.3em;
+  line-height: 1.05;
+  white-space: nowrap;
+  color: var(--indigo);
+  background:
+    var(--grain),
+    linear-gradient(172deg, rgba(247, 240, 222, 0.95), rgba(236, 225, 198, 0.93));
+  border-radius: 0.3em 0.6em 0.3em 0.5em / 0.5em 0.3em 0.5em 0.3em;
+  box-shadow:
+    0 0 0 1px rgba(90, 62, 36, 0.4),
+    0.05em 0.14em 0.35em rgba(14, 8, 4, 0.4);
+  opacity: 0;
+  transform: translate(-50%, -100%) rotate(var(--tilt, 0deg));
+}
+.lab.go {
+  animation: lab-float 2.7s ease-out forwards;
+}
+.lab .ico {
+  width: 1.05em;
+  height: 1.05em;
+  flex: none;
+}
+.lab .cnt {
+  font: 700 0.7em/1 var(--font-serif);
+  opacity: 0.7;
+}
+.lab .cnt:empty {
+  display: none;
+}
+.lab.water {
+  color: #24587f;
+}
+.lab.mineral {
+  color: #573a77;
+}
+.lab.nitro {
+  color: #566319;
+}
+.lab.good {
+  color: #2f4a22;
+}
+.lab.warn {
+  color: var(--wax);
+  box-shadow:
+    0 0 0 1px rgba(168, 50, 45, 0.5),
+    0.05em 0.14em 0.35em rgba(14, 8, 4, 0.4);
+}
+@keyframes lab-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -60%) rotate(var(--tilt, 0deg)) scale(0.9);
+  }
+  9% {
+    opacity: 1;
+    transform: translate(-50%, -100%) rotate(var(--tilt, 0deg)) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -210%) rotate(var(--tilt, 0deg));
+  }
+}
+
+/* the small "?" stamp */
+.stamp.small {
+  width: 3.3em;
+  align-self: flex-end;
+  transform: rotate(2deg);
+}
+.stamp.small:hover {
+  transform: rotate(0deg) scale(1.06);
+}
+.stamp.small .sp-text {
+  font-size: 1.45em;
+  min-height: 1.1em;
+}
+.stamp.small .cap {
+  font-size: 0.85em;
+}
+
+/* title and pause extras */
+.page .actions.extras {
+  margin-top: 0.7em;
+  gap: 1.4em;
+}
+.ink-btn.quiet.off {
+  opacity: 0.72;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.title-page .actions {
+  flex-wrap: wrap;
+}
+.pause-page .actions .quiet {
+  font-size: 1.1em;
+}
+
+/* help page */
+.help-page {
+  width: 62em;
+  max-height: 100%;
+  overflow: auto;
+  text-align: left;
+  padding: 1.5em 2.4em 1.3em 3.5em;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(58, 42, 30, 0.35) transparent;
+}
+.help-page > .overline,
+.help-page > h2 {
+  text-align: center;
+}
+.help-page > h2 {
+  font-size: 2.3em;
+}
+.help-page > .flourish {
+  width: 12em;
+  margin: 0.1em auto 0.3em;
+}
+.help-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 2.6em;
+}
+.help-page h3 {
+  margin: 0.45em 0 0.1em;
+  font-family: var(--font-script);
+  font-weight: 400;
+  font-size: 1.5em;
+  line-height: 1;
+  color: var(--indigo);
+}
+.help-col section:first-child h3 {
+  margin-top: 0.1em;
+}
+.help-page p {
+  margin: 0.1em 0 0.3em;
+  font: 400 1.04em/1.34 var(--font-serif);
+  color: rgba(58, 42, 30, 0.95);
+}
+.help-page p.cap {
+  margin-bottom: 0.1em;
+  font-style: italic;
+  color: rgba(58, 42, 30, 0.8);
+}
+.help-page b {
+  font-weight: 700;
+}
+.help-res,
+.help-hz,
+.help-keys {
+  list-style: none;
+  margin: 0.1em 0 0.3em;
+  padding: 0;
+}
+.help-res li {
+  display: grid;
+  grid-template-columns: 1.7em 1fr;
+  align-items: start;
+  column-gap: 0.35em;
+  margin: 0.12em 0;
+  font: 400 1.04em/1.3 var(--font-serif);
+}
+.help-res .ico {
+  width: 1.45em;
+  height: 1.45em;
+  margin-top: -0.05em;
+}
+.help-hz li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font: 400 1.04em/1.45 var(--font-serif);
+}
+.help-hz li::after {
+  content: '';
+  order: 2;
+  flex: 1;
+  border-bottom: 1.5px dotted rgba(58, 42, 30, 0.4);
+  transform: translateY(-0.15em);
+}
+.help-hz .k {
+  order: 1;
+}
+.help-hz .r {
+  order: 3;
+  font-size: 0.9em;
+  color: rgba(58, 42, 30, 0.7);
+  font-variant-numeric: lining-nums;
+}
+.help-hz .v {
+  order: 4;
+  min-width: 2.4em;
+  text-align: right;
+  font-weight: 700;
+  color: var(--indigo);
+  font-variant-numeric: lining-nums;
+}
+.help-keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.18em 0.8em;
+  align-items: baseline;
+}
+.help-keys li {
+  display: contents;
+  font: 400 1.04em/1.3 var(--font-serif);
+}
+.help-keys .kk {
+  text-align: right;
+  white-space: nowrap;
+}
+.help-page .actions {
+  margin-top: 0.6em;
+}
+@media (max-height: 760px) {
+  .help-page {
+    padding-top: 1.1em;
+    padding-bottom: 1em;
+  }
+  .help-page > .flourish {
+    display: none;
+  }
+  .help-page > h2 {
+    font-size: 1.9em;
+  }
+  .help-page .actions {
+    margin-top: 0.3em;
+  }
+}

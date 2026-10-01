@@ -1,6 +1,8 @@
-// Handwritten margin notes for game events: short, fading, coalescing repeats.
+// Handwritten margin notes for global game events (objectives, tree stages, ...): short, fading, coalescing repeats.
+// Local events (links, refusals, ...) are normally drawn by labels.js at their place on the map.
 // Unknown event types are ignored.
 import { icons } from './icons.js';
+import { LOCAL_EVENTS } from './labels.js';
 
 const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MAX_NOTES = 4;
@@ -135,9 +137,11 @@ export function createNotes(host) {
       host.textContent = '';
       active.clear();
     },
-    process(state) {
+    /** `skipLocal`: events with a place on the map get floating labels instead (labels.js). */
+    process(state, skipLocal = false) {
       const events = state.events;
       for (let i = 0; i < events.length; i++) {
+        if (skipLocal && LOCAL_EVENTS.has(events[i].type)) continue;
         const d = describe(state, events[i]);
         if (d) push(d);
       }

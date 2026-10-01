@@ -6,6 +6,7 @@ import { stepEconomy } from './economy.js';
 import { canFruit, commandFruit, pickFruitNode, stepMushrooms } from './mushrooms.js';
 import { recomputeFlows } from './flows.js';
 import { createObjectives, stepObjectives } from './objectives.js';
+import { initTime, stepTime } from './clock.js';
 
 export { commandGrow, estimateGrowth, canFruit, commandFruit, pickFruitNode };
 
@@ -28,12 +29,14 @@ export function initSim(state) {
     addNode(state, origin.x + Math.cos(a) * B.originRingRadius, origin.y + Math.sin(a) * B.originRingRadius, origin.id);
   }
   state.objectives = createObjectives();
+  initTime(state);
 }
 
 export function updateSim(state, dt) {
   const { res, sim, rates } = state;
   const before = { sugar: res.sugar, water: res.water, minerals: res.minerals, spores: res.spores };
   sim.clock += dt;
+  stepTime(state);
   stepGrowth(state, dt);
   stepEconomy(state, dt);
   stepMushrooms(state, dt);

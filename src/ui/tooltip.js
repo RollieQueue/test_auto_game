@@ -1,4 +1,9 @@
-// Pointer tooltip: what is under the cursor, and the cost of the hypha being dragged.
+// Pointer tooltip: what is under the cursor, the cost of the hypha being dragged, and (in fruit mode)
+// whether a mushroom can grow here and why not. Sim helpers are read-only and reached through namespaces,
+// so a renamed export degrades the text instead of breaking the page.
+import * as sim from '../sim/index.js';
+import * as mushrooms from '../sim/mushrooms.js';
+import * as balance from '../sim/balance.js';
 
 const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
@@ -62,6 +67,42 @@ function describePreview(state, p) {
   return { main: sugar(p.cost), sub: `длина нити ≈ ${num(p.length)}` };
 }
 
+const FRUIT_CLICK_RADIUS = 44; // same reach as input/pointer.js uses for a fruiting click
+
+/** Can a mushroom grow on the node under the pointer? null when no node is within reach. */
+function describeFruit(state) {
+  const ui = state.ui;
+  const p = ui.pointer;
+  if (!p) return null;
+  let id = ui.hoverNode;
+  if ((id === null || id === undefined) && typeof sim.pickFruitNode === 'function') {
+    const c = sim.pickFruitNode(state, p.x, p.y, FRUIT_CLICK_RADIUS);
+    const n = c === null || c === undefined ? null : state.net.nodes[c];
+    if (n && Math.hypot(n.x - p.x, n.y - p.y) <= FRUIT_CLICK_RADIUS && sim.canFruit(state, c)) id = c;
+  }
+  if (id === null || id === undefined) return null;
+  const B = balance.B || {};
+  const cost = Math.round(B.mushroomCost ?? 24);
+  const reason =
+    typeof mushrooms.fruitDenial === 'function'
+      ? mushrooms.fruitDenial(state, id)
+      : sim.canFruit(state, id)
+        ? null
+        : 'unknown';
+  switch (reason) {
+    case null:
+      return { main: 'Здесь вырастет гриб', sub: `щёлкни: цена ${cost} сахара` };
+    case 'deep':
+      return { main: 'Слишком глубоко для гриба', sub: `он растёт не глубже ${Math.round(B.fruitMaxDepth ?? 45)} ед. от земли`, warn: true };
+    case 'crowded':
+      return { main: 'Тесно: рядом уже гриб', sub: `между грибами не меньше ${Math.round(B.fruitSpacing ?? 60)} ед.`, warn: true };
+    case 'sugar':
+      return { main: 'Не хватает сахара на гриб', sub: `нужно ${cost}, есть ${Math.floor(state.res.sugar)}`, warn: true };
+    default:
+      return { main: 'Здесь гриб не вырастет', sub: '', warn: true };
+  }
+}
+
 export function createTooltip(host) {
   host.innerHTML = '<div class="t-main"></div><div class="t-sub"></div>';
   const mainEl = host.querySelector('.t-main');
@@ -90,7 +131,10 @@ export function createTooltip(host) {
       let info = null;
       if (live && p && p.inside !== false) {
         if (ui.drag) info = describePreview(state, ui.preview);
-        else if (ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
+        else {
+          if (ui.tool === 'fruit') info = describeFruit(state);
+          if (!info && ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
+        }
       }
       if (!info) {
         hide();

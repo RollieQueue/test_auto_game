@@ -65,26 +65,27 @@ export function stepMushrooms(state, dt) {
   const { mushrooms, res, sim, events } = state;
   if (mushrooms.length === 0) return;
   const fed = fedIndex(state);
+  const fx = sim.fx;
   sim.fed = fed;
   for (const m of mushrooms) {
     m.age += dt;
     if (!m.mature) {
-      m.growth = Math.min(1, m.growth + (dt / B.mushroomGrowSeconds) * (B.mushroomGrowFloor + (1 - B.mushroomGrowFloor) * fed));
-      drawSugar(state, B.mushroomGrowSugar * dt);
+      m.growth = Math.min(1, m.growth + (dt / B.mushroomGrowSeconds) * (B.mushroomGrowFloor + (1 - B.mushroomGrowFloor) * fed) * fx.mushGrow);
+      if (fx.mushGrow > 0) drawSugar(state, B.mushroomGrowSugar * dt);
       if (m.growth >= 1) {
         m.mature = true;
         events.push({ type: 'mushroom-mature', id: m.id, x: m.x, y: m.baseY });
       }
       continue;
     }
-    drawSugar(state, B.mushroomMatureSugar * dt);
-    const out = B.sporeRate * (0.5 + 1.5 * fed) * dt;
+    drawSugar(state, B.mushroomMatureSugar * fx.mushSugar * dt);
+    const out = B.sporeRate * (0.5 + 1.5 * fed) * fx.spore * dt;
     m.spores += out;
     m.burst += out;
     res.spores += out;
     m.burstT += dt;
     if (m.burstT >= B.sporeEventEvery) {
-      events.push({ type: 'spores', id: m.id, amount: m.burst, x: m.x, y: m.baseY - B.mushroomHeight });
+      if (m.burst > 0) events.push({ type: 'spores', id: m.id, amount: m.burst, x: m.x, y: m.baseY - B.mushroomHeight });
       m.burst = 0;
       m.burstT = 0;
     }

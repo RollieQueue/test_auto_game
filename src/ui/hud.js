@@ -1,8 +1,12 @@
-// DOM HUD: a naturalist's notebook around the scene. API: createHud(root, actions) -> { update(state, dt) }.
+// DOM HUD: a naturalist's notebook around the scene. API: createHud(root, actions) -> { update(state, dt, view) }.
 // update() runs every frame, so every write below is guarded by a "changed?" check.
 import { icons, checkbox, flourish, gauge } from './icons.js';
 import { createNotes } from './notes.js';
 import { createTooltip } from './tooltip.js';
+import { createLabels } from './labels.js';
+import { createGuide } from './guide.js';
+import { buildHelp } from './help.js';
+import { guideEnabled, setGuideEnabled, onGuideChange } from './prefs.js';
 
 const RESOURCES = [
   { k: 'sugar', label: 'Сахар' },
@@ -56,6 +60,7 @@ export function createHud(root, actions) {
       </section>
 
       <div class="notes" aria-live="polite"></div>
+      <div class="notes-zone" aria-hidden="true"></div>
 
       <div class="tools" role="tablist" aria-label="Инструмент">
         <button class="tool" data-tool="grow" type="button" role="tab">${icons.thread}<span>Нить</span><kbd>1</kbd></button>
@@ -66,8 +71,12 @@ export function createHud(root, actions) {
         <button class="stamp" data-act="pause" type="button" title="Пауза (Пробел)"><span class="sp-ico"></span><span class="cap">Пробел</span></button>
         <button class="stamp" data-act="speed" type="button" title="Скорость (F)"><span class="sp-text">×1</span><span class="cap">F</span></button>
         <button class="stamp" data-act="sound" type="button" title="Звук (M)"><span class="sp-ico"></span><span class="cap">M</span></button>
+        <button class="stamp small" data-act="help" type="button" title="Как играть (H)"><span class="sp-text">?</span><span class="cap">H</span></button>
       </div>
     </div>
+
+    <div class="guide" aria-live="polite"></div>
+    <div class="labels" aria-hidden="true"></div>
 
     <div class="tip" aria-hidden="true"></div>
 
@@ -83,7 +92,15 @@ export function createHud(root, actions) {
             <p>Под лесной поляной, в тёплом перегное, проросла одна спора. Тяни нити сквозь землю к воде и минералам, заключай союз с корнями деревьев: они заплатят тебе сахаром.</p>
             <p>Чем сильнее лес, тем сильнее ты. А над землёй вырастут грибы, и ветер разнесёт споры.</p>
           </div>
-          <div class="actions"><button class="ink-btn primary" data-act="start" type="button">Начать наблюдения</button></div>
+          <div class="actions">
+            <button class="ink-btn primary" data-act="continue-save" type="button" hidden>Продолжить наблюдения</button>
+            <button class="ink-btn primary" data-act="start" type="button">Начать наблюдения</button>
+            <button class="ink-btn" data-act="start-new" type="button" hidden>Новая поляна</button>
+          </div>
+          <div class="actions extras">
+            <button class="ink-btn quiet" data-act="help" type="button">Как играть</button>
+            <button class="ink-btn quiet" data-act="guide-toggle" type="button">Подсказки: вкл</button>
+          </div>
           <div class="hint">
             <span>Нить: зажми мышь на узле и веди</span>
             <span><kbd>1</kbd> <kbd>2</kbd> инструмент</span>
@@ -100,9 +117,17 @@ export function createHud(root, actions) {
         <div class="overline">страница заложена</div>
         <h2>Пауза</h2>
         <div class="sub">время в лесу замерло</div>
-        <div class="actions"><button class="ink-btn" data-act="resume" type="button">Продолжить</button></div>
+        <div class="actions">
+          <button class="ink-btn" data-act="resume" type="button">Продолжить</button>
+          <button class="ink-btn quiet" data-act="help" type="button">Как играть</button>
+          <button class="ink-btn quiet" data-act="guide-toggle" type="button">Подсказки: вкл</button>
+        </div>
         <div class="hint"><kbd>Пробел</kbd> или <kbd>Esc</kbd></div>
       </div>
+    </div>
+
+    <div class="screen help-screen">
+      <div class="page help-page" role="dialog" aria-label="Как играть"></div>
     </div>
 
     <div class="screen summary-screen">
@@ -133,6 +158,15 @@ export function createHud(root, actions) {
     gaugeFill: q('.gauge-fill'),
     objList: q('.obj-list'),
     notes: q('.notes'),
+    notesZone: q('.notes-zone'),
+    guide: q('.guide'),
+    labels: q('.labels'),
+    help: q('.help-screen'),
+    helpPage: q('.help-page'),
+    continueBtn: q('[data-act="continue-save"]'),
+    startBtn: q('[data-act="start"]'),
+    newBtn: q('[data-act="start-new"]'),
+    guideBtns: [...root.querySelectorAll('[data-act="guide-toggle"]')],
     tools: [...root.querySelectorAll('.tool')],
     pause: q('[data-act="pause"]'),
     speed: q('[data-act="speed"]'),
@@ -159,6 +193,29 @@ export function createHud(root, actions) {
 
   const notes = createNotes(el.notes);
   const tooltip = createTooltip(el.tip);
+  const labels = createLabels(el.labels);
+  const guide = createGuide(el.guide, () => [
+    q('.res-card'),
+    q('.obj-card'),
+    q('.tools'),
+    q('.stamps'),
+    el.notesZone,
+  ]);
+
+  // "Подсказки: вкл / выкл" on the title and pause pages mirrors the stored preference.
+  function paintGuideButtons() {
+    const on = guideEnabled();
+    for (const b of el.guideBtns) {
+      b.textContent = `Подсказки: ${on ? 'вкл' : 'выкл'}`;
+      b.classList.toggle('off', !on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+  }
+  onGuideChange((on) => {
+    if (on) guide.reset(); // turned back on: start the hints again
+    paintGuideButtons();
+  });
+  paintGuideButtons();
 
   // Frontispiece: shown only when the art helper has produced it.
   const art = q('.plate img');
@@ -196,6 +253,10 @@ export function createHud(root, actions) {
   let summaryOpen = false;
   let summaryShown = false;
   let pausedBySummary = false;
+  let helpOpen = false;
+  let pausedByHelp = false;
+  let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
+  let hasSave = false;
   const shown = {}; // text cache of the DOM
   const smooth = { sugar: 0, water: 0, minerals: 0, spores: 0 };
   const lastVal = {};
@@ -209,13 +270,17 @@ export function createHud(root, actions) {
     summaryOpen = false;
     summaryShown = Boolean(state.flags && state.flags.allObjectivesDone);
     pausedBySummary = false;
+    helpOpen = false;
+    pausedByHelp = false;
     for (const key of Object.keys(shown)) delete shown[key];
     for (const key of Object.keys(lastVal)) delete lastVal[key];
     for (const r of RESOURCES) smooth[r.k] = (state.rates && state.rates[r.k]) || 0;
     notes.reset();
+    labels.reset();
     tooltip.reset();
     setScreen(el.summary, false);
     setScreen(el.pauseScreen, false);
+    setScreen(el.help, false);
   }
 
   // ---- actions -----------------------------------------------------------
@@ -242,6 +307,41 @@ export function createHud(root, actions) {
     }
   }
 
+  function openHelp() {
+    if (helpOpen || summaryOpen || !cur) return;
+    helpOpen = true;
+    el.helpPage.innerHTML = buildHelp(cur);
+    setScreen(el.help, true);
+    if (cur.phase === 'playing') {
+      pausedByHelp = true; // the game waits while the page is open
+      actions.togglePause();
+    }
+  }
+
+  function closeHelp() {
+    if (!helpOpen) return false;
+    helpOpen = false;
+    setScreen(el.help, false);
+    if (pausedByHelp && cur && cur.phase === 'paused') actions.togglePause();
+    pausedByHelp = false;
+    return true;
+  }
+
+  /** Title page: the main button continues a saved game when there is one. */
+  function startPrimary() {
+    if (hasSave && actions.continueSaved?.()) return;
+    actions.start();
+  }
+
+  function refreshSave(state) {
+    hasSave = Boolean(actions.hasSave?.());
+    el.continueBtn.hidden = !hasSave;
+    el.newBtn.hidden = !hasSave;
+    el.startBtn.hidden = hasSave;
+    el.titlePage.classList.toggle('has-save', hasSave);
+    saveFor = state;
+  }
+
   const toggleMute = () => actions.setMuted(!actions.isMuted());
   const toggleSpeed = () => actions.setSpeed(cur && cur.speed === 2 ? 1 : 2);
 
@@ -252,7 +352,16 @@ export function createHud(root, actions) {
     if (btn.dataset.tool) return actions.setTool(btn.dataset.tool);
     switch (btn.dataset.act) {
       case 'start':
+      case 'start-new':
         return actions.start();
+      case 'continue-save':
+        return startPrimary();
+      case 'help':
+        return helpOpen ? void closeHelp() : openHelp();
+      case 'help-close':
+        return void closeHelp();
+      case 'guide-toggle':
+        return setGuideEnabled(!guideEnabled());
       case 'resume':
       case 'pause':
         return actions.togglePause();
@@ -274,6 +383,14 @@ export function createHud(root, actions) {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || !cur) return;
     const phase = cur.phase;
     let handled = true;
+    if (helpOpen) {
+      // the help page owns the keyboard: H, Esc, Space and Enter close it
+      if (['KeyH', 'Escape', 'Space', 'Enter'].includes(ev.code)) {
+        if (!ev.repeat) closeHelp();
+        ev.preventDefault();
+      }
+      return;
+    }
     switch (ev.code) {
       case 'Digit1':
       case 'Numpad1':
@@ -285,15 +402,18 @@ export function createHud(root, actions) {
         break;
       case 'Space':
         if (ev.repeat) break;
-        if (phase === 'title') actions.start();
+        if (phase === 'title') startPrimary();
         else if (summaryOpen) dismissSummary();
         else actions.togglePause();
         break;
       case 'Enter':
         if (ev.repeat) break;
-        if (phase === 'title') actions.start();
+        if (phase === 'title') startPrimary();
         else if (summaryOpen) dismissSummary();
         else handled = false;
+        break;
+      case 'KeyH':
+        if (!ev.repeat) openHelp();
         break;
       case 'KeyF':
         if (!ev.repeat && phase !== 'title') toggleSpeed();
@@ -416,21 +536,25 @@ export function createHud(root, actions) {
   }
 
   return {
-    update(state, dt) {
+    update(state, dt, view) {
       if (state !== cur) resetFor(state);
       const phase = state.phase;
       if (root.dataset.phase !== phase) root.dataset.phase = phase;
+      if (phase === 'title' && saveFor !== state) refreshSave(state);
 
       setScreen(el.title, phase === 'title');
-      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen);
+      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen);
 
       updateResources(state, dt);
       updateObjectives(state);
       updateControls(state);
 
-      // events -> notes, summary trigger
-      notes.process(state);
+      // events -> floating labels at their place (local) and margin notes (global), summary trigger
+      const labelled = labels.process(state, view);
+      notes.process(state, labelled);
       notes.tick(dt);
+      labels.tick(dt);
+      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen);
       if (!summaryShown && phase !== 'title') {
         let trigger = Boolean(state.flags && state.flags.allObjectivesDone);
         if (!trigger) {

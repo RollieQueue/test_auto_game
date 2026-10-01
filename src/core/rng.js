@@ -18,13 +18,19 @@ export function hash32(...values) {
 /** mulberry32: fast 32-bit PRNG returning floats in [0, 1). */
 export function mulberry32(seed) {
   let a = seed >>> 0;
-  return function next() {
+  const next = function next() {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  /** The generator's whole state (one uint32), for saving; setState(getState()) continues the same sequence. */
+  next.getState = () => a;
+  next.setState = (value) => {
+    a = value >>> 0;
+  };
+  return next;
 }
 
 /** Convenience wrapper around a seeded PRNG. */
@@ -33,6 +39,8 @@ export function createRng(seed) {
   return {
     seed: seed >>> 0,
     next,
+    getState: next.getState,
+    setState: next.setState,
     /** Float in [min, max). */
     range: (min, max) => min + (max - min) * next(),
     /** Integer in [min, max], both inclusive. */

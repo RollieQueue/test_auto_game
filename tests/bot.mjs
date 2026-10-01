@@ -8,6 +8,7 @@ import { B } from '../src/sim/balance.js';
 import { costAt, groundYAt } from '../src/world/query.js';
 
 export const DT = 1 / 60;
+const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0);
 const CELL = 8;
 
 class Heap {
@@ -122,15 +123,16 @@ function route(state, grid, isTarget) {
   return null;
 }
 
-/** Plays one game. opts: { maxSeconds, mushrooms, log } */
+/** Plays one game. opts: { maxSeconds, mushrooms, seasons (turn day/night and seasons on), runOn (keep playing after all objectives), debug } */
 export function playBot(seed, opts = {}) {
   const maxSeconds = opts.maxSeconds ?? 1200;
   const wantMushrooms = opts.mushrooms ?? 4;
   const state = createState(seed);
   state.phase = 'playing';
+  if (opts.seasons) state.flags.seasons = true;
   const grid = costGrid(state.world);
   const { world, net } = state;
-  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity };
+  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null };
   let nextThink = 0;
 
   const linked = (kind) => net.links.some((l) => l.kind === kind);
@@ -232,9 +234,18 @@ export function playBot(seed, opts = {}) {
       stats.events[ev.type] = (stats.events[ev.type] || 0) + 1;
       if (ev.type === 'objective') stats.doneAt[ev.id] = state.time;
       if (ev.type === 'all-objectives') completed = state.time;
+      if (ev.type === 'year-end') stats.yearEnd = { time: state.time, sugar: state.res.sugar, spores: state.res.spores };
     }
     state.events.length = 0;
     stats.minSugar = Math.min(stats.minSugar, state.res.sugar);
+    const ss = (stats.bySeason[state.clock.season + state.clock.year] ??= { min: Infinity, sum: 0, n: 0, zero: 0, spores0: state.res.spores, spores1: 0, waterMin: Infinity, health: 0 });
+    ss.min = Math.min(ss.min, state.res.sugar);
+    ss.sum += state.res.sugar;
+    ss.n++;
+    ss.spores1 = state.res.spores;
+    ss.waterMin = Math.min(ss.waterMin, state.res.water);
+    if (i % 60 === 0) ss.health += mean(state.world.trees.filter((t) => t.linked).map((t) => t.health));
+    if (state.res.sugar < 0.5) ss.zero += DT;
     if (state.res.sugar < 0.5) {
       stats.zeroStreak += DT;
       stats.maxZeroStreak = Math.max(stats.maxZeroStreak, stats.zeroStreak);

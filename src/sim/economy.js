@@ -15,7 +15,7 @@ function updateCaps(state) {
 function extract(state, dt) {
   const { world, res, cap, sim, events } = state;
   for (const w of world.water) {
-    w.amount = Math.min(w.max, w.amount + w.regen * dt);
+    w.amount = Math.min(w.max, w.amount + w.regen * sim.fx.regen * dt);
     const links = sim.waterLinks[w.id].length;
     if (links === 0) continue;
     if (sim.emptyFlag.water[w.id] && w.amount >= B.emptyRearm * w.max) sim.emptyFlag.water[w.id] = false;
@@ -47,28 +47,29 @@ function extract(state, dt) {
 /** Exchange with linked trees; returns the sugar they paid this step. */
 function stepTrees(state, dt) {
   const { world, res, sim, events } = state;
+  const fx = sim.fx;
   const linked = world.trees.filter((t) => sim.contacts[t.id].length > 0);
   if (linked.length === 0) return 0;
   const fac = (t) => B.treeContactFactor[Math.min(sim.contacts[t.id].length, B.treeContactFactor.length) - 1];
   let wantW = 0;
   let wantM = 0;
   for (const t of linked) {
-    wantW += B.treeDemandWater[t.stage] * dt;
-    wantM += B.treeDemandMinerals[t.stage] * dt;
+    wantW += B.treeDemandWater[t.stage] * fx.drinkW * dt;
+    wantM += B.treeDemandMinerals[t.stage] * fx.drinkM * dt;
   }
   const scaleW = wantW > res.water ? res.water / wantW : 1;
   const scaleM = wantM > res.minerals ? res.minerals / wantM : 1;
   let paid = 0;
   for (const t of linked) {
-    const dW = B.treeDemandWater[t.stage] * dt;
-    const dM = B.treeDemandMinerals[t.stage] * dt;
+    const dW = B.treeDemandWater[t.stage] * fx.drinkW * dt;
+    const dM = B.treeDemandMinerals[t.stage] * fx.drinkM * dt;
     const takeW = dW * scaleW;
     const takeM = dM * scaleM;
     res.water -= takeW;
     res.minerals -= takeM;
-    const sat = B.treeSatWater * (takeW / dW) + (1 - B.treeSatWater) * (takeM / dM);
+    const sat = B.treeSatWater * (takeW / dW) + (1 - B.treeSatWater) * (takeM / dM); // demands are never 0
     t.health += (sat - t.health) * Math.min(1, dt / B.treeHealthTau);
-    const pay = B.treePay[t.stage] * fac(t) * sat * dt;
+    const pay = B.treePay[t.stage] * fac(t) * sat * fx.pay * dt;
     paid += pay;
     const intake = sim.intake[t.id];
     intake.water += takeW;
@@ -76,7 +77,7 @@ function stepTrees(state, dt) {
     intake.sugar += pay;
     if (t.stage < 3) {
       const g = clamp((t.health - B.treeGrowFromHealth) / (1 - B.treeGrowFromHealth), 0, 1);
-      t.growth += (g * dt) / B.treeGrowSeconds[t.stage];
+      t.growth += (g * fx.treeGrow * dt) / B.treeGrowSeconds[t.stage];
       if (t.growth >= 1) {
         t.stage++;
         t.growth = 0;
@@ -102,7 +103,7 @@ export function stepEconomy(state, dt) {
   extract(state, dt);
   const paid = stepTrees(state, dt);
   const income = saprotrophSugar(state) + paid / dt;
-  let upkeep = B.upkeepPerLength * state.stats.hyphaeLength;
+  let upkeep = B.upkeepPerLength * state.stats.hyphaeLength * sim.fx.upkeep;
   if (res.sugar < B.upkeepSoftFloor) upkeep = Math.min(upkeep, B.upkeepFloorShare * income);
   sim.income = income;
   res.sugar = clamp(res.sugar + (income - upkeep) * dt, 0, cap.sugar);

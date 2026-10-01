@@ -1,5 +1,6 @@
 // Every tunable gameplay number lives here. Units: world units (u), seconds (s), sugar/water/minerals/spores.
-// Verified by the bot playthrough in tests/sim.test.mjs (all five objectives in 8-15 game minutes at x1).
+// Verified by the bot playthroughs in tests/sim.test.mjs and tests/seasons.test.mjs (all five objectives in 5-7 game minutes
+// at x1 for the scripted bot, a human is expected to need about twice as long; with seasons on, by the end of spring or summer).
 
 export const B = {
   // --- Start ---
@@ -75,4 +76,31 @@ export const B = {
 
   // --- Rates ---
   rateTau: 2, // s, smoothing of state.rates
+
+  // --- Time (the clock always runs; the effects below apply only with state.flags.seasons) ---
+  daySeconds: 100, // a day (3 per season)
+  seasonSeconds: 300, // a year is 4 seasons = 20 game minutes at x1
+  startDayFrac: 0.3, // a game starts in spring, shortly after sunrise (0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset)
+  daylightEdge: 0.45, // daylight = smoothstep over sin(sun) in +-this: dawn and dusk take ~15 s each
+  photoFloor: 0.25, // tree sugar payout = x (photoFloor + (1 - photoFloor) * daylight)
+  nightSpores: 0.3, // spore release is up to +30% at night (humid air)
+  weatherLead: 20, // s at the start of every season without an episode
+  weatherRampIn: 8, // s for an episode to reach its strength
+  weatherRampOut: 10,
+  droughtRegenCut: 0.9, // pocket regeneration x (1 - cut * intensity) in a drought
+  droughtThirst: 0.4, // trees drink water x (1 + this * intensity) in a drought
+  // Per season: multipliers and the weather episodes (kind, count per season, duration range in s, peak range).
+  // pay: tree sugar; drinkW/drinkM: tree water/mineral demand; regen: water pocket regeneration; rain: extra regeneration
+  // at full rain (x (1 + rain * intensity)); treeGrow, mushGrow: growth speed; spore: spore release; mushSugar: sugar
+  // drawn by mature mushrooms; upkeep: hypha upkeep.
+  seasons: {
+    spring: { pay: 1.15, drinkW: 1, drinkM: 1, regen: 1, rain: 6, treeGrow: 1.1, mushGrow: 1, spore: 1, mushSugar: 1, upkeep: 1,
+      weather: { kind: 'rain', count: 3, min: 25, max: 40, peakMin: 0.7, peakMax: 1 } },
+    summer: { pay: 1.2, drinkW: 1.3, drinkM: 1, regen: 0.6, rain: 0, treeGrow: 1.1, mushGrow: 1, spore: 1, mushSugar: 1, upkeep: 1,
+      weather: { kind: 'drought', count: 2, min: 50, max: 80, peakMin: 0.7, peakMax: 1 } },
+    autumn: { pay: 0.95, drinkW: 0.9, drinkM: 0.9, regen: 1, rain: 2.5, treeGrow: 0.8, mushGrow: 1.8, spore: 3, mushSugar: 1, upkeep: 1,
+      weather: { kind: 'rain', count: 2, min: 20, max: 35, peakMin: 0.5, peakMax: 0.9 } },
+    winter: { pay: 0.2, drinkW: 0.3, drinkM: 0.3, regen: 0.5, rain: 0, treeGrow: 0.1, mushGrow: 0, spore: 0, mushSugar: 0.25, upkeep: 0.4,
+      weather: { kind: 'snow', count: 3, min: 50, max: 75, peakMin: 0.6, peakMax: 1 } },
+  },
 };

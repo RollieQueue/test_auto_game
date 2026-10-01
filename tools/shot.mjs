@@ -6,7 +6,7 @@
 //     --wait 1500 --shot .tmp/a.png \
 //     --drag 800,330,860,420 --wait 3000 --eval "__game.state.res.sugar" --shot .tmp/b.png
 //
-// --url URL|/path   a path starts tools/serve.mjs on a free port and stops it at the end
+// --url URL|/path   a path starts tools/serve.mjs on a free port (system-picked) and stops it at the end
 // --size WxH        viewport in CSS px (default 1600x900); --dpr N device pixel ratio (default 1)
 // --wait MS         sleep;  --eval JS  evaluate (awaits promises, prints the JSON result)
 // --eval-file F     evaluate a file's contents;  --shot PATH  save a PNG screenshot
@@ -58,7 +58,9 @@ function parseArgs(argv) {
 
 function startServer() {
   return new Promise((resolveUrl, reject) => {
-    const child = spawn(process.execPath, [join(root, 'tools', 'serve.mjs'), '--port', '5190', '--no-open'], {
+    // Port 0: a free port picked by the system. A fixed port could be shared on Windows with another
+    // agent's server (SO_REUSEADDR), and requests would then reach the wrong copy of the game.
+    const child = spawn(process.execPath, [join(root, 'tools', 'serve.mjs'), '--port', '0', '--no-open'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';

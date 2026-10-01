@@ -79,7 +79,8 @@ function listen(port, attemptsLeft) {
     }
   });
   server.listen(port, '127.0.0.1', () => {
-    const url = `http://127.0.0.1:${port}/`;
+    // --port 0 lets the system pick a free port; report the one actually bound.
+    const url = `http://127.0.0.1:${server.address().port}/`;
     console.log(`Корни и нити: ${url}`);
     console.log('Чтобы остановить сервер, закройте это окно или нажмите Ctrl+C.');
     if (shouldOpen) openBrowser(url);
