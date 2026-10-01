@@ -1,6 +1,17 @@
 // The HUD side of the soil threats (nematodes, trapping rings, chapters): the pure part, no DOM.
 // Everything is read defensively: the sim may omit any field of the contract and the text must still make sense.
 import * as balance from '../sim/balance.js';
+import { mushroomCost } from '../sim/mushrooms.js';
+
+/** What the next mushroom really costs (it grows with threats on and with every mushroom standing). */
+export function fruitCostOf(state) {
+  try {
+    if (state && Array.isArray(state.mushrooms)) return Math.round(mushroomCost(state));
+  } catch {
+    // a partial state (tests, help page before a game): fall back to the base price
+  }
+  return Math.round(balance.B?.mushroomCost ?? 24);
+}
 
 export const DEFAULT_TRAP_COST = 30;
 export const LAST_CHAPTER = 3; // the sim has three pages of observations; `state.chapterCount` overrides it

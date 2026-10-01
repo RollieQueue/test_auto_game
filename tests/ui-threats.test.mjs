@@ -151,3 +151,16 @@ test('the key of the worm arrow changes only when the worm moved far', () => {
   s.fauna[0].x = 1100;
   assert.notEqual(wormHint(s).key, a);
 });
+
+test('the HUD shows the real mushroom price (threats raise it, every standing mushroom too)', async () => {
+  const { fruitCostOf } = await import('../src/ui/threats.js');
+  const s = createState(42);
+  assert.equal(fruitCostOf(s), Math.round(sim.mushroomCost(s)));
+  s.flags.threats = true;
+  const base = fruitCostOf(s);
+  assert.equal(base, Math.round(sim.mushroomCost(s)));
+  assert.ok(base > Math.round(B.mushroomCost), 'threats make mushrooms dearer');
+  s.mushrooms.push({ id: 90, nodeId: 0, x: 0, baseY: 0, species: 'common', variant: 0, age: 0, growth: 0, mature: false, spores: 0 });
+  assert.ok(fruitCostOf(s) > base, 'each standing mushroom raises the price');
+  assert.equal(fruitCostOf(null), Math.round(B.mushroomCost ?? 24));
+});

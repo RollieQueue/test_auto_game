@@ -4,7 +4,7 @@
 import * as sim from '../sim/index.js';
 import * as mushrooms from '../sim/mushrooms.js';
 import * as balance from '../sim/balance.js';
-import { describeTrapPick, threatsOn, trapCost } from './threats.js';
+import { describeTrapPick, fruitCostOf, threatsOn, trapCost } from './threats.js';
 
 const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
@@ -83,7 +83,7 @@ function describeFruit(state) {
   }
   if (id === null || id === undefined) return null;
   const B = balance.B || {};
-  const cost = Math.round(B.mushroomCost ?? 24);
+  const cost = fruitCostOf(state);
   const reason =
     typeof mushrooms.fruitDenial === 'function'
       ? mushrooms.fruitDenial(state, id)

@@ -3,10 +3,9 @@
 //   spore -> water -> tree -> fruit -> mineral -> wait -> (quiet)
 import { groundYAt, rockAt } from '../world/query.js';
 import * as balance from '../sim/balance.js';
-import { wormHint } from './threats.js';
+import { fruitCostOf, wormHint } from './threats.js';
 
 const FRUIT_DEPTH = () => balance.B?.fruitMaxDepth ?? 45;
-const FRUIT_COST = () => balance.B?.mushroomCost ?? 24;
 
 const MINERAL_WORDS = { phosphorus: 'фосфора', nitrogen: 'азота' };
 
@@ -138,7 +137,7 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
       const pick = keep && keep.depth <= maxDepth && keep.depth <= best.depth + 30 ? keep : best;
       const ring = { x: pick.n.x, y: pick.n.y, rx: 24, ry: 24 };
       const key = `node:${pick.n.id}`;
-      const cost = FRUIT_COST();
+      const cost = fruitCostOf(state);
       if (pick.depth > maxDepth) {
         return hint('fruit-deep', 'Гриб', 'Гриб растёт только у самой земли. Протяни нить повыше, к поверхности.', { ring, key });
       }

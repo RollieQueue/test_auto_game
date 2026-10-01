@@ -3,7 +3,7 @@
 import { icons, flourish } from './icons.js';
 import * as balance from '../sim/balance.js';
 import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
-import { chapterTotal, threatsOn, trapCost } from './threats.js';
+import { chapterTotal, fruitCostOf, threatsOn, trapCost } from './threats.js';
 
 const FALLBACK_HORIZONS = [
   { name: 'Лесная подстилка', depth: 0, cost: 0.1 },
@@ -75,7 +75,7 @@ export function buildHelp(state) {
   const B = balance.B || {};
   const fruitDepth = Math.round(B.fruitMaxDepth ?? 45);
   const fruitSpacing = Math.round(B.fruitSpacing ?? 60);
-  const fruitCost = Math.round(B.mushroomCost ?? 24);
+  const fruitCost = fruitCostOf(state);
   const fruitSeconds = Math.round(B.mushroomGrowSeconds ?? 20);
   const goal = Math.round(B.sporesGoal ?? 100);
   const speed = Math.round(B.growSpeed ?? 140);
