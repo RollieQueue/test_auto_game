@@ -256,7 +256,7 @@ export function createMycelium() {
       net = null;
       cords.clear();
     },
-    draw(ctx, state, t) {
+    draw(ctx, state, t, dt, frame) {
       const n = state.net;
       if (!core || !n) return;
       const nodes = n.nodes;
@@ -318,6 +318,11 @@ export function createMycelium() {
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = breath;
       ctx.drawImage(halo, 0, 0, halo.width, halo.height, 0, 0, core.width, core.height);
+      const night = frame?.atmos?.night || 0; // bioluminescence: the net shines stronger in the dark
+      if (night > 0.02) {
+        ctx.globalAlpha = Math.min(1, breath * night * 1.15);
+        ctx.drawImage(halo, 0, 0, halo.width, halo.height, 0, 0, core.width, core.height);
+      }
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
       ctx.drawImage(core, 0, 0);

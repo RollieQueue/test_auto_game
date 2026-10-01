@@ -1,6 +1,6 @@
 // Module worker that paints the static world layer off the main thread (software raster, so it does not compete with
 // the page for the GPU either) and hands it back as an ImageBitmap.
-//   in:  { id, w, h, world, view }      out: { id, bitmap, ms } | { id, error }
+//   in:  { id, w, h, world, view, season? }      out: { id, bitmap, ms } | { id, error }
 import { paintWorldLayer } from './world-layer.js';
 
 let fonts = null;
@@ -32,7 +32,7 @@ self.onmessage = async (e) => {
     const t0 = performance.now();
     const canvas = new OffscreenCanvas(job.w, job.h);
     const g = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
-    paintWorldLayer(g, job.w, job.h, job.world, job.view);
+    paintWorldLayer(g, job.w, job.h, job.world, job.view, job.season);
     const bitmap = canvas.transferToImageBitmap();
     self.postMessage({ id: job.id, bitmap, ms: performance.now() - t0 }, [bitmap]);
   } catch (err) {

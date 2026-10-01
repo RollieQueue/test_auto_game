@@ -8,8 +8,10 @@ import { drawDecor } from './decor.js';
 
 /**
  * Paint the layer into `g` (a 2D context of a w × h canvas). view = { scale, ox, oy, cssW, cssH, dpr }.
+ * season: optional 'spring' | 'summer' | 'autumn' | 'winter' recolours the vegetation (same picture, other pigments);
+ * undefined or '' gives the unseasonal look, which is the summer one.
  */
-export function paintWorldLayer(g, w, h, world, view) {
+export function paintWorldLayer(g, w, h, world, view, season) {
   const s = view.scale * view.dpr;
   paintPaper(g, w, h, world.seed, view.dpr);
   g.setTransform(s, 0, 0, s, view.ox * view.dpr, view.oy * view.dpr);
@@ -26,7 +28,7 @@ export function paintWorldLayer(g, w, h, world, view) {
     ...world.rocks.map((d) => ({ x: d.x, y: d.y, r: d.r * 1.5 })),
   ];
   const avoid = (x, y, m) => avoidList.some((a) => Math.hypot(x - a.x, y - a.y) < a.r + m * 0.4);
-  paintTerrain(g, world, ext, { avoid, cssUnit: 1 / view.scale });
+  paintTerrain(g, world, ext, { avoid, cssUnit: 1 / view.scale, season });
   for (const d of world.decor) {
     try {
       drawDecor(g, d, { seed: world.seed });

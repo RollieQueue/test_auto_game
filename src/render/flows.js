@@ -67,7 +67,8 @@ export function createFlows() {
     reset() {
       flows.clear();
     },
-    draw(ctx, state, t, dt) {
+    draw(ctx, state, t, dt, fr) {
+      const night = fr?.atmos?.night || 0; // brighter beads in the dark
       const net = state.net;
       if (!net || !state.flows || !state.flows.length) return;
       if (net !== netRef) {
@@ -121,8 +122,8 @@ export function createFlows() {
             const edge = Math.min(1, s / 24, (st.len - s) / 24);
             if (edge <= 0) continue;
             if (pass === 0) {
-              ctx.globalAlpha = 0.7 * edge;
-              const r = 12 * sz;
+              ctx.globalAlpha = Math.min(1, (0.7 + 0.3 * night) * edge);
+              const r = 12 * sz * (1 + 0.3 * night);
               ctx.drawImage(b.halo, x - r, y - r, r * 2, r * 2);
             } else {
               ctx.globalAlpha = edge;

@@ -19,6 +19,7 @@ import {
   smooth01,
   grainTilesOf,
 } from './ink.js';
+import { makeLimb } from './trees-model.js';
 
 const SEP = PAL.sepia;
 const TAU = Math.PI * 2;
@@ -43,11 +44,47 @@ const COLORS = {
   },
 };
 
-export function palette(species, v) {
-  const set = COLORS[species] || COLORS.oak;
+/** Good-vitality colours per season (summer is COLORS itself, so a summer sprite equals the season-less one). */
+const SEASON_GOOD = {
+  spring: {
+    birch: { base: '#b8dc6a', mid: '#92c44c', dark: '#5a9136', lite: '#e8f5b0', ink: '#34481f' },
+    oak: { base: '#86a83e', mid: '#6a8e2f', dark: '#3c5424', lite: '#c0d778', ink: '#26361a' },
+    pine: { base: '#47897c', mid: '#34706a', dark: '#1c4a48', lite: '#9fd0b4', ink: '#12302f' },
+  },
+  autumn: {
+    birch: { base: '#e3c23e', mid: '#d09a2c', dark: '#9a6a22', lite: '#f6e486', ink: '#4a3418' },
+    oak: { base: '#c4812e', mid: '#a65a24', dark: '#6a3418', lite: '#e6b565', ink: '#3a2212' },
+    pine: { base: '#43806f', mid: '#316a5e', dark: '#1a4440', lite: '#85b79c', ink: '#14312d' },
+  },
+  winter: {
+    // oak and birch are bare: only `ink` (the twigs) and `lite`/`dark` for the snow shade are used
+    birch: { base: '#8c8279', mid: '#6d6560', dark: '#3d332c', lite: '#cfd4d8', ink: '#2e241f' },
+    oak: { base: '#8a7e74', mid: '#6a5f56', dark: '#3a2e26', lite: '#cfd4d8', ink: '#33271f' },
+    pine: { base: '#2a4f4f', mid: '#1f403f', dark: '#0f2a2c', lite: '#5f8f8b', ink: '#0b1c1e' },
+  },
+};
+
+export const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
+
+/** Painting season: anything that is not spring/autumn/winter paints exactly as before (summer included). */
+const paintSeason = (season) => (season === 'spring' || season === 'autumn' || season === 'winter' ? season : undefined);
+
+/** `season`: optional 'spring' | 'summer' | 'autumn' | 'winter'; undefined (and 'summer') = the original palette. */
+export function palette(species, v, season) {
+  const key = COLORS[species] ? species : 'oak';
+  const set = COLORS[key];
   const t = smooth01(clamp(v, 0, 1));
+  const ss = paintSeason(season);
+  let good = set.good;
+  let sick = set.sick;
+  if (ss) {
+    good = SEASON_GOOD[ss][key];
+    const k = ss === 'autumn' ? 0.5 : 0.3;
+    sick = {};
+    for (const c of Object.keys(good)) sick[c] = mix(set.sick[c], good[c], k);
+  }
   const out = {};
-  for (const k of Object.keys(set.good)) out[k] = mix(set.sick[k], set.good[k], t);
+  for (const k of Object.keys(good)) out[k] = mix(sick[k], good[k], t);
   return out;
 }
 
@@ -548,7 +585,7 @@ function cpuToothTile(amount = 0.13, light = 0.5) {
   return toothTile;
 }
 
-function oakCrownSteps(ctx, m, vis, pal, v, W, H) {
+function oakCrownSteps(ctx, m, vis, pal, v, W, H, airy = false) {
   const steps = [];
   if (!vis.length) return steps;
   const sd = m.seed;
@@ -597,7 +634,7 @@ function oakCrownSteps(ctx, m, vis, pal, v, W, H) {
   steps.push(() => {
     ctx.save();
     unionPath(ctx, G.polyA);
-    ctx.fillStyle = rgba(mix(pal.base, pal.lite, 0.12), 0.72);
+    ctx.fillStyle = rgba(mix(pal.base, pal.lite, airy ? 0.2 : 0.12), airy ? 0.64 : 0.72);
     ctx.fill();
     ctx.restore();
   });
@@ -874,7 +911,18 @@ function fringeStroke(ctx, f, pal, rng, seed, v, sz) {
   }
 }
 
-function pineTuft(ctx, t, pal, rng, seed, v, sz) {
+/** Spring: a birch catkin hanging from the tip of a drooping twig, ochre with a pen outline. */
+function catkin(ctx, pts, rng, seed) {
+  if (rng() > 0.45) return;
+  const e = pts[pts.length - 1];
+  const x = e.x + rr(rng, -1.5, 1.5);
+  const y = e.y + 0.5;
+  const ln = rr(rng, 4.5, 6.5);
+  inkStroke(ctx, [{ x, y }, { x: x + 0.4, y: y + ln * 0.5 }, { x: x + 0.2, y: y + ln }], { w: 1.9, color: '#cfaa4a', alpha: 0.92, taperStart: 0.15, taperEnd: 0.5, tremor: 0.08, seed, step: 1.5 });
+  inkStroke(ctx, [{ x: x - 0.9, y: y + 0.4 }, { x: x - 0.7, y: y + ln * 0.6 }, { x, y: y + ln + 0.4 }], { w: 0.5, color: '#4a3418', alpha: 0.7, taperStart: 0.2, taperEnd: 0.5, tremor: 0.08, seed: seed + 5, step: 1.5 });
+}
+
+function pineTuft(ctx, t, pal, rng, seed, v, sz, snow = false) {
   const rx = t.r * 1.7;
   const ry = t.r * 0.78;
   const droop = (1 - v) * 0.35;
@@ -916,17 +964,321 @@ function pineTuft(ctx, t, pal, rng, seed, v, sz) {
     ctx.lineWidth = passes[p].w;
     ctx.stroke();
   }
+  if (snow) pineSnow(ctx, t, cx, cy, rx, ry, rot, seed);
+}
+
+/** Winter: a white wash cap on the upper side of a tuft over a pale blue-grey shade, with a few pale pen strokes. */
+function pineSnow(ctx, t, cx, cy, rx, ry, rot, seed) {
+  const rng = mulberry(seed ^ 0x5a07);
+  if (t.leader) {
+    const r = t.r;
+    wash(ctx, blobPoly(cx - r * 0.05, cy - r * 0.45, r * 0.6, r * 0.75, seed + 21, { n: 9, jitter: 0.25 }), { color: '#a9bccb', alpha: 0.4, layers: 1, ragged: 1.6, edge: 0, seed: seed + 21 });
+    wash(ctx, blobPoly(cx - r * 0.1, cy - r * 0.62, r * 0.4, r * 0.55, seed + 22, { n: 9, jitter: 0.3 }), { color: '#fbfdff', alpha: 0.88, layers: 2, ragged: 1.8, edge: 0, seed: seed + 22 });
+    for (let i = 0; i < 5; i++) {
+      const x = cx + rr(rng, -0.4, 0.3) * r;
+      const y = cy - r * rr(rng, 0.2, 0.7);
+      const a = -Math.PI / 2 + rr(rng, -1, 1);
+      inkStroke(ctx, [{ x, y }, { x: x + Math.cos(a) * 4, y: y + Math.sin(a) * 4 }], { w: 0.55, color: '#1c3b3c', alpha: 0.55, taperStart: 0.1, taperEnd: 0.6, tremor: 0.05, seed: seed + 50 + i, step: 2, smooth: false });
+    }
+    return;
+  }
+  const sh = rr(rng, 0.45, 0.62); // how much of the tuft the snow covers
+  const off = rr(rng, -0.25, 0.25) * rx;
+  wash(ctx, blobPoly(cx + off + rx * 0.04, cy - ry * 0.3, rx * (sh + 0.12), ry * 0.36, seed + 21, { n: 10, jitter: 0.28, rot }), { color: '#a9bccb', alpha: 0.42, layers: 1, ragged: 1.8, edge: 0, seed: seed + 21 });
+  wash(ctx, blobPoly(cx + off - rx * 0.03, cy - ry * 0.48, rx * sh, ry * 0.27, seed + 22, { n: 10, jitter: 0.3, rot }), { color: '#fbfdff', alpha: 0.9, layers: 2, ragged: 1.9, edge: 0, seed: seed + 22 });
+  // a few needles poking through the snow
+  for (let i = 0; i < 7; i++) {
+    const x = cx + off + rr(rng, -sh, sh) * rx * 0.9;
+    const y = cy - ry * rr(rng, 0.38, 0.62);
+    const a = -Math.PI / 2 + rr(rng, -0.9, 0.9);
+    const ln = rr(rng, 3, 6);
+    inkStroke(ctx, [{ x, y }, { x: x + Math.cos(a) * ln, y: y + Math.sin(a) * ln }], { w: 0.55, color: '#1c3b3c', alpha: 0.55, taperStart: 0.1, taperEnd: 0.6, tremor: 0.05, seed: seed + 40 + i, step: 2, smooth: false });
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = rr(rng, -0.7, 0.7) * rx;
+    const y = cy - ry * rr(rng, 0.45, 0.9);
+    const ln = rr(rng, 5, 10);
+    inkStroke(ctx, [{ x: cx + a - ln, y: y + 0.6 }, { x: cx + a, y: y - 0.6 }, { x: cx + a + ln, y: y + 0.5 }], { w: 0.9, color: '#eef4f8', alpha: 0.8, taperStart: 0.3, taperEnd: 0.4, tremor: 0.15, seed: seed + 30 + i, step: 2 });
+  }
+}
+
+/* ------------------------------------------------------------------ winter: bare crowns */
+
+/** Radius of a (rotated) lobe ellipse in direction `a`. */
+function lobeReach(l, a) {
+  const c = Math.cos(a - l.rot);
+  const s = Math.sin(a - l.rot);
+  return (l.rx * l.ry) / Math.hypot(l.ry * c, l.rx * s);
+}
+
+function inLobe(l, x, y, k) {
+  const c = Math.cos(l.rot);
+  const s = Math.sin(l.rot);
+  const dx = x - l.x;
+  const dy = y - l.y;
+  const u = (dx * c + dy * s) / l.rx;
+  const w = (-dx * s + dy * c) / l.ry;
+  return u * u + w * w <= k * k;
+}
+
+const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+const droopPull = (a, k) => (k ? Math.atan2(Math.sin(a) + k, Math.cos(a)) : a);
+
+/**
+ * Where each lobe of the (former) crown is fed from: the nearest point on the skeleton (trunk, limbs, boughs made so far),
+ * preferring points below the lobe. Lobes nearest the trunk top go first so the farther ones branch off their boughs.
+ */
+function planBare(m, vis, oak) {
+  const anchors = [];
+  const addAnchors = (limb, f0, f1) => {
+    const n = limb.pts.length;
+    for (let i = Math.floor((n - 1) * f0); i <= Math.ceil((n - 1) * f1) && i < n; i += 2) {
+      const a = limb.pts[Math.max(0, i - 1)];
+      const b = limb.pts[Math.min(n - 1, i + 1)];
+      const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      anchors.push({ x: limb.pts[i].x, y: limb.pts[i].y, w: limb.w[i], tx: (b.x - a.x) / l, ty: (b.y - a.y) / l }); // tx, ty: heading towards the tip
+    }
+  };
+  addAnchors(m.trunk, 0.6, 1);
+  for (const L of m.limbs) if (L.pts.length > 2) addAnchors(L, 0.3, 1);
+  const top = m.trunk.pts[m.trunk.pts.length - 1];
+  const order = vis.map((l, i) => i).sort((a, b) => Math.hypot(vis[a].x - top.x, vis[a].y - top.y) - Math.hypot(vis[b].x - top.x, vis[b].y - top.y));
+  const rng = mulberry(m.seed ^ 0x6b0b ^ (m.stage * 211));
+  const boughs = [];
+  const infos = new Array(vis.length);
+  if (oak && m.stage <= 2 && vis.length) {
+    // the trunk ends in a flat cut that foliage normally hides: carry it on up to the middle of the crown
+    const tw = m.trunk.w[m.trunk.w.length - 1];
+    let tg = vis[0];
+    let bs = Infinity;
+    for (const l of vis) {
+      const sc = Math.hypot(l.x - top.x, l.y - (top.y - 35));
+      if (sc < bs) {
+        bs = sc;
+        tg = l;
+      }
+    }
+    const len = Math.hypot(tg.x - top.x, tg.y - top.y);
+    if (len > 8) {
+      const bend = rr(rng, 0.05, 0.12) * (rng() < 0.5 ? 1 : -1);
+      const mid = { x: (top.x + tg.x) / 2 - ((tg.y - top.y) / len) * len * bend, y: (top.y + tg.y) / 2 + ((tg.x - top.x) / len) * len * bend };
+      const B = makeLimb([{ x: top.x, y: top.y }, mid, { x: tg.x, y: tg.y }], Math.max(1.8, tw * 0.95), Math.max(1.4, tw * 0.3), { step: 3, pow: 1.5 });
+      B.depth = 2;
+      boughs.push(B);
+      addAnchors(B, 0.3, 0.8);
+    }
+  }
+  for (const i of order) {
+    const l = vis[i];
+    let best = null;
+    let bd = Infinity;
+    for (const a of anchors) {
+      const dl = Math.hypot(l.x - a.x, l.y - a.y) || 1;
+      // a bough leaves its parent forwards, not back along it: sideways costs more, backwards most
+      let d = dl * (1 + 0.6 * (1 - ((l.x - a.x) * a.tx + (l.y - a.y) * a.ty) / dl));
+      if (a.y < l.y) d += 0.7 * (l.y - a.y);
+      if (d < bd) {
+        bd = d;
+        best = a;
+      }
+    }
+    const A = best || top;
+    const len = Math.hypot(l.x - A.x, l.y - A.y);
+    infos[i] = { l, i, back: Math.atan2(A.y - l.y, A.x - l.x) };
+    if (len < 6) continue;
+    const bend = rr(rng, 0.06, 0.2) * (rng() < 0.5 ? 1 : -1);
+    const nx = -(l.y - A.y) / len;
+    const ny = (l.x - A.x) / len;
+    const mid = { x: (A.x + l.x) / 2 + nx * len * bend, y: (A.y + l.y) / 2 + ny * len * bend - (oak ? len * 0.05 : 0) };
+    const R = Math.sqrt(l.rx * l.ry);
+    const w0 = oak ? clamp(Math.min(A.w * 0.9, R * 0.24 + 0.8), 1.7, 9) : clamp(Math.min(A.w * 0.8, 1.7), 0.9, 1.7);
+    const w1 = oak ? clamp(w0 * 0.34, 1.2, 2.2) : 0.7;
+    const B = makeLimb([{ x: A.x, y: A.y }, mid, { x: l.x, y: l.y }], w0, w1, { step: 3, pow: 0.8 });
+    B.depth = 2;
+    boughs.push(B);
+    addAnchors(B, 0.3, 0.8);
+  }
+  return { boughs, infos };
+}
+
+/** Thin flat strips of snow along the upper side of a limb, broken by gaps and left off the steep stretches. */
+function snowOnLimb(ctx, limb, rng, seed) {
+  const P = limb.pts;
+  const n = P.length;
+  if (n < 5) return;
+  let i = 1 + Math.floor(rng() * 2);
+  let q = 0;
+  while (i < n - 2) {
+    const j = Math.min(n - 2, i + 3 + Math.floor(rng() * 6));
+    const up = [];
+    const dn = [];
+    let steep = 0;
+    let hw = 0;
+    for (let k = i; k <= j; k++) {
+      const a = P[k - 1];
+      const b = P[k + 1];
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
+      const l = Math.hypot(dx, dy) || 1;
+      dx /= l;
+      dy /= l;
+      let nx = -dy;
+      let ny = dx;
+      if (ny > 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const h = Math.max(0.3, limb.w[k] * 0.5);
+      hw += h;
+      steep += Math.abs(dy);
+      up.push({ x: P[k].x + nx * h * 0.82, y: P[k].y + ny * h * 0.82 - 0.3 });
+      dn.push({ x: P[k].x + nx * h * 0.3, y: P[k].y + ny * h * 0.3 + 0.2 });
+    }
+    const cnt = j - i + 1;
+    if (cnt >= 3 && steep / cnt < 0.8) {
+      hw /= cnt;
+      inkStroke(ctx, dn, { w: clamp(hw * 1.1, 0.9, 3.4), color: '#9eb1c6', alpha: 0.5, taperStart: 0.3, taperEnd: 0.4, tremor: 0.1, press: 0.2, seed: seed + q, step: 2 });
+      inkStroke(ctx, up, { w: clamp(hw * 1.05, 1.1, 3.6), color: '#ffffff', alpha: 0.92, taperStart: 0.3, taperEnd: 0.4, tremor: 0.1, press: 0.2, seed: seed + 70 + q, step: 2 });
+    }
+    q++;
+    i = j + 1 + Math.floor(rng() * 4);
+  }
+}
+
+/**
+ * Winter oak and birch: no leaf wash. Boughs lead from the skeleton to every former lobe, where fine twigs fork two or
+ * three times out to the rim of the lobe; limbs and forks carry a little snow.
+ */
+function bareCrownSteps(ctx, m, vis, pal, v, oak) {
+  const steps = [];
+  const sd = m.seed;
+  const sp = oak ? 'oak' : 'birch';
+  const { boughs, infos } = planBare(m, vis, oak);
+  // boughs: thin ones first so the thick ones lie over their bases (same order as the trunk sprite)
+  const bs = boughs.slice().sort((a, b) => a.w0 - b.w0);
+  const brng = mulberry(sd ^ 0x2d9b);
+  bs.forEach((B, k) => steps.push(...limbSteps(ctx, B, sp, brng, sd + 8100 + 17 * k)));
+
+  // the cut ends of the model limbs (hidden by leaves in summer) run on into a short tapering twig
+  const tipRng = mulberry(sd ^ 0x71b5);
+  steps.push(() => {
+    for (const L of m.limbs) {
+      const n = L.pts.length;
+      if (n < 3 || L.w[n - 1] < 0.7) continue;
+      const e = L.pts[n - 1];
+      const b = L.pts[n - 3];
+      const a = Math.atan2(e.y - b.y, e.x - b.x);
+      const ln = rr(tipRng, 7, 13);
+      const mid = { x: e.x + Math.cos(a + 0.15) * ln * 0.5, y: e.y + Math.sin(a + 0.15) * ln * 0.5 };
+      inkStroke(ctx, [{ x: e.x - Math.cos(a), y: e.y - Math.sin(a) }, mid, { x: e.x + Math.cos(a - 0.1) * ln, y: e.y + Math.sin(a - 0.1) * ln }], { w: L.w[n - 1] * 1.05, color: '#3f2e22', alpha: 0.95, taperStart: 0, taperEnd: 0.9, tremor: 0.1, press: 0.1, seed: sd + 7000 + n, step: 2 });
+    }
+  });
+
+  const cells = new Map();
+  const o = oak
+    ? { levels: m.stage >= 3 ? 4 : m.stage >= 1 ? 3 : 2, n0: m.stage >= 2 ? 4 : 3, f: [0.4, 0.32, 0.27, 0.22], w0: m.stage >= 2 ? 2 : 1.4, droop: 0, dab: 0.2, alpha: 0.9 }
+    : { levels: 2, n0: 3, f: [0.5, 0.42, 0.3], w0: 1.05, droop: 0.4, dab: 0.12, alpha: 0.85 };
+  const tw = (l, x, y, ang, len, w, level, rng, seed) => {
+    let ex = 0;
+    let ey = 0;
+    let ok = false;
+    for (let tr = 0; tr < 2 && !ok; tr++) {
+      ex = x + Math.cos(ang) * len;
+      ey = y + Math.sin(ang) * len;
+      ok = inLobe(l, ex, ey, 1.08);
+      if (!ok) len *= 0.6;
+    }
+    if (!ok) return;
+    const key = Math.floor(ex / 3) * 10007 + Math.floor(ey / 3);
+    const c = cells.get(key) || 0;
+    if (c >= 2) return;
+    cells.set(key, c + 1);
+    const bend = rr(rng, -0.16, 0.16) * len;
+    const mid = { x: (x + ex) / 2 - Math.sin(ang) * bend, y: (y + ey) / 2 + Math.cos(ang) * bend };
+    inkStroke(ctx, [{ x, y }, mid, { x: ex, y: ey }], { w, color: pal.ink, alpha: o.alpha, taperStart: 0.1, taperEnd: 0.6, tremor: 0.12, press: 0.2, seed, step: 2 });
+    if (level >= 1 && rng() < o.dab) {
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.beginPath();
+      ctx.ellipse(x, y - 0.5, rr(rng, 0.8, 1.4), rr(rng, 0.5, 0.9), 0, 0, TAU);
+      ctx.fill();
+    }
+    if (level + 1 >= o.levels) return;
+    // the first child carries on, the others branch off to alternating sides and are shorter
+    const nc = level === 0 && rng() < 0.3 ? 3 : 2;
+    const spread = rr(rng, 0.5, 0.95);
+    const sgn = rng() < 0.5 ? 1 : -1;
+    for (let k = 0; k < nc; k++) {
+      const da = k === 0 ? rr(rng, -0.25, 0.25) : (k === 1 ? sgn : -sgn) * spread;
+      const a = droopPull(ang + da, o.droop * 0.5);
+      tw(l, ex, ey, a, o.f[level + 1] * lobeReach(l, a) * (k === 0 ? 1 : k === 1 ? 0.75 : 0.6) * rr(rng, 0.85, 1.1), w * (k === 0 ? 0.68 : 0.55), level + 1, rng, seed + 3 * (k + 1));
+    }
+  };
+  const per = oak ? 2 : 3;
+  for (let i0 = 0; i0 < infos.length; i0 += per) {
+    steps.push(() => {
+      const rng = mulberry(sd ^ 0x7b3d ^ (i0 * 977));
+      for (let i = i0; i < Math.min(infos.length, i0 + per); i++) {
+        const f = infos[i];
+        if (!f) continue;
+        const l = f.l;
+        const base = rng() * TAU;
+        let placed = 0;
+        for (let k = 0; k < o.n0; k++) {
+          const a = droopPull(base + (k * TAU) / o.n0 + rr(rng, -0.35, 0.35), o.droop * 0.5);
+          if (o.n0 > 2 && angDiff(a, f.back) < 0.55 && placed + (o.n0 - k - 1) >= 2) continue;
+          placed++;
+          tw(l, l.x, l.y, a, o.f[0] * lobeReach(l, a) * rr(rng, 0.85, 1.15), o.w0, 0, rng, sd + 400 * (i + 1) + 11 * k);
+        }
+      }
+    });
+  }
+
+  if (!oak) {
+    // the drooping birch twigs, bare
+    const fr = m.fringe || [];
+    const sparse = 0.3 + 0.7 * v;
+    const frng = mulberry(sd ^ 0x44f1);
+    for (let i = 0; i < fr.length; i += 8) {
+      const chunk = fr.slice(i, i + 8);
+      steps.push(() =>
+        chunk.forEach((f, q) => {
+          if (frng() > 0.35 + 0.65 * sparse) return;
+          const pts = f.pts.map((p, k) => ({ x: p.x, y: p.y + (1 - v) * 3 * k }));
+          inkStroke(ctx, pts, { w: 0.8, color: pal.ink, alpha: 0.75, taperStart: 0.1, taperEnd: 0.6, tremor: 0.12, seed: sd + 900 + i + q, step: 2 });
+          const e = pts[pts.length - 1];
+          const b = pts[pts.length - 2];
+          const ang = Math.atan2(e.y - b.y, e.x - b.x);
+          for (const s of [-1, 1]) {
+            const ln = rr(frng, 3.5, 6.5);
+            inkStroke(ctx, [{ x: e.x, y: e.y }, { x: e.x + Math.cos(ang + s * 0.6) * ln, y: e.y + Math.sin(ang + s * 0.6) * ln }], { w: 0.5, color: pal.ink, alpha: 0.65, taperStart: 0.1, taperEnd: 0.7, tremor: 0.1, seed: sd + 950 + i + q + s, step: 2, smooth: false });
+          }
+        }),
+      );
+    }
+  }
+
+  // snow on the heavier limbs (model limbs and boughs alike)
+  const thr = oak ? 2.4 : 1.5;
+  const bearing = m.limbs.filter((L) => L.w0 >= thr).concat(boughs.filter((B) => B.w0 >= thr));
+  const srng = mulberry(sd ^ 0x5e0f);
+  for (let i = 0; i < bearing.length; i += 4) {
+    const chunk = bearing.slice(i, i + 4);
+    steps.push(() => chunk.forEach((L, q) => snowOnLimb(ctx, L, srng, sd + 6000 + 131 * (i + q))));
+  }
+  return steps;
 }
 
 /**
  * Crown painting as an ordered list of steps (vitality v in 0..1; W, H = canvas size in device px for granulation).
+ * `season` (optional): 'spring' | 'summer' | 'autumn' | 'winter'; undefined and 'summer' paint the original crown.
  */
-export function crownSteps(ctx, m, v, W, H) {
+export function crownSteps(ctx, m, v, W, H, season) {
   const steps = [];
   const rng = mulberry(m.seed ^ 0x3c91 ^ (m.stage * 4421));
   const sp = m.species;
-  const pal = palette(sp, v);
-  const sz = 0.7 + 0.1 * m.stage;
+  const ss = paintSeason(season);
+  const pal = palette(sp, v, ss);
+  const sz = (0.7 + 0.1 * m.stage) * (ss === 'spring' ? 0.82 : 1); // young leaves are small
   const sparse = 0.3 + 0.7 * v;
 
   if (sp === 'pine') {
@@ -935,7 +1287,7 @@ export function crownSteps(ctx, m, v, W, H) {
     const seq = keep.filter((t) => !t.front).concat(keep.filter((t) => t.front));
     for (let i = 0; i < seq.length; i += 2) {
       const chunk = seq.slice(i, i + 2);
-      steps.push(() => chunk.forEach((t, q) => pineTuft(ctx, t, pal, rng, m.seed + 7 * (i + q + 1), v, sz)));
+      steps.push(() => chunk.forEach((t, q) => pineTuft(ctx, t, pal, rng, m.seed + 7 * (i + q + 1), v, sz, ss === 'winter')));
     }
   } else {
     const vis = m.lobes
@@ -947,10 +1299,12 @@ export function crownSteps(ctx, m, v, W, H) {
         return { ...l, y: l.y + droop, rx: l.rx * sc, ry: l.ry * (sc + (1 - v) * 0.1) };
       });
     vis.sort((a, b) => a.y - b.y);
-    if (sp === 'oak') steps.push(...oakCrownSteps(ctx, m, vis, pal, v, W, H));
+    if (ss === 'winter') return bareCrownSteps(ctx, m, vis, pal, v, sp === 'oak');
+    if (sp === 'oak') steps.push(...oakCrownSteps(ctx, m, vis, pal, v, W, H, ss === 'spring'));
     else vis.forEach((l, idx) => steps.push(...birchLobeSteps(ctx, l, vis, pal, rng, m.seed + 13 * (idx + 1), v, sz)));
     if (sp === 'birch') {
       const fr = m.fringe || [];
+      const crng = mulberry(m.seed ^ 0xca7); // catkins draw from their own stream, the leaf stream stays as it is
       for (let i = 0; i < fr.length; i += 8) {
         const chunk = fr.slice(i, i + 8);
         steps.push(() =>
@@ -958,6 +1312,7 @@ export function crownSteps(ctx, m, v, W, H) {
             if (rng() > 0.35 + 0.65 * sparse) return;
             const droopPts = f.pts.map((p, k) => ({ x: p.x, y: p.y + (1 - v) * 3 * k }));
             fringeStroke(ctx, { pts: droopPts }, pal, rng, m.seed + 900 + i + q, v, sz);
+            if (ss === 'spring') catkin(ctx, droopPts, crng, m.seed + 1300 + i + q);
           }),
         );
       }
@@ -986,8 +1341,8 @@ export function paintTrunk(ctx, m, W, H) {
   for (const f of trunkSteps(ctx, m, W, H)) f();
 }
 
-export function paintCrown(ctx, m, v, W, H) {
-  for (const f of crownSteps(ctx, m, v, W, H)) f();
+export function paintCrown(ctx, m, v, W, H, season) {
+  for (const f of crownSteps(ctx, m, v, W, H, season)) f();
 }
 
 export { lighten };

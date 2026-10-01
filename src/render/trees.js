@@ -15,6 +15,27 @@ const ROOT_TIME = 3.0; // roots growing in, seconds
 const BUCKETS = 4; // health 0..1 -> 0..4
 const SWAY = { oak: 0.7, birch: 1.5, pine: 0.95 };
 const MAX_SPRITE = 2300; // device px
+const HEALTH_FADE = 0.8; // crown cross-fade after a health change, seconds
+const SEASON_FADE = 20; // crown cross-fade after a season change, seconds (globalThis.__seasonFade overrides it: a test knob)
+const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'];
+
+/** The season to paint ('' = the picture without seasons: flag off or no clock). */
+function seasonOf(state) {
+  const c = state && state.flags && state.flags.seasons && state.clock;
+  return c && SEASON_NAMES.includes(c.season) ? c.season : '';
+}
+
+/**
+ * Alpha of the fading-out crown. A health fade keeps it opaque under the fading-in one (both crowns are opaque). A season
+ * fade also lets it go in the second half, because a bare winter crown is see-through and the old leaves would otherwise
+ * stay behind it until the very last frame and then pop away.
+ */
+const oldCrownAlpha = (look) => (look.fadeSeason ? 1 - smooth01((look.fadeT - 0.45) / 0.55) : 1);
+
+function seasonFadeSeconds() {
+  const v = globalThis.__seasonFade;
+  return typeof v === 'number' && v > 0 ? v : SEASON_FADE;
+}
 
 function stageOf(tree) {
   return clamp(Math.round(num(tree && tree.stage, 0)), 0, 3);
@@ -453,7 +474,7 @@ export function createTrees() {
   }
 
   /** A look = trunk sprite + crown sprite for (stage, bucket, px); painted as a job made of small steps. */
-  function makeLookJob(tree, stage, bucket, reuseTrunk) {
+  function makeLookJob(tree, stage, bucket, reuseTrunk, season) {
     const model = modelFor(tree, stage);
     const b = spriteBox(model);
     const pf = fitPx(px, b.w, b.h);
@@ -464,8 +485,8 @@ export function createTrees() {
       steps.push(...trunkSteps(trunk.ctx, model, trunk.cw, trunk.ch));
     }
     const crown = makeSprite(b.w, b.h, pf, b.ax, b.ay);
-    steps.push(...crownSteps(crown.ctx, model, bucket / BUCKETS, crown.cw, crown.ch));
-    return { stage, bucket, px, model, trunk, crown, steps, ctxs: reuseTrunk ? [crown.ctx] : [trunk.ctx, crown.ctx], i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1 };
+    steps.push(...crownSteps(crown.ctx, model, bucket / BUCKETS, crown.cw, crown.ch, season || undefined));
+    return { stage, bucket, season, fadeDur: HEALTH_FADE, fadeSeason: false, px, model, trunk, crown, steps, ctxs: reuseTrunk ? [crown.ctx] : [trunk.ctx, crown.ctx], i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1 };
   }
 
   function upRecord(tree) {
@@ -479,16 +500,36 @@ export function createTrees() {
     return rec;
   }
 
+  /**
+   * The crown exactly as it is on screen now. A look in the middle of a cross-fade shows two sprites; when another change
+   * takes over, they are flattened into one so the new fade starts from the same picture (no flash, and at most one
+   * fading-out sprite per tree).
+   */
+  function onScreenCrown(L) {
+    if (!L.fadeOld || L.fadeT >= 1) return L.crown;
+    const c = L.crown;
+    const flat = makeSprite(c.w, c.h, c.px, c.ax, c.ay);
+    const g = flat.ctx;
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = oldCrownAlpha(L);
+    g.drawImage(L.fadeOld.canvas, 0, 0, flat.cw, flat.ch);
+    g.globalAlpha = L.fadeT;
+    g.drawImage(c.canvas, 0, 0, flat.cw, flat.ch);
+    g.restore();
+    return flat;
+  }
+
   /** Make sure rec.look is up to date: painted synchronously the first time, later in a background job and swapped in. */
-  function updateLook(rec, tree, stage, bucket) {
+  function updateLook(rec, tree, stage, bucket, season) {
     if (!rec.look) {
-      const job = makeLookJob(tree, stage, bucket, null);
+      const job = makeLookJob(tree, stage, bucket, null, season);
       runAll(job);
       rec.look = job;
       return;
     }
     const L = rec.look;
-    const mismatch = L.stage !== stage || L.px !== px || L.bucket !== bucket;
+    const mismatch = L.stage !== stage || L.px !== px || L.bucket !== bucket || L.season !== season;
     if (!mismatch) {
       if (rec.job) {
         cancel(rec.job);
@@ -497,9 +538,9 @@ export function createTrees() {
       return;
     }
     let J = rec.job;
-    if (!J || J.stage !== stage || J.px !== px || J.bucket !== bucket) {
+    if (!J || J.stage !== stage || J.px !== px || J.bucket !== bucket || J.season !== season) {
       cancel(J);
-      J = makeLookJob(tree, stage, bucket, L.stage === stage && L.px === px ? L.trunk : null);
+      J = makeLookJob(tree, stage, bucket, L.stage === stage && L.px === px ? L.trunk : null, season);
       rec.job = J;
       queue.push(J);
     }
@@ -509,8 +550,10 @@ export function createTrees() {
       rec.prev = L;
       rec.grow = 0;
     } else if (L.px === J.px) {
-      J.fadeOld = L.crown;
+      J.fadeOld = onScreenCrown(L);
       J.fadeT = 0;
+      J.fadeSeason = L.season !== J.season;
+      J.fadeDur = J.fadeSeason ? seasonFadeSeconds() : HEALTH_FADE;
     }
     rec.look = J;
   }
@@ -534,7 +577,7 @@ export function createTrees() {
     ctx.scale(1 + fl * 0.004, 1 - fl * 0.003);
     ctx.translate(-m.cx, -m.cy);
     if (look.fadeOld && look.fadeT < 1) {
-      drawSprite(ctx, look.fadeOld, 0, 0, alpha);
+      drawSprite(ctx, look.fadeOld, 0, 0, alpha * oldCrownAlpha(look));
       drawSprite(ctx, look.crown, 0, 0, alpha * look.fadeT);
     } else drawSprite(ctx, look.crown, 0, 0, alpha);
     ctx.restore();
@@ -546,6 +589,7 @@ export function createTrees() {
     if (!ctx) return;
     const tt = Number.isFinite(t) ? t : lastT || 0;
     const wind = noise1(tt * 0.13 + 7) * 0.6 + noise1(tt * 0.047 + 3) * 0.4;
+    const season = seasonOf(state);
     ctx.save();
     for (const tree of treesOf(state)) {
       guard(() => {
@@ -554,10 +598,10 @@ export function createTrees() {
         const rec = upRecord(tree);
         const bucket = bucketFor(rec, tree.health);
         rec.bucket = bucket;
-        updateLook(rec, tree, stage, bucket);
+        updateLook(rec, tree, stage, bucket, season);
         const look = rec.look;
         if (look.fadeOld) {
-          look.fadeT += d / 0.8;
+          look.fadeT += d / look.fadeDur;
           if (look.fadeT >= 1) {
             look.fadeT = 1;
             look.fadeOld = null;

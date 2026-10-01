@@ -1,12 +1,16 @@
 // DOM HUD: a naturalist's notebook around the scene. API: createHud(root, actions) -> { update(state, dt, view) }.
 // update() runs every frame, so every write below is guarded by a "changed?" check.
-import { icons, checkbox, flourish, gauge } from './icons.js';
+import { icons, checkbox, flourish, poolBar } from './icons.js';
 import { createNotes } from './notes.js';
 import { createTooltip } from './tooltip.js';
 import { createLabels } from './labels.js';
 import { createGuide } from './guide.js';
 import { buildHelp } from './help.js';
 import { createAtlas } from './atlas.js';
+import { createAtlasStore } from './atlas-store.js';
+import { calendarHtml, createCalendar } from './calendar.js';
+import { seasonNote } from './season-logic.js';
+import { buildYearPage } from './year.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint } from './prefs.js';
 
 const RESOURCES = [
@@ -17,6 +21,9 @@ const RESOURCES = [
 ];
 
 const ART_URL = 'assets/art/frontispiece.webp';
+const OBJ_REVEAL_START = 8; // s the objectives card is open at the start of a game
+const OBJ_REVEAL_TICK = 6; // s it opens when an objective is ticked off
+const OBJ_HOLD = 0.35; // s it stays open after the pointer moved away
 
 const nf = new Intl.NumberFormat('ru-RU');
 
@@ -44,20 +51,27 @@ export function createHud(root, actions) {
   root.innerHTML = `
     <div class="hud-game">
       <section class="scrap tape res-card" aria-label="Запасы">
+        ${calendarHtml}
         ${RESOURCES.map(
           (r) => `
         <div class="res-row" data-k="${r.k}">
           ${icons[r.k]}<span class="lbl">${r.label}</span><span class="val">0</span><span class="rate"></span>
         </div>`,
         ).join('')}
-        <div class="pool">
-          <span class="lbl">Запас сети</span><span class="num">0 / 0</span>${gauge}
+        <div class="pool" title="Влага и минералы копятся отдельно: каждой можно держать не больше, чем вмещает сеть">
+          <div class="pool-head">Запас сети</div>
+          <div class="pool-row" data-k="water"><span class="plbl">влага</span>${poolBar('pb-water', '#78b6dc', '#2f6f9f')}<span class="num">0 / 0</span></div>
+          <div class="pool-row" data-k="minerals"><span class="plbl">минералы</span>${poolBar('pb-minerals', '#8d7bc0', '#6a4a8c')}<span class="num">0 / 0</span></div>
         </div>
       </section>
 
       <section class="scrap tape obj-card" aria-label="Наблюдения">
-        <h3 class="card-title">Наблюдения</h3>
-        <ul class="obj-list"></ul>
+        <div class="obj-head">
+          <h3 class="card-title">Наблюдения</h3>
+          <span class="obj-count">0 / 0</span>
+          <span class="obj-cur"></span>
+        </div>
+        <div class="obj-body"><ul class="obj-list"></ul></div>
       </section>
 
       <div class="notes" aria-live="polite"></div>
@@ -136,6 +150,10 @@ export function createHud(root, actions) {
       <div class="page atlas-page" role="dialog" aria-label="Атлас находок"></div>
     </div>
 
+    <div class="screen year-screen">
+      <div class="page sum-page year-page" role="dialog" aria-label="Итог года"></div>
+    </div>
+
     <div class="screen summary-screen">
       <div class="page sum-page">
         <div class="stamp-seal">наблюдения<br />завершены</div>
@@ -159,9 +177,13 @@ export function createHud(root, actions) {
   const q = (sel) => root.querySelector(sel);
   const el = {
     resRows: Object.fromEntries(RESOURCES.map((r) => [r.k, q(`.res-row[data-k="${r.k}"]`)])),
-    pool: q('.pool'),
-    poolNum: q('.pool .num'),
-    gaugeFill: q('.gauge-fill'),
+    pool: {
+      water: q('.pool-row[data-k="water"]'),
+      minerals: q('.pool-row[data-k="minerals"]'),
+    },
+    objCard: q('.obj-card'),
+    objCount: q('.obj-count'),
+    objCur: q('.obj-cur'),
     objList: q('.obj-list'),
     notes: q('.notes'),
     notesZone: q('.notes-zone'),
@@ -185,7 +207,13 @@ export function createHud(root, actions) {
     titlePage: q('.title-page'),
     pauseScreen: q('.pause-screen'),
     summary: q('.summary-screen'),
+    year: q('.year-screen'),
+    yearPage: q('.year-page'),
   };
+  for (const k of ['water', 'minerals']) {
+    const row = el.pool[k];
+    el.pool[k] = { row, num: row.querySelector('.num'), fill: row.querySelector('.gauge-fill') };
+  }
   for (const k of RESOURCES) {
     const row = el.resRows[k.k];
     el.resRows[k.k] = {
@@ -201,7 +229,9 @@ export function createHud(root, actions) {
   const soundIco = el.sound.querySelector('.sp-ico');
 
   const notes = createNotes(el.notes);
-  const atlas = createAtlas(el.atlasPage);
+  const atlasStore = createAtlasStore();
+  const atlas = createAtlas(el.atlasPage, atlasStore);
+  const calendar = createCalendar(q('.res-card'));
   const tooltip = createTooltip(el.tip);
   const labels = createLabels(el.labels);
   const guide = createGuide(el.guide, () => [
@@ -235,10 +265,12 @@ export function createHud(root, actions) {
 
   // ---- screens -----------------------------------------------------------
   const screenTokens = new WeakMap();
+  const screenTargets = new WeakMap();
   function setScreen(screen, open) {
-    const isOpen = screen.classList.contains('open') && screen.classList.contains('shown');
-    const closing = screen.classList.contains('open') && !screen.classList.contains('shown');
-    if (open === isOpen && !closing) return;
+    // Called every frame: act only when the wanted state changes. Re-running a close on every frame
+    // used to cancel its own delayed cleanup, leaving an invisible full-screen page over the game.
+    if (screenTargets.get(screen) === open) return;
+    screenTargets.set(screen, open);
     const token = (screenTokens.get(screen) || 0) + 1;
     screenTokens.set(screen, token);
     if (open) {
@@ -267,6 +299,12 @@ export function createHud(root, actions) {
   let pausedByHelp = false;
   let atlasOpen = false;
   let pausedByAtlas = false;
+  let yearOpen = false;
+  let pausedByYear = false;
+  let pendingYear = null; // a year-end waiting for the page that is open now (the summary) to close
+  let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
+  let objHold = 0; // s the card stays open after the pointer left it
+  let seasonIntro = false; // the first season's note was shown for this game
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
   let hasSave = false;
   const shown = {}; // text cache of the DOM
@@ -286,17 +324,24 @@ export function createHud(root, actions) {
     pausedByHelp = false;
     atlasOpen = false;
     pausedByAtlas = false;
+    yearOpen = false;
+    pausedByYear = false;
+    pendingYear = null;
+    objReveal = state.time < 2 ? OBJ_REVEAL_START : 0;
+    objHold = 0;
+    seasonIntro = false;
     atlas.close();
     for (const key of Object.keys(shown)) delete shown[key];
     for (const key of Object.keys(lastVal)) delete lastVal[key];
     for (const r of RESOURCES) smooth[r.k] = (state.rates && state.rates[r.k]) || 0;
-    notes.reset();
+    notes.reset(state);
     labels.reset();
     tooltip.reset();
     setScreen(el.summary, false);
     setScreen(el.pauseScreen, false);
     setScreen(el.help, false);
     setScreen(el.atlas, false);
+    setScreen(el.year, false);
   }
 
   // ---- actions -----------------------------------------------------------
@@ -323,8 +368,27 @@ export function createHud(root, actions) {
     }
   }
 
+  function openYear(state, year) {
+    yearOpen = true;
+    el.yearPage.innerHTML = buildYearPage(state, year);
+    setScreen(el.year, true);
+    if (state.phase === 'playing') {
+      pausedByYear = true; // the game waits while the page is open; «Продолжить» resumes it
+      actions.togglePause();
+    }
+  }
+
+  function dismissYear() {
+    if (!yearOpen) return false;
+    yearOpen = false;
+    setScreen(el.year, false);
+    if (pausedByYear && cur && cur.phase === 'paused') actions.togglePause();
+    pausedByYear = false;
+    return true;
+  }
+
   function openHelp() {
-    if (helpOpen || atlasOpen || summaryOpen || !cur) return;
+    if (helpOpen || atlasOpen || summaryOpen || yearOpen || !cur) return;
     helpOpen = true;
     el.helpPage.innerHTML = buildHelp(cur);
     setScreen(el.help, true);
@@ -344,7 +408,7 @@ export function createHud(root, actions) {
   }
 
   function openAtlas() {
-    if (atlasOpen || helpOpen || summaryOpen || !cur || cur.phase === 'title') return;
+    if (atlasOpen || helpOpen || summaryOpen || yearOpen || !cur || cur.phase === 'title') return;
     atlasOpen = true;
     atlas.open(cur);
     setScreen(el.atlas, true);
@@ -412,6 +476,8 @@ export function createHud(root, actions) {
         return toggleMute();
       case 'continue':
         return void dismissSummary();
+      case 'year-continue':
+        return void dismissYear();
       case 'restart':
         return actions.restart();
       default:
@@ -453,12 +519,14 @@ export function createHud(root, actions) {
         if (ev.repeat) break;
         if (phase === 'title') startPrimary();
         else if (summaryOpen) dismissSummary();
+        else if (yearOpen) dismissYear();
         else actions.togglePause();
         break;
       case 'Enter':
         if (ev.repeat) break;
         if (phase === 'title') startPrimary();
         else if (summaryOpen) dismissSummary();
+        else if (yearOpen) dismissYear();
         else handled = false;
         break;
       case 'KeyH':
@@ -477,6 +545,7 @@ export function createHud(root, actions) {
         if (ev.repeat) break;
         if (cur.ui.drag) actions.cancelDrag();
         else if (summaryOpen) dismissSummary();
+        else if (yearOpen) dismissYear();
         else if (phase === 'paused' || phase === 'playing') actions.togglePause();
         else handled = false;
         break;
@@ -518,15 +587,19 @@ export function createHud(root, actions) {
       shown.dry = dry;
       el.resRows.sugar.row.classList.toggle('warn', dry);
     }
-    const pool = (state.res.water || 0) + (state.res.minerals || 0);
+    // water and minerals are capped separately (state.cap.pool each): one thin bar per stock
     const cap = state.cap.pool || 0;
-    const frac = cap > 0 ? Math.max(0, Math.min(1, pool / cap)) : 0;
-    setText(el.poolNum, shown, 'pool', `${Math.floor(pool)} / ${Math.floor(cap)}`);
-    const fracKey = Math.round(frac * 200);
-    if (shown.frac !== fracKey) {
-      shown.frac = fracKey;
-      el.gaugeFill.style.transform = `scaleX(${frac.toFixed(3)})`;
-      el.pool.classList.toggle('full', frac >= 0.98);
+    for (const k of ['water', 'minerals']) {
+      const bar = el.pool[k];
+      const have = Math.min(Math.max(0, state.res[k] || 0), cap);
+      const frac = cap > 0 ? have / cap : 0;
+      setText(bar.num, shown, `pool.${k}`, `${Math.floor(have + 1e-6)} / ${Math.floor(cap)}`);
+      const fracKey = Math.round(frac * 200);
+      if (shown[`pool.${k}.f`] !== fracKey) {
+        shown[`pool.${k}.f`] = fracKey;
+        bar.fill.style.transform = `scaleX(${frac.toFixed(3)})`;
+        bar.row.classList.toggle('full', frac >= 0.98);
+      }
     }
   }
 
@@ -554,6 +627,46 @@ export function createHud(root, actions) {
       const row = objRows[i];
       row.classList.toggle('done', done);
       row.classList.toggle('just', done && !first);
+      if (done && !first) objReveal = OBJ_REVEAL_TICK; // show the tick being drawn
+    }
+    // the compact line: «2 / 5» and the first objective still open
+    const doneCount = list.filter((o) => o.done).length;
+    setText(el.objCount, shown, 'obj.count', `${doneCount} / ${list.length}`);
+    const next = list.find((o) => !o.done);
+    setText(el.objCur, shown, 'obj.cur', next ? next.text : list.length ? 'всё отмечено' : '');
+  }
+
+  /**
+   * The objectives card is one line by default (it would hide the pine and the crowns) and opens to the full list
+   * while the pointer is over it, for a few seconds after a new game or a ticked objective.
+   */
+  function updateObjCard(state, dt) {
+    const playing = state.phase !== 'title';
+    if (playing) {
+      objReveal = Math.max(0, objReveal - dt);
+      objHold = Math.max(0, objHold - dt);
+    }
+    const p = state.ui.pointer;
+    if (playing && p && p.inside !== false && !state.ui.drag && p.sy < 360) { // the card lives in the top-right corner
+      const r = el.objCard.getBoundingClientRect();
+      if (p.sx >= r.left - 6 && p.sx <= r.right + 6 && p.sy >= r.top - 6 && p.sy <= r.bottom + 6) objHold = OBJ_HOLD;
+    }
+    const open = playing && (objReveal > 0 || objHold > 0);
+    if (shown.objOpen !== open) {
+      shown.objOpen = open;
+      el.objCard.classList.toggle('open', open);
+    }
+  }
+
+  /** The first season's note once play starts, so the calendar's words do not come out of nowhere. */
+  function updateSeasons(state) {
+    calendar.update(state);
+    if (!seasonIntro && state.phase === 'playing' && state.flags && state.flags.seasons && state.clock) {
+      seasonIntro = true;
+      if (state.time < 3) {
+        const n = seasonNote(state.clock.season);
+        if (n) notes.say({ key: n.key, text: n.text, tone: 'good', icon: n.season, life: 9 });
+      }
     }
   }
 
@@ -563,6 +676,7 @@ export function createHud(root, actions) {
     if (shown.finds !== n) {
       const grew = shown.finds !== undefined && n > shown.finds;
       shown.finds = n;
+      atlasStore.sync(state); // the lifetime atlas remembers what this glade gave
       el.atlasBadge.hidden = n === 0;
       el.atlasBadge.textContent = String(n);
       if (grew) {
@@ -615,11 +729,13 @@ export function createHud(root, actions) {
       if (phase === 'title' && saveFor !== state) refreshSave(state);
 
       setScreen(el.title, phase === 'title');
-      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen);
+      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
 
       updateResources(state, dt);
       updateObjectives(state);
+      updateObjCard(state, dt);
       updateControls(state);
+      updateSeasons(state);
 
       // events -> floating labels at their place (local) and margin notes (global), summary trigger
       const labelled = labels.process(state, view);
@@ -627,13 +743,19 @@ export function createHud(root, actions) {
       updateFinds(state);
       notes.tick(dt);
       labels.tick(dt);
-      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen);
+      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
       if (!summaryShown && phase !== 'title') {
         let trigger = Boolean(state.flags && state.flags.allObjectivesDone);
         if (!trigger) {
           for (const ev of state.events) if (ev.type === 'all-objectives') trigger = true;
         }
         if (trigger) openSummary(state);
+      }
+      // the end of the first (and every later) year: its page waits for the summary page if that is open
+      for (const ev of state.events) if (ev.type === 'year-end') pendingYear = ev.year;
+      if (pendingYear !== null && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen) {
+        openYear(state, pendingYear);
+        pendingYear = null;
       }
 
       tooltip.update(state);

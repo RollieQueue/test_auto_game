@@ -32,9 +32,12 @@ export function artByKind(manifest) {
 
 /**
  * One entry per kind, in the order of src/content/finds.js (litter first, deepest last).
- * `found`: items of the kind discovered in this game; `total`: items of the kind lying on this glade.
+ * `found`: items of the kind discovered in this game; `total`: items of the kind lying on this glade;
+ * `lifetime`: { [kind]: items found over all games } from the atlas store (atlas-store.js), or null.
+ * A kind is `discovered` when found in any game; `here` marks the ones found in the current glade; `ever` is the
+ * lifetime count (never below `found`).
  */
-export function atlasModel(state, art = {}) {
+export function atlasModel(state, art = {}, lifetime = null) {
   const counts = {};
   for (const f of Object.values((state && state.finds) || {})) counts[f.kind] = (counts[f.kind] || 0) + 1;
   const totals = {};
@@ -42,10 +45,13 @@ export function atlasModel(state, art = {}) {
   const entries = KINDS.map((kind) => {
     const f = FINDS[kind];
     const found = counts[kind] || 0;
+    const ever = Math.max(found, (lifetime && lifetime[kind]) || 0);
     return {
       kind,
-      discovered: found > 0,
+      discovered: ever > 0,
+      here: found > 0,
       found,
+      ever,
       total: totals[kind] || 0,
       name: f.name,
       latin: f.latin,
@@ -57,7 +63,17 @@ export function atlasModel(state, art = {}) {
     };
   });
   const kinds = entries.filter((e) => e.discovered).length;
-  return { entries, kinds, total: KINDS.length, items: Object.keys((state && state.finds) || {}).length, progress: progressText(kinds, KINDS.length) };
+  const hereKinds = entries.filter((e) => e.here).length;
+  const glade = entries.filter((e) => e.total > 0).length;
+  return {
+    entries,
+    kinds,
+    hereKinds,
+    gladeKinds: glade,
+    total: KINDS.length,
+    items: Object.keys((state && state.finds) || {}).length,
+    progress: progressText(kinds, KINDS.length),
+  };
 }
 
 /** Short text for the floating label and the margin note, or null for an unknown kind. */

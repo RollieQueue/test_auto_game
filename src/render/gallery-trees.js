@@ -4,6 +4,9 @@
 //   ?mode=world   the real world's trees on sky + soil, with roots (?stages=1,2,3 &linked=1)
 //   ?mode=anim    a stage increase as a film strip with roots (?sp=oak&from=1)
 //   ?mode=live    real-time loop with sway, stage changes and a frame-cost readout
+//   ?mode=seasons 3 species x 4 seasons at one stage (?stage=3)
+// Seasons: &season=spring|summer|autumn|winter paints every mode in that season (no param = no seasons, as before);
+//   &buttons=1 adds a small season bar. &fade=0.01 sets the crown cross-fade (window.__seasonFade) for screenshots.
 // Common: ?zoom=2 &ox=300 &oy=100 (world offset of the view), &t=3 (animation time for sway), &dpr=1, &seed=7
 import { generateWorld } from '../world/generate.js';
 import { createTrees } from './trees.js';
@@ -16,6 +19,8 @@ const zoom = Number(q.get('zoom')) || 1;
 const ox = Number(q.get('ox')) || 0;
 const oy = Number(q.get('oy')) || 0;
 const dpr = Number(q.get('dpr')) || window.devicePixelRatio || 1;
+const season = ['spring', 'summer', 'autumn', 'winter'].includes(q.get('season')) ? q.get('season') : '';
+if (q.get('fade')) globalThis.__seasonFade = Number(q.get('fade'));
 const tFixed = q.get('t') === null ? 3 : Number(q.get('t'));
 
 const canvas = document.getElementById('c');
@@ -61,8 +66,8 @@ function copyTree(t, id, over) {
   return { ...t, id, ...over };
 }
 
-function fakeState(list) {
-  return { world: { trees: list }, events: [] };
+function fakeState(list, s = season) {
+  return { world: { trees: list }, events: [], ...(s ? { flags: { seasons: true }, clock: { season: s } } : {}) };
 }
 
 let sheetWorld = null;
@@ -91,8 +96,7 @@ function drawSheet() {
       label(`${sp} · stage ${s}`, gx, gy + 24);
     }
   });
-  const st = { world: { trees: list }, events: [] };
-  trees.drawTrees(ctx, st, tFixed, 1 / 60);
+  trees.drawTrees(ctx, fakeState(list), tFixed, 1 / 60);
 }
 
 function drawHealth() {
@@ -112,7 +116,31 @@ function drawHealth() {
       label(`${sp} · health ${h}`, gx, gy + 24);
     });
   });
-  trees.drawTrees(ctx, { world: { trees: list }, events: [] }, tFixed, 1 / 60);
+  trees.drawTrees(ctx, fakeState(list), tFixed, 1 / 60);
+}
+
+function drawSeasons() {
+  paper(0, 0, 1920, 1080);
+  const stage = Number(q.get('stage') ?? 3);
+  const seasons = ['spring', 'summer', 'autumn', 'winter'];
+  const cw = 1920 / 4;
+  seasons.forEach((se, c) => {
+    const inst = createTrees();
+    inst.setScale(S);
+    const list = [];
+    SPECIES.forEach((sp, r) => {
+      const gx = cw * (c + 0.5);
+      const gy = 330 + r * 350;
+      list.push(copyTree(baseTrees[r], 70 + r, { stage, x: gx, baseY: gy, health: 0.85, roots: [], tips: [] }));
+      ctx.strokeStyle = 'rgba(58,42,30,.35)';
+      ctx.beginPath();
+      ctx.moveTo(gx - cw * 0.45, gy + 3);
+      ctx.lineTo(gx + cw * 0.45, gy + 3);
+      ctx.stroke();
+      label(`${sp} · ${se}`, gx, gy + 24);
+    });
+    inst.drawTrees(ctx, fakeState(list, se), tFixed, 1 / 60);
+  });
 }
 
 function paintWorldBackdrop() {
@@ -198,12 +226,12 @@ function drawAnim() {
     inst.setScale(S);
     const mk = (stage) => moved(bt, gx, groundY, { id: 1, stage, linked: i >= 4, health: 0.9 });
     const w = { trees: [mk(from)] };
-    const st = { world: w, events: [] };
+    const st = fakeState(w.trees);
+    st.world = w;
     inst.drawRoots(scratch, st, 0, 1 / 60);
     inst.drawTrees(scratch, st, 0, 1 / 60);
     if (T >= 0) {
       const w2 = { ...w, trees: [mk(from + 1)] };
-      const st2 = { world: w2, events: [] };
       // keep the same world identity so the records survive
       w.trees = w2.trees;
       // let the background painting of the new look finish (dt = 0: the animation clock does not move)
@@ -260,7 +288,7 @@ function drawLive(now) {
 // Cost of the trees on top of the backdrop with the main canvas flushed every frame (software raster: an upper bound).
 function flushBench(stage = 3, n = 120) {
   const list = world.trees.map((t) => ({ ...t, stage, linked: true, health: 0.8 }));
-  const st = { world: { trees: list }, events: [] };
+  const st = fakeState(list);
   const inst = createTrees();
   inst.setScale(S);
   const run = (withTrees) => {
@@ -290,7 +318,8 @@ function benchmark(nFrames = 600) {
   for (let stage = 0; stage < 4; stage++) {
     const list = world.trees.map((t) => ({ ...t, stage, linked: true, health: 0.8 }));
     const w = { trees: list };
-    const st = { world: w, events: [] };
+    const st = fakeState(list);
+    st.world = w;
     const inst = createTrees();
     inst.setScale(S);
     const c0 = performance.now();
@@ -328,7 +357,24 @@ else {
   else if (mode === 'health') drawHealth();
   else if (mode === 'world') drawWorld();
   else if (mode === 'anim') drawAnim();
+  else if (mode === 'seasons') drawSeasons();
   window.__renderMs = performance.now() - t0;
 }
 window.G = { trees, world, benchmark, flushBench, mix };
 document.title = `trees gallery: ${mode}`;
+
+if (q.get('buttons') === '1') {
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;right:12px;top:10px;font:13px monospace;background:#0008;padding:4px 8px;border-radius:4px';
+  for (const se of ['', 'spring', 'summer', 'autumn', 'winter']) {
+    const u = new URLSearchParams(location.search);
+    if (se) u.set('season', se);
+    else u.delete('season');
+    const a = document.createElement('a');
+    a.href = '?' + u;
+    a.textContent = se || 'none';
+    a.style.cssText = 'color:' + (se === season ? '#ffd27a' : '#fff') + ';margin:0 6px;text-decoration:none';
+    bar.append(a);
+  }
+  document.body.append(bar);
+}

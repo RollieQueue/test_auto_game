@@ -4,13 +4,68 @@ import { granulate, hatch, inkStroke, makeSprite, mulberry, rgba, subSeed, noise
 
 const CLOUDS = 4;
 const MAX_LEAVES = 28;
+const MAX_LEAVES_AUTUMN = 60;
 const STAGE_H = [70, 140, 205, 255];
+
+// With seasons on, leaves fall in the colours of the season: few and green in spring/summer, many and warm in autumn,
+// none from the bare crowns of winter (leaves already falling finish their fall). Pine needles stay brownish.
+// Without seasons (flag off or no clock): the original colours, rate and cap.
+const LEAF_COLORS = {
+  oak: ['#6f8a3a', '#a9873a', '#8a6a2e'],
+  birch: ['#b9c85a', '#d7cf5a', '#9fb84a'],
+  pine: ['#8b6a3a', '#a07a44', '#6f5a34'],
+};
+const SEASON_LEAF_COLORS = {
+  green: { oak: ['#7ea23a', '#6a9030', '#92b44a'], birch: ['#a9d45a', '#8fc04a', '#c0de78'] },
+  autumn: { oak: ['#c4812e', '#a65a24', '#d99a3e'], birch: ['#e3c23e', '#d09a2c', '#f0d45a'] },
+};
+const SEASON_LEAF_RATE = { spring: 0.25, summer: 0.25, autumn: 3, winter: 0 };
+
+/** Season to follow ('' = no seasons). */
+function seasonOf(state) {
+  const c = state && state.flags && state.flags.seasons && state.clock;
+  return c && Object.hasOwn(SEASON_LEAF_RATE, c.season) ? c.season : '';
+}
+
+/** One falling leaf (or a pair of needles for the pine) as a small sprite. */
+function leafSprite(kind, col, px) {
+  const s = makeSprite(14, 10, px * 1.2, 7, 5);
+  const g = s.ctx;
+  g.beginPath();
+  if (kind === 'pine') {
+    g.moveTo(-5, 0);
+    g.lineTo(5, 0.4);
+    g.lineWidth = 0.9;
+    g.strokeStyle = rgba(col, 0.9);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-4, -1.2);
+    g.lineTo(4, 1.2);
+    g.stroke();
+  } else {
+    g.moveTo(-5, 0);
+    g.quadraticCurveTo(-1, -3.6, 5, 0);
+    g.quadraticCurveTo(-1, 3.2, -5, 0);
+    g.fillStyle = rgba(col, 0.92);
+    g.fill();
+    g.lineWidth = 0.55;
+    g.strokeStyle = rgba('#2a1d14', 0.75);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-5, 0);
+    g.lineTo(4, 0);
+    g.strokeStyle = rgba('#2a1d14', 0.55);
+    g.stroke();
+  }
+  return s;
+}
 
 export function createAmbient() {
   let px = 1;
   let view = null;
   let clouds = null;
   let leafSprites = null;
+  let seasonLeaves = {};
   let seed = 1;
   const leaves = [];
   const acc = new Map(); // tree id -> spawn accumulator
@@ -29,46 +84,18 @@ export function createAmbient() {
       clouds.push({ sp, w, h, x: ext.x0 + ((i + 0.2 + rr() * 0.6) / CLOUDS) * (ext.x1 - ext.x0), y: ext.y0 + h * 1.25 + 26 + rr() * Math.max(10, groundMin - ext.y0 - h * 1.25 - 170), v: 2 + rr() * 3.5, alpha: 0.62 + rr() * 0.22 });
     }
     // leaf sprites per species colour
-    const defs = {
-      oak: ['#6f8a3a', '#a9873a', '#8a6a2e'],
-      birch: ['#b9c85a', '#d7cf5a', '#9fb84a'],
-      pine: ['#8b6a3a', '#a07a44', '#6f5a34'],
-    };
     leafSprites = {};
-    for (const sp of Object.keys(defs)) {
-      leafSprites[sp] = defs[sp].map((col, k) => {
-        const s = makeSprite(14, 10, px * 1.2, 7, 5);
-        const g = s.ctx;
-        g.beginPath();
-        if (sp === 'pine') {
-          g.moveTo(-5, 0);
-          g.lineTo(5, 0.4);
-          g.lineWidth = 0.9;
-          g.strokeStyle = rgba(col, 0.9);
-          g.stroke();
-          g.beginPath();
-          g.moveTo(-4, -1.2);
-          g.lineTo(4, 1.2);
-          g.stroke();
-        } else {
-          g.moveTo(-5, 0);
-          g.quadraticCurveTo(-1, -3.6, 5, 0);
-          g.quadraticCurveTo(-1, 3.2, -5, 0);
-          g.fillStyle = rgba(col, 0.92);
-          g.fill();
-          g.lineWidth = 0.55;
-          g.strokeStyle = rgba('#2a1d14', 0.75);
-          g.stroke();
-          g.beginPath();
-          g.moveTo(-5, 0);
-          g.lineTo(4, 0);
-          g.strokeStyle = rgba('#2a1d14', 0.55);
-          g.stroke();
-        }
-        void k;
-        return s;
-      });
-    }
+    for (const sp of Object.keys(LEAF_COLORS)) leafSprites[sp] = LEAF_COLORS[sp].map((col) => leafSprite(sp, col, px));
+    seasonLeaves = {};
+  }
+
+  /** Leaf sprites of a season for one species, built the first time they are needed. */
+  function seasonSprites(season, species) {
+    if (species === 'pine') return leafSprites.pine;
+    const key = season === 'autumn' ? 'autumn' : 'green';
+    const sp = species === 'birch' ? 'birch' : 'oak';
+    const set = seasonLeaves[key] || (seasonLeaves[key] = {});
+    return set[sp] || (set[sp] = SEASON_LEAF_COLORS[key][sp].map((col) => leafSprite(sp, col, px)));
   }
 
   return {
@@ -103,12 +130,14 @@ export function createAmbient() {
       if (!leafSprites) return;
       const world = state.world;
       const trees = frame?.refs?.trees;
+      const season = seasonOf(state);
+      const maxLeaves = season === 'autumn' ? MAX_LEAVES_AUTUMN : MAX_LEAVES;
       // spawn from healthy crowns
       for (const tr of world.trees || []) {
-        const rate = 0.11 * (tr.stage + 1) * Math.max(0, tr.health - 0.25) * (tr.species === 'pine' ? 0.35 : 1);
+        const rate = 0.11 * (tr.stage + 1) * Math.max(0, tr.health - 0.25) * (tr.species === 'pine' ? 0.35 : 1) * (season ? SEASON_LEAF_RATE[season] : 1);
         if (rate <= 0) continue;
         const a = (acc.get(tr.id) || 0) + rate * Math.min(dt, 0.1);
-        if (a >= 1 && leaves.length < MAX_LEAVES) {
+        if (a >= 1 && leaves.length < maxLeaves) {
           const b = trees?.bounds?.(tr);
           const h = STAGE_H[Math.max(0, Math.min(3, tr.stage | 0))];
           const x0 = b ? b.x0 : tr.x - 30 - tr.stage * 18;
@@ -117,7 +146,7 @@ export function createAmbient() {
           const y1 = b ? b.y0 + (b.y1 - b.y0) * 0.5 : tr.baseY - h * 0.45;
           const r = Math.random;
           leaves.push({
-            sp: leafSprites[tr.species] || leafSprites.oak,
+            sp: season ? seasonSprites(season, tr.species) : leafSprites[tr.species] || leafSprites.oak,
             x: x0 + (x1 - x0) * (0.2 + 0.6 * r()),
             y: y0 + (y1 - y0) * r(),
             ph: r() * 6.28,

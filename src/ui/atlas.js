@@ -41,35 +41,48 @@ function entryHtml(e) {
       <div class="atl-head-text"><h4 class="atl-name">не открыто</h4>
       <div class="atl-zone">лежит: ${esc(e.zone)}</div></div></article>`;
   }
-  const count = e.total > e.found ? `${e.found} из ${e.total} на поляне` : e.total > 1 ? `все ${e.total} на поляне` : 'найдена';
-  return `<article class="atl-entry found" data-kind="${e.kind}">${picture(e)}
+  const count = !e.here
+    ? e.total > 0
+      ? `на этой поляне пока нет`
+      : `на этой поляне не лежит`
+    : e.total > e.found
+      ? `${e.found} из ${e.total} на поляне`
+      : e.total > 1
+        ? `все ${e.total} на поляне`
+        : 'найдена на поляне';
+  const ever = e.ever > e.found ? ` <span class="atl-ever">· в тетради: ${e.ever}</span>` : '';
+  return `<article class="atl-entry found${e.here ? ' here' : ''}" data-kind="${e.kind}">${picture(e)}
       <div class="atl-head-text"><h4 class="atl-name">${esc(e.name)}</h4>
       <div class="atl-latin">${esc(e.latin)}</div>
       <div class="atl-zone">${esc(e.zone)} · <span class="atl-rar" title="редкость">${dots(e.rarity)}</span></div></div>
+      ${e.here ? '<span class="atl-here-mark" title="найдено на этой поляне">здесь</span>' : ''}
       <p class="atl-note">${esc(e.note)}</p>
-      <div class="atl-count">${count}</div></article>`;
+      <div class="atl-count">${count}${ever}</div></article>`;
 }
 
-/** Inner HTML of the atlas page. */
-export function buildAtlas(state, art = {}) {
-  const m = atlasModel(state, art);
+/** Inner HTML of the atlas page; `lifetime` is { [kind]: n } from the atlas store (null: this game only). */
+export function buildAtlas(state, art = {}, lifetime = null) {
+  const m = atlasModel(state, art, lifetime);
   return `
     <div class="overline">Тетрадь натуралиста · страница находок</div>
     <h2>Атлас находок</h2>
     ${flourish}
     <div class="atl-head">
-      <div class="sub">${esc(FINDS_INTRO.replace(/^Атлас находок\.\s*/, ''))}</div>
+      <div>
+        <div class="sub">${esc(FINDS_INTRO.replace(/^Атлас находок\.\s*/, ''))}</div>
+        <div class="atl-here-line">на этой поляне найдено ${m.hereKinds} из ${m.gladeKinds} ${m.gladeKinds === 1 ? 'вида' : 'видов'}; остальные виды лежат на других полянах</div>
+      </div>
       <div class="atl-progress">${icons.find}<span>${m.progress}</span></div>
     </div>
     <div class="atl-grid">
       ${m.entries.map(entryHtml).join('')}
-      <aside class="atl-tip">Редкое лежит глубже: тянись вниз, к галечнику.</aside>
+      <aside class="atl-tip">Редкое лежит глубже: тянись вниз, к галечнику. Атлас помнит все поляны.</aside>
     </div>
     <div class="actions"><button class="ink-btn" data-act="atlas-close" type="button">Закрыть <kbd>A</kbd></button></div>`;
 }
 
 /** Fills `page` on open (and again when the art manifest arrives). */
-export function createAtlas(page) {
+export function createAtlas(page, store = null) {
   let art = {};
   let state = null;
   let token = 0;
@@ -89,13 +102,14 @@ export function createAtlas(page) {
 
   function paint() {
     const top = page.scrollTop;
-    page.innerHTML = buildAtlas(state, art);
+    page.innerHTML = buildAtlas(state, art, store ? store.kinds() : null);
     page.scrollTop = top;
   }
 
   return {
     open(s) {
       state = s;
+      if (store) store.sync(s); // finds made while the store could not hear them (a loaded save)
       paint();
       const mine = ++token;
       loadArt().then((a) => {

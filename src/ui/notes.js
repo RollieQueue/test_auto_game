@@ -4,18 +4,19 @@
 import { icons } from './icons.js';
 import { LOCAL_EVENTS } from './labels.js';
 import { findNames } from './atlas-logic.js';
+import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 
-const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MAX_NOTES = 4;
 const LIFE = 5.2; // seconds a note stays fully visible after its last repeat
+const SEASON_LIFE = 9; // a new season is worth reading twice
 const FADE = 1.15; // seconds of fade-out (matches the CSS transition)
 
 const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
-/** Maps an event to { key, text, tone, icon } or null when the event has no note. */
-function describe(state, ev) {
+/** Maps an event to { key, text, tone, icon, life? } or null when the event has no note. `prevWeather`: kind before this frame. */
+function describe(state, ev, prevWeather = 'clear') {
   const world = state.world;
   switch (ev.type) {
     case 'link':
@@ -71,6 +72,12 @@ function describe(state, ev) {
       const f = findNames(ev.kind);
       return f && f.rarity >= 3 ? { key: `find:${ev.id}`, text: `В атлас записано: ${f.lower}`, tone: 'good', icon: 'find' } : null;
     }
+    case 'season': {
+      const n = seasonNote(ev.season);
+      return n ? { key: n.key, text: n.text, tone: 'good', icon: ev.season, life: SEASON_LIFE } : null;
+    }
+    case 'weather':
+      return weatherNote(ev.kind, prevWeather);
     case 'objective':
       return { key: `obj:${ev.id}`, text: `Отмечено: ${ev.text ? ev.text.charAt(0).toLowerCase() + ev.text.slice(1) : ''}`, tone: 'good', icon: 'check' };
     default:
@@ -82,8 +89,9 @@ const CHECK_ICON =
   '<svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#26304a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.6 L9.4 18 L20.4 4"/></svg>';
 
 export function createNotes(host) {
-  /** @type {Map<string, {el: HTMLElement, label: HTMLElement, cnt: HTMLElement, text: string, life: number, fade: number, count: number}>} */
+  /** @type {Map<string, {el: HTMLElement, cnt: HTMLElement, text: string, life: number, span: number, fade: number, count: number}>} */
   const active = new Map();
+  let prevWeather = 'clear'; // the weather before the latest 'weather' event (the «кончился» notes name it)
 
   function remove(key) {
     const n = active.get(key);
@@ -103,7 +111,7 @@ export function createNotes(host) {
     const found = active.get(d.key);
     if (found && found.fade <= 0) {
       found.count += 1;
-      found.life = LIFE;
+      found.life = found.span;
       found.cnt.textContent = found.count > 1 ? `×${found.count}` : '';
       return;
     }
@@ -121,7 +129,8 @@ export function createNotes(host) {
       el,
       cnt: el.querySelector('.cnt'),
       text: d.text,
-      life: LIFE,
+      life: d.life ?? LIFE,
+      span: d.life ?? LIFE,
       fade: 0,
       count: 1,
     });
@@ -139,16 +148,19 @@ export function createNotes(host) {
   }
 
   return {
-    reset() {
+    reset(state) {
       host.textContent = '';
       active.clear();
+      prevWeather = (state && state.weather && state.weather.kind) || 'clear';
     },
     /** `skipLocal`: events with a place on the map get floating labels instead (labels.js). */
     process(state, skipLocal = false) {
       const events = state.events;
       for (let i = 0; i < events.length; i++) {
         if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find') continue;
-        const d = describe(state, events[i]);
+        const ev = events[i];
+        const d = describe(state, ev, prevWeather);
+        if (ev.type === 'weather') prevWeather = ev.kind;
         if (d) push(d);
       }
     },

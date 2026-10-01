@@ -16,6 +16,7 @@
 import { PALETTES, buildLadder, computeMix, readWorld, NO_LAYERS, muffleHz } from './scales.js';
 import { createScape, BASE } from './scape.js';
 import { createCues } from './cues.js';
+import { FINDS } from '../content/finds.js';
 
 const STORE_KEY = 'roots-threads.muted';
 const MASTER_LEVEL = 0.9;
@@ -387,6 +388,8 @@ export function createAudio(options = {}) {
   };
 
   const LINK_NOTES = { water: 76, mineral: 81, tree: 69 };
+  // A find is a small glint of bells, richer and brighter the rarer it is (rarity 1..4 in src/content/finds.js).
+  const FIND_STEPS = [[79], [79, 84], [76, 81, 84], [76, 79, 84, 88]];
 
   const handlers = {
     'grow-start'(t) {
@@ -454,6 +457,18 @@ export function createAudio(options = {}) {
       if (throttled('deposit-empty', 0.8)) return;
       pluck(69, t, 0.07, g.fx);
       pluck(64, t + 0.16, 0.06, g.fx);
+    },
+    find(t, ev) {
+      if (throttled('find', 0.1)) return;
+      const rarity = clamp((FINDS[ev.kind] && FINDS[ev.kind].rarity) || 1, 1, 4);
+      let steps = FIND_STEPS[rarity - 1];
+      // a bell is 3 voices, the glint 1: stay inside the cap, leaving the ambient reserve alone
+      const room = MAX_VOICES - AMBIENT_RESERVE - voices;
+      if (room < 4) return;
+      if (room < steps.length * 3 + 1) steps = steps.slice(-Math.max(1, Math.floor((room - 1) / 3)));
+      steps.forEach((m, i) => bell(m, t + i * 0.09, 0.04 + 0.005 * rarity, 0.9 + 0.45 * rarity));
+      const last = steps.length - 1;
+      tone(mtof(steps[last] + 12), t + last * 0.09, { gain: 0.008 * rarity, decay: 0.2 + 0.1 * rarity, attack: 0.002, pan: rand(-0.4, 0.4) });
     },
     objective(t) {
       if (throttled('objective', 0.5)) return;

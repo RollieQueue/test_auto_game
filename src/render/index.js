@@ -11,7 +11,7 @@ const optional = (path) =>
     if (!(err instanceof TypeError)) console.error(`[render] ${path}`, err);
     return null;
   });
-const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod] = await Promise.all([
+const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod] = await Promise.all([
   optional('./trees.js'),
   optional('./mushrooms.js'),
   optional('./deposits.js'),
@@ -20,15 +20,18 @@ const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod
   optional('./effects.js'),
   optional('./feedback.js'),
   optional('./ambient.js'),
+  optional('./atmosphere.js'),
 ]);
 
 const REBUILD_DELAY = 0.2; // seconds the window size must stay put before the world layer is repainted
 const WORKER_TIMEOUT = 20; // seconds before a silent worker is given up for main-thread painting
 const REVEAL = 0.5; // seconds a freshly painted plate takes to come up out of the blank paper
+const SEASON_FADE = 20; // seconds an old season's plate takes to dissolve into the new one (test knob: globalThis.__seasonFade)
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d', { alpha: false });
-  const layer = { canvas: null, world: null, key: '', dirty: false, born: -1 };
+  const layer = { canvas: null, world: null, key: '', vkey: '', season: '', dirty: false, born: -1 };
+  let fade = null; // season change: { from: the old plate's canvas, at } while it dissolves into layer.canvas
   let changedAt = 0; // real time of the last size change
   let lastKey = '';
   const profile = {};
@@ -66,6 +69,7 @@ export function createRenderer(canvas) {
   const effects = add('effects', effectsMod?.createEffects);
   const feedback = add('feedback', feedbackMod?.createFeedback);
   const ambient = add('ambient', ambientMod?.createAmbient);
+  const atmos = add('atmos', atmosMod?.createAtmosphere); // day, night, weather, snow (only with state.flags.seasons)
   const refs = { trees: trees?.api, mushrooms: mushrooms?.api };
   let modsWorld = null;
   let modsKey = '';
@@ -115,11 +119,44 @@ export function createRenderer(canvas) {
     }
   }
 
-  function install(c, world, key) {
+  /** Hand a canvas back to the allocator right away instead of waiting for the garbage collector. */
+  function free(c) {
+    if (c) c.width = c.height = 0;
+  }
+
+  /** The plate's look at this instant while a season fade runs: the old plate under the new at progress k. */
+  function bakeFade(k) {
+    const c = makeCanvas(layer.canvas.width, layer.canvas.height);
+    const g = c.getContext('2d', { alpha: false });
+    g.drawImage(fade.from, 0, 0, c.width, c.height);
+    g.globalAlpha = k * k * (3 - 2 * k);
+    g.drawImage(layer.canvas, 0, 0);
+    return c;
+  }
+
+  function install(c, world, key, vkey, season) {
     const fresh = layer.world !== world;
+    const prev = layer.canvas;
+    const dur = globalThis.__seasonFade ?? SEASON_FADE;
+    if (!fresh && prev && vkey === layer.vkey && season !== layer.season && dur > 0) {
+      // only the season changed: keep showing the old plate and dissolve it into the new one
+      const now = performance.now() / 1000;
+      const from = fade ? bakeFade(Math.min(1, (now - fade.at) / dur)) : prev;
+      if (fade) {
+        free(fade.from);
+        free(prev);
+      }
+      fade = { from, at: now };
+    } else {
+      free(fade?.from);
+      free(prev);
+      fade = null;
+    }
     layer.canvas = c;
     layer.world = world;
     layer.key = key;
+    layer.vkey = vkey;
+    layer.season = season;
     layer.dirty = false;
     if (fresh) layer.born = performance.now() / 1000;
   }
@@ -158,8 +195,10 @@ export function createRenderer(canvas) {
         const c = makeCanvas(msg.bitmap.width, msg.bitmap.height);
         c.getContext('2d', { alpha: false }).drawImage(msg.bitmap, 0, 0);
         msg.bitmap.close?.();
-        install(c, done.world, done.key);
+        install(c, done.world, done.key, done.vkey, done.season);
         stats.worldBuildMs = Math.round(msg.ms);
+        stats.worldSeason = done.season;
+        (stats.worldBuildBySeason ||= {})[done.season || 'none'] = stats.worldBuildMs;
         stats.worldPath = 'worker';
         stats.worldWaitMs = Math.round((performance.now() / 1000 - done.at) * 1000);
         publish();
@@ -174,51 +213,57 @@ export function createRenderer(canvas) {
     return worker;
   }
 
-  function paintSync(state, view, key) {
+  function paintSync(state, view, key, vkey, season) {
     const t0 = performance.now();
     const c = makeCanvas(canvas.width, canvas.height);
-    paintWorldLayer(c.getContext('2d', { alpha: false }), canvas.width, canvas.height, state.world, view);
-    install(c, state.world, key);
+    paintWorldLayer(c.getContext('2d', { alpha: false }), canvas.width, canvas.height, state.world, view, season);
+    install(c, state.world, key, vkey, season);
     stats.worldBuildMs = Math.round(performance.now() - t0);
+    stats.worldSeason = season;
+    (stats.worldBuildBySeason ||= {})[season || 'none'] = stats.worldBuildMs;
     stats.worldPath = 'main';
     publish();
   }
 
-  function request(state, view, key) {
-    prepareModules(state.world, view, key);
+  function request(state, view, key, vkey, season) {
+    prepareModules(state.world, view, vkey);
     const wk = startWorker();
     if (wk) {
       const v = { scale: view.scale, ox: view.ox, oy: view.oy, cssW: view.cssW, cssH: view.cssH, dpr: view.dpr };
-      job = { id: ++jobSeq, key, world: state.world, at: performance.now() / 1000 };
+      job = { id: ++jobSeq, key, vkey, season, world: state.world, at: performance.now() / 1000 };
       try {
-        wk.postMessage({ id: job.id, w: canvas.width, h: canvas.height, world: state.world, view: v });
+        wk.postMessage({ id: job.id, w: canvas.width, h: canvas.height, world: state.world, view: v, season });
         return;
       } catch (err) {
         giveUpWorker(err?.message || err); // e.g. a world that cannot be cloned
       }
     }
-    paintSync(state, view, key);
+    paintSync(state, view, key, vkey, season);
   }
 
   function draw(state, view, dt = 1 / 60) {
     profiling = typeof window !== 'undefined' && !!window.__renderProfile;
     if (profiling) window.__renderProfile = profile;
     const now = performance.now() / 1000;
-    const key = viewKey(view);
+    const vkey = viewKey(view);
+    const season = state.flags?.seasons && state.clock ? state.clock.season : '';
+    const key = `${vkey}|${season}`;
     const world = state.world;
     if (job && now - job.at > WORKER_TIMEOUT) giveUpWorker('timeout');
 
     // does the plate need (re)painting?
     const ready = !!layer.canvas && layer.world === world;
     let want = !ready || layer.dirty;
-    if (!want && key !== layer.key) {
-      if (key !== lastKey) {
-        lastKey = key;
+    if (!want && vkey !== layer.vkey) {
+      if (vkey !== lastKey) {
+        lastKey = vkey;
         changedAt = now;
       }
       want = now - changedAt > REBUILD_DELAY;
+    } else if (!want && season !== layer.season) {
+      want = true; // the season turned: repaint in the background, the old plate stays on show meanwhile
     }
-    if (want && !(job && job.world === world && job.key === key)) request(state, view, key);
+    if (want && !(job && job.world === world && job.key === key)) request(state, view, key, vkey, season);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
@@ -238,8 +283,21 @@ export function createRenderer(canvas) {
     }
 
     const tl = performance.now();
-    if (layer.key === key) ctx.drawImage(layer.canvas, 0, 0);
-    else ctx.drawImage(layer.canvas, 0, 0, canvas.width, canvas.height); // stretched until the new size settles
+    const stretch = layer.vkey !== vkey; // stretched until the new size settles
+    const blit = (c) => (stretch ? ctx.drawImage(c, 0, 0, canvas.width, canvas.height) : ctx.drawImage(c, 0, 0));
+    const fk = fade ? (now - fade.at) / (globalThis.__seasonFade ?? SEASON_FADE) : 1;
+    if (fade && fk < 1) {
+      blit(fade.from);
+      ctx.globalAlpha = fk * fk * (3 - 2 * fk);
+      blit(layer.canvas);
+      ctx.globalAlpha = 1;
+    } else {
+      if (fade) {
+        free(fade.from);
+        fade = null;
+      }
+      blit(layer.canvas);
+    }
     if (profiling) {
       ctx.getImageData(0, 0, 1, 1);
       profile.worldLayer = (profile.worldLayer || 0) + performance.now() - tl;
@@ -249,15 +307,18 @@ export function createRenderer(canvas) {
     for (const ev of state.events || []) for (const m of mods) call(m, 'event', ev, state);
 
     const t = now;
-    const frame = { t, dt, view, refs };
+    const frame = { t, dt, view, refs, atmos: atmos?.api };
+    call(atmos, 'drawSky', ctx, state, t, dt);
     call(ambient, 'drawSky', ctx, state, t, dt);
     call(trees, 'drawRoots', ctx, state, t, dt); // roots pass behind the water and mineral pockets
     call(deposits, 'draw', ctx, state, t, dt, frame);
+    call(atmos, 'drawSoil', ctx, state, t, dt);
     call(mycelium, 'draw', ctx, state, t, dt, frame);
     call(flows, 'draw', ctx, state, t, dt, frame);
     call(trees, 'drawTrees', ctx, state, t, dt);
     call(ambient, 'draw', ctx, state, t, dt, frame);
     call(mushrooms, 'draw', ctx, state, t, dt);
+    call(atmos, 'drawOver', ctx, state, t, dt);
     call(feedback, 'draw', ctx, state, t, dt, frame);
     call(effects, 'draw', ctx, state, t, dt, frame);
     ctx.setTransform(1, 0, 0, 1, 0, 0);

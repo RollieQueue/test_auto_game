@@ -2,6 +2,7 @@
 // data (world horizons, balance) so the page cannot drift from the rules; fallbacks match the GDD.
 import { icons, flourish } from './icons.js';
 import * as balance from '../sim/balance.js';
+import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
 
 const FALLBACK_HORIZONS = [
   { name: 'Лесная подстилка', depth: 0, cost: 0.1 },
@@ -23,6 +24,19 @@ function horizonRows(world) {
       return `<li><span class="k">${esc(h.name)}</span><span class="r">${range}</span><span class="v">${ru(h.cost.toFixed(2))}</span></li>`;
     })
     .join('');
+}
+
+/** «Времена года»: shown only when the game has seasons on. */
+function seasonsSection(state) {
+  if (!(state && state.flags && state.flags.seasons)) return '';
+  const rows = SEASONS.map((k) => `<li><b>${SEASON_NAMES_RU[k]}</b> — ${SEASON_RULES[k]}.</li>`).join('');
+  return `
+        <section>
+          <h3>Времена года</h3>
+          <p>Круг в углу — календарь: стрелка идёт по четырём временам года, а солнце или луна в центре показывают час.
+          Рядом написана погода. Через год страница итогов предложит продолжить или начать новую поляну.</p>
+          <ul class="help-seasons">${rows}</ul>
+        </section>`;
 }
 
 const KEYS = [
@@ -95,6 +109,7 @@ export function buildHelp(state) {
           <p>В земле лежат диковинки. Подведи к ним нить, и они попадут в <i>атлас находок</i> (<kbd>A</kbd>) с пометкой
           натуралиста и небольшой наградой. Редкое лежит глубже.</p>
         </section>
+${seasonsSection(state)}
         <section>
           <h3>Клавиши</h3>
           <ul class="help-keys">${keys}</ul>
