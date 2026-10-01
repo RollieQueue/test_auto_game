@@ -147,7 +147,7 @@ export function playBot(seed, opts = {}) {
     let spend = 0;
     let n = 0;
     let prev = { x: net.nodes[r.nodeId].x, y: net.nodes[r.nodeId].y };
-    const budget = free();
+    const budget = free() - 0.5; // the sim integrates the cost a little differently across horizon edges
     for (const p of r.points) {
       const c = Math.hypot(p.x - prev.x, p.y - prev.y) * costAt(world, p.x, p.y);
       if (spend + c > budget) break;

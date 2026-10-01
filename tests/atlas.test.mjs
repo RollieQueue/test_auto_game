@@ -20,7 +20,12 @@ test('atlas: eleven kinds, nothing found in a fresh game', () => {
 });
 
 test('atlas: counts per kind, totals on the glade, progress text', () => {
-  const state = createState(42);
+  // any glade that hides at least two pebbles and an ammonite
+  const seed = [42, 7, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12].find((n) => {
+    const decor = createState(n).world.decor;
+    return decor.filter((d) => d.type === 'pebble').length >= 2 && decor.some((d) => d.type === 'ammonite');
+  });
+  const state = createState(seed);
   const pebbles = state.world.decor.filter((d) => d.type === 'pebble');
   assert.ok(pebbles.length >= 2);
   touch(state, pebbles[0]);

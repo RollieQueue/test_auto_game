@@ -166,6 +166,7 @@ test('round trip with growing hyphae in flight, thick edges and a dead node', ()
   withStorage(shim(), () => {
     const { state } = playBot(1, { maxSeconds: 120 });
     const n = state.net.nodes[3];
+    state.res.sugar = Math.max(state.res.sugar, 60); // the bot may have spent it all by now
     assert.ok(sim.commandGrow(state, 3, [{ x: n.x, y: n.y + 90 }]));
     advance(state, 0.3);
     assert.ok(state.net.growing.length > 0, 'a hypha is still growing');

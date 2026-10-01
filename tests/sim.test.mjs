@@ -105,12 +105,17 @@ test('grow-start and grow-end events come with the command and the finished hyph
 
 test('hyphae cannot grow through rocks or above ground; commands are cut at the first obstacle', () => {
   const s = fresh();
-  const rock = s.world.rocks[0];
   const from = s.net.nodes[0];
-  // a drag straight through the rock centre, long enough to pass it
+  // a drag straight through the centre of a rock, long enough to pass it (the nearest rock the straight line really reaches)
+  const aim = (r) => [{ x: r.x + (r.x - from.x) * 0.5, y: r.y + (r.y - from.y) * 0.5 }];
+  const rock = [...s.world.rocks].sort((p, q) => Math.hypot(p.x - from.x, p.y - from.y) - Math.hypot(q.x - from.x, q.y - from.y)).find((r) => {
+    const b = sim.estimateGrowth(s, 0, aim(r)).blocked;
+    return b && rockAt(s.world, b.x, b.y);
+  });
+  assert.ok(rock, 'some rock lies on a straight line from the spore');
   const dx = rock.x - from.x;
   const dy = rock.y - from.y;
-  const through = [{ x: rock.x + dx * 0.5, y: rock.y + dy * 0.5 }];
+  const through = aim(rock);
   const preview = sim.estimateGrowth(s, 0, through);
   assert.ok(preview.blocked, 'blocked by a rock');
   assert.ok(rockAt(s.world, preview.blocked.x, preview.blocked.y));
@@ -172,7 +177,7 @@ test('links: water pocket, mineral deposit and tree tip create links once per no
   const s = fresh();
   const w = s.world.water[0];
   const m = s.world.minerals[0];
-  const t = s.world.trees[1];
+  const t = s.world.trees.find((x) => x.tips.some((p) => p.minStage <= x.stage));
   const tip = t.tips.find((p) => p.minStage <= t.stage);
   const nodeA = addNode(s, w.x, w.y, 0);
   const nodeB = addNode(s, w.x + 5, w.y, nodeA.id);
@@ -191,9 +196,10 @@ test('links: water pocket, mineral deposit and tree tip create links once per no
   addNode(s, tip.x + 6, tip.y, 0);
   assert.equal(links.filter((l) => l.kind === 'tree' && l.targetId === t.id).length, 1);
   // an inactive tip (minStage above the tree stage) does not link
-  const late = s.world.trees[2].tips.find((p) => p.minStage > s.world.trees[2].stage);
+  const other = s.world.trees.find((x) => x !== t && x.tips.some((p) => p.minStage > x.stage));
+  const late = other.tips.find((p) => p.minStage > other.stage);
   addNode(s, late.x, late.y, 0);
-  assert.equal(links.filter((l) => l.kind === 'tree' && l.targetId === 2).length, 0);
+  assert.equal(links.filter((l) => l.kind === 'tree' && l.targetId === other.id).length, 0);
 });
 
 test('extraction fills the pool, depletes mineral deposits (deposit-empty once), stops when the pool is full', () => {
@@ -263,8 +269,8 @@ test('tree exchange: linked trees take water and minerals and pay sugar; health 
 });
 
 test('a well-fed tree grows to the next stage, opens new tips and re-checks existing nodes', () => {
-  const s = fresh();
-  const t = s.world.trees[2]; // sapling pine, stage 0
+  const s = fresh([7, 1, 2, 3, 4, 5, 6, 8].find((n) => createState(n).world.trees.some((x) => x.stage === 0)));
+  const t = s.world.trees.find((x) => x.stage === 0); // a sapling
   const early = t.tips.find((p) => p.minStage <= t.stage);
   const later = t.tips.find((p) => p.minStage === 1);
   assert.ok(early && later);

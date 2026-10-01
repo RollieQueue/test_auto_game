@@ -1,10 +1,14 @@
 // Deterministic world generation: a cross-section of a forest glade. Pure data, no DOM.
+// Every seed makes a different glade: a biome (species, soil, rocks, water), a ground shape, 2-5 trees spread over
+// the width, and a spore somewhere between them. A build that is not fair to a new player is rebuilt (see fairness.js).
 import { WORLD_W, WORLD_H, PROFILE_STEP } from '../config.js';
 import { createRng, fbm1, hash32, makeNoise1D } from '../core/rng.js';
-import { dist, pointInPolygon, polygonBounds } from '../core/geom.js';
+import { clamp, dist, pointInPolygon, polygonBounds } from '../core/geom.js';
 import { sampleProfile } from './query.js';
+import { BIOMES, BIOME_IDS, gladeName, pickWeighted } from './biomes.js';
+import { FAIR, checkFairness } from './fairness.js';
 
-/** Soil horizons, top to bottom. depth: units below the ground surface; cost: sugar per unit of hypha. */
+/** Soil horizons, top to bottom. depth: units below the ground surface (nominal; worlds scale it per biome); cost: sugar per unit of hypha. */
 export const HORIZONS = [
   { id: 'litter', name: 'Лесная подстилка', depth: 0, cost: 0.1, color: '#6b5238' },
   { id: 'humus', name: 'Гумус', depth: 26, cost: 0.14, color: '#3f2c20' },
@@ -13,6 +17,8 @@ export const HORIZONS = [
   { id: 'gravel', name: 'Галечник', depth: 620, cost: 0.5, color: '#56524d' },
 ];
 const HORIZON_WAVE = [0, 7, 24, 30, 26];
+/** Thinnest a horizon may be at its nominal depth. */
+const MIN_THICKNESS = [0, 14, 60, 90, 90];
 
 export const TREE_SPECIES = {
   birch: { name: 'Берёза', spread: 250, taproot: 150, laterals: 6, gravity: 0.016 },
@@ -20,30 +26,68 @@ export const TREE_SPECIES = {
   pine: { name: 'Сосна', spread: 210, taproot: 360, laterals: 5, gravity: 0.026 },
 };
 
-const DECOR_SHALLOW = ['acorn', 'leaf', 'snail', 'beetle', 'seed', 'twig', 'acorn', 'leaf'];
-const DECOR_DEEP = ['pebble', 'bone', 'shell', 'potsherd', 'pebble'];
-const DECOR_BOTTOM = ['pebble', 'ammonite', 'pebble'];
+/** Half-width of a full-grown crown (rendered size), used to space trunks. */
+export const CROWN_HALF = { birch: 125, oak: 175, pine: 135 };
+/** Trunks stay inside this band; the HUD cards (world x < 306 and > 1560, top) may cover only the edge of a crown. */
+export const TREE_X = [340, 1500];
+export const trunkRange = (species) => [306 + 0.6 * CROWN_HALF[species], 1560 - 0.6 * CROWN_HALF[species]];
+export const MIN_TRUNK_GAP = 190;
+/** The spore's x band (clear of the edges) and the farthest it may lie from the nearest trunk. */
+const SPORE_X = [FAIR.edge, WORLD_W - FAIR.edge];
+const SPORE_MAX_GAP = 420;
 
+/** Mean ground level and the band the surface stays in (hills leave room for crowns, hollows for the soil). */
+const GROUND_Y = 298;
+const GROUND_BAND = [262, 362];
+
+const DECOR_BOTTOM = ['pebble', 'ammonite', 'pebble'];
+const DEEP_KINDS = ['pebble', 'bone', 'shell', 'potsherd'];
+const PHOSPHORUS_BANDS = [[260, 520], [300, 640], [420, 720], [280, 560], [380, 700], [320, 600]];
+
+/** The whole glade for a seed: the first fair build among deterministic attempts. */
 export function generateWorld(seed) {
-  const rng = createRng(seed);
+  let world = null;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    world = buildWorld(seed, attempt);
+    if (checkFairness(world).ok) return world;
+  }
+  return world;
+}
+
+/** One attempt: the glade's identity (biome, ground, soil, name) depends on the seed alone, the layout also on `attempt`. */
+export function buildWorld(seed, attempt = 0) {
+  const rng = createRng(attempt === 0 ? seed : hash32(seed, 'attempt', attempt));
   const cols = Math.ceil(WORLD_W / PROFILE_STEP) + 1;
 
-  // Ground surface: gentle rolling line around y = 292.
+  // --- Identity: biome, ground shape, soil depths, name.
+  const idRng = createRng(hash32(seed, 'identity'));
+  const biome = BIOMES[BIOME_IDS[idRng.int(0, BIOME_IDS.length - 1)]];
+  const terrain = pickWeighted(idRng, biome.ground);
+  const name = gladeName(idRng, biome, terrain);
+  const shape = makeShape(idRng, terrain);
+  const jitter = biome.id === 'mixed' ? 0.12 : 0.08;
+  const nominal = biome.depths.map((d, i) => (i === 0 ? 0 : d * idRng.range(1 - jitter, 1 + jitter)));
+  for (let i = 1; i < nominal.length; i++) nominal[i] = Math.max(nominal[i], nominal[i - 1] + MIN_THICKNESS[i]);
+  const waveScale = biome.waveScale * idRng.range(0.7, 1.3);
+
+  // Ground surface around y = 298, shaped by the terrain kind.
   const gNoise = makeNoise1D(hash32(seed, 'ground'));
   const ground = [];
   for (let i = 0; i < cols; i++) {
     const x = i * PROFILE_STEP;
-    ground.push(292 + 24 * fbm1(gNoise, x / 520, 3) + 4 * gNoise(x / 55 + 97));
+    const y = GROUND_Y + shape.offset(x) + shape.noise * fbm1(gNoise, x / 520, 3) + 3.5 * gNoise(x / 55 + 97);
+    ground.push(clamp(y, GROUND_BAND[0], GROUND_BAND[1]));
   }
   const groundAt = (x) => sampleProfile(ground, PROFILE_STEP, x);
 
   // Horizon boundaries follow the ground with their own waves, strictly ordered.
   const horizons = HORIZONS.map((h, i) => {
     const hn = makeNoise1D(hash32(seed, 'horizon', i));
+    const depth = Math.round(nominal[i]);
     const top = ground.map((gy, k) =>
-      i === 0 ? gy : gy + h.depth + HORIZON_WAVE[i] * fbm1(hn, (k * PROFILE_STEP) / 300, 3),
+      i === 0 ? gy : gy + depth + HORIZON_WAVE[i] * waveScale * fbm1(hn, (k * PROFILE_STEP) / 300, 3),
     );
-    return { ...h, top };
+    return { ...h, depth, top };
   });
   for (let i = 1; i < horizons.length; i++) {
     const prev = horizons[i - 1].top;
@@ -51,26 +95,33 @@ export function generateWorld(seed) {
     for (let k = 0; k < cols; k++) cur[k] = Math.max(cur[k], prev[k] + 10);
   }
   const depthAt = (x, y) => y - groundAt(x);
+  const offRavine = (x, margin) => shape.ravine === null || Math.abs(x - shape.ravine) > margin;
 
-  // Where the spore germinated.
-  const ox = 900 + rng.range(-40, 40);
-  const origin = { x: ox, y: groundAt(ox) + 64 };
+  // --- Trunks: species and positions spread over the width.
+  const { defs: treeDefs, clearing } = layoutTrees(rng, biome, (x) => offRavine(x, 125), (x) => offRavine(x, 130));
 
-  // Trees: fixed composition, seeded variation.
-  const treeDefs = [
-    { species: 'birch', x: 470 + rng.range(-30, 30), stage: 1 },
-    { species: 'oak', x: 1250 + rng.range(-30, 30), stage: 2 },
-    { species: 'pine', x: 1665 + rng.range(-25, 25), stage: 0 },
-  ];
+  // Stages: young glades; at most one tree starts full-grown.
+  for (const t of treeDefs) t.stage = pickWeighted(rng, [[0, 0.35], [1, 0.4], [2, 0.25]]);
+  if (rng.chance(0.14)) rng.pick(treeDefs).stage = 3;
+
+  // Where the spore germinated: between the trunks, not under one, away from the edges, with a growing tree in reach.
+  // (Roots are sketched without rocks here; rocks keep clear of the spore, so the real roots end up the same.)
+  const sketch = treeDefs.map((def, id) => ({
+    stage: def.stage,
+    tips: growRoots(rng.fork(`roots${id}`), def.species, def.x, groundAt(def.x), groundAt, () => false).tips,
+  }));
+  const origin = pickOrigin(rng, treeDefs, sketch, groundAt, (x) => offRavine(x, 130), clearing);
 
   // Rocks: flattened noisy ellipses, bigger deeper down; kept clear of trunks and the origin.
   const rocks = [];
-  for (let attempt = 0; attempt < 80 && rocks.length < 9; attempt++) {
+  const rockCount = rng.int(biome.rocks.count[0], biome.rocks.count[1]);
+  const [rockMin, rockMax] = biome.rocks.depth;
+  for (let tries = 0; tries < 140 && rocks.length < rockCount; tries++) {
     const x = rng.range(70, WORLD_W - 70);
-    const depth = rng.range(150, 760);
+    const depth = rng.range(rockMin, rockMax);
     const y = groundAt(x) + depth;
     if (y > WORLD_H - 40) continue;
-    const r = 24 + (depth / 760) * rng.range(30, 70);
+    const r = (24 + (depth / 760) * rng.range(30, 70)) * biome.rocks.size;
     if (treeDefs.some((t) => Math.abs(t.x - x) < r + 60 && depth < 260)) continue;
     if (dist(x, y, origin.x, origin.y) < r + 110) continue;
     if (rocks.some((o) => dist(x, y, o.x, o.y) < r + o.r + 40)) continue;
@@ -125,63 +176,61 @@ export function generateWorld(seed) {
 
   // Deposits: water pockets and mineral veins placed away from rocks, roots, the origin and each other.
   const deposits = [];
-  const freeSpot = (x, y, clearance) =>
+  const freeSpot = (x, y, clearance, relax) =>
     y < WORLD_H - clearance &&
     x > clearance &&
     x < WORLD_W - clearance &&
     !inRock(x, y, clearance) &&
     dist(x, y, origin.x, origin.y) > clearance + 90 &&
     !deposits.some((d) => dist(x, y, d.x, d.y) < clearance + d.size + 60) &&
-    !nearRoots(x, y, clearance * 0.6);
+    (relax || !nearRoots(x, y, clearance * 0.6));
 
+  // Winnability: the first water pocket and the first nitrogen vein are a short reach from the spore, on opposite sides.
+  const side = rng.chance(0.5) ? 1 : -1;
   const water = [];
-  const waterDepths = [
-    [70, 170],
-    [70, 190],
-    [220, 420],
-    [240, 440],
-    [470, 650],
-  ];
-  const side = rng.chance(0.5) ? 1 : -1; // the nearest pocket and nitrogen vein lie on opposite sides of the spore
-  for (const [d0, d1] of waterDepths) {
-    for (let attempt = 0; attempt < 200; attempt++) {
-      // Winnability: the first pocket is always a short reach from the spore (inside the starting sugar budget).
-      const x = water.length === 0 ? origin.x + (attempt % 2 ? side : -side) * rng.range(150, 320 + attempt / 2) : rng.range(80, WORLD_W - 80);
+  for (const [d0, d1] of biome.water.plan) {
+    for (let tries = 0; tries < 500; tries++) {
+      const relax = tries > 250;
+      const first = water.length === 0;
+      const x = first ? origin.x + (tries % 2 ? side : -side) * rng.range(150, 290) : rng.range(80, WORLD_W - 80);
       const y = groundAt(x) + rng.range(d0, d1);
-      const rx = rng.range(38, 68);
-      if (!freeSpot(x, y, rx)) continue;
+      const rx = rng.range(38, 68) * biome.water.size;
+      if (first && dist(x, y, origin.x, origin.y) > 285) continue;
+      if (!freeSpot(x, y, rx, relax)) continue;
       const deep = depthAt(x, y) > 300;
       const max = Math.round(deep ? rng.range(120, 160) : rng.range(90, 130));
-      water.push({ id: water.length, x, y, rx, ry: rx * rng.range(0.42, 0.55), amount: max, max, regen: deep ? 0.3 : 0.6 });
+      const regen = (deep ? 0.3 : 0.6) * biome.water.regen;
+      water.push({ id: water.length, x, y, rx, ry: rx * rng.range(0.42, 0.55), amount: max, max, regen });
       deposits.push({ x, y, size: rx });
       break;
     }
   }
 
   const minerals = [];
-  const mineralPlan = [
-    ['nitrogen', 40, 190],
-    ['nitrogen', 40, 210],
-    ['phosphorus', 260, 520],
-    ['phosphorus', 300, 640],
-    ['phosphorus', 420, 720],
-  ];
-  for (const [kind, d0, d1] of mineralPlan) {
-    for (let attempt = 0; attempt < 200; attempt++) {
-      const x = minerals.length === 0 ? origin.x + (attempt % 2 ? -side : side) * rng.range(130, 300 + attempt / 2) : rng.range(80, WORLD_W - 80);
-      const y = groundAt(x) + rng.range(d0, d1);
+  let phosphorusSeen = 0;
+  for (const kind of biome.minerals) {
+    const [d0, d1] = kind === 'nitrogen' ? [40, 190] : PHOSPHORUS_BANDS[phosphorusSeen++ % PHOSPHORUS_BANDS.length];
+    const first = minerals.length === 0;
+    for (let tries = 0; tries < 500; tries++) {
+      const relax = tries > 250;
+      const x = first ? origin.x + (tries % 2 ? -side : side) * rng.range(130, 280) : rng.range(80, WORLD_W - 80);
+      const y = groundAt(x) + rng.range(d0, first ? 160 : d1);
       const r = rng.range(16, 26);
-      if (!freeSpot(x, y, r + 14)) continue;
-      const max = Math.round(rng.range(50, 100));
+      if (first && dist(x, y, origin.x, origin.y) > 300) continue;
+      if (!freeSpot(x, y, r + 14, relax)) continue;
+      const max = Math.round(rng.range(50, 100) * biome.mineralScale[kind]);
       minerals.push({ id: minerals.length, x, y, r, amount: max, max, kind });
       deposits.push({ x, y, size: r });
       break;
     }
   }
 
-  // Decorative curiosities for the naturalist's eye.
+  // Decorative curiosities for the naturalist's eye: rarer the deeper they lie. Every glade hides at least one
+  // of each common deep kind (found in the soil between the humus and the gravel), so there is always something to find.
   const decor = [];
-  for (let attempt = 0; attempt < 200 && decor.length < 18; attempt++) {
+  const deepIds = new Set();
+  const missing = new Set(DEEP_KINDS);
+  for (let tries = 0; tries < 200 && decor.length < 18; tries++) {
     const x = rng.range(30, WORLD_W - 30);
     const depth = rng.range(8, WORLD_H - groundAt(x) - 20);
     const y = groundAt(x) + depth;
@@ -189,12 +238,24 @@ export function generateWorld(seed) {
     if (deposits.some((d) => dist(x, y, d.x, d.y) < d.size + 34)) continue;
     if (decor.some((d) => dist(x, y, d.x, d.y) < 70)) continue;
     if (dist(x, y, origin.x, origin.y) < 60) continue;
-    const pool = depth < 170 ? DECOR_SHALLOW : depth < 620 ? DECOR_DEEP : DECOR_BOTTOM;
-    decor.push({ id: decor.length, type: rng.pick(pool), x, y, rot: rng.range(-Math.PI, Math.PI), scale: rng.range(0.8, 1.25) });
+    const isDeep = depth >= 170 && depth < 620;
+    const pool = depth < 170 ? biome.decor.shallow : isDeep ? biome.decor.deep : DECOR_BOTTOM;
+    const type = isDeep && missing.size && rng.chance(0.5) ? rng.pick([...missing]) : rng.pick(pool);
+    missing.delete(type);
+    if (isDeep) deepIds.add(decor.length);
+    decor.push({ id: decor.length, type, x, y, rot: rng.range(-Math.PI, Math.PI), scale: rng.range(0.8, 1.25) });
+  }
+  for (const kind of missing) {
+    // too few deep finds came up: retag one whose kind is repeated
+    const repeated = decor.filter((c) => deepIds.has(c.id) && decor.filter((o) => o.type === c.type).length > 1);
+    if (repeated.length) rng.pick(repeated).type = kind;
   }
 
   return {
     seed,
+    biome: biome.id,
+    name,
+    terrain,
     width: WORLD_W,
     height: WORLD_H,
     step: PROFILE_STEP,
@@ -207,6 +268,155 @@ export function generateWorld(seed) {
     decor,
     origin,
   };
+}
+
+/**
+ * The ground shape as an offset from the mean ground level plus the amplitude of the gentle noise laid over it.
+ * `ravine` is the x of a narrow cut (or null) that trunks and the spore keep away from.
+ */
+function makeShape(rng, terrain) {
+  const gauss = (x, c, s) => Math.exp(-(((x - c) / s) ** 2));
+  switch (terrain) {
+    case 'rolling': {
+      const amp = rng.range(18, 26);
+      const period = rng.range(560, 900);
+      const phase = rng.range(0, Math.PI * 2);
+      return { ravine: null, noise: 9, offset: (x) => amp * Math.sin((x / period) * Math.PI * 2 + phase) };
+    }
+    case 'slope': {
+      const tilt = rng.range(24, 36) * (rng.chance(0.5) ? 1 : -1);
+      return { ravine: null, noise: 8, offset: (x) => (tilt * (x - 960)) / 960 };
+    }
+    case 'hill': {
+      const h = rng.range(28, 36);
+      const c = rng.range(620, 1300);
+      const s = rng.range(240, 360);
+      return { ravine: null, noise: 8, offset: (x) => -h * gauss(x, c, s) };
+    }
+    case 'hollow': {
+      const d = rng.range(34, 46);
+      const c = rng.range(620, 1300);
+      const s = rng.range(230, 340);
+      return { ravine: null, noise: 8, offset: (x) => d * gauss(x, c, s) };
+    }
+    case 'ravine': {
+      const d = rng.range(46, 58);
+      const c = rng.range(560, 1360);
+      const s = rng.range(60, 90);
+      return { ravine: c, noise: 7, offset: (x) => d * gauss(x, c, s) };
+    }
+    default:
+      return { ravine: null, noise: 6, offset: () => 0 };
+  }
+}
+
+/** 2-5 trunks of seeded species, left to right, at least one crown-gap apart and spread over the band. */
+function layoutTrees(rng, biome, xOk, sporeOk) {
+  const dom = biome.trees.dominant;
+  let n = pickWeighted(rng, biome.trees.counts);
+  for (let tries = 0; ; tries++) {
+    if (tries > 0 && tries % 60 === 0 && n > 2) n--;
+    const species = [];
+    for (let i = 0; i < n; i++) species.push(pickWeighted(rng, biome.trees.weights));
+    // «mostly birch»: the dominant species holds at least 60% of the trunks; a mixed forest has at least two species
+    const want = dom ? Math.ceil(n * 0.6) : 0;
+    for (let i = 0; i < n && species.filter((s) => s === dom).length < want; i++) species[i] = dom;
+    if (!dom && species.every((s) => s === species[0])) {
+      species[rng.int(0, n - 1)] = rng.pick(Object.keys(TREE_SPECIES).filter((s) => s !== species[0]));
+    }
+    for (let i = n - 1; i > 0; i--) {
+      const j = rng.int(0, i);
+      [species[i], species[j]] = [species[j], species[i]];
+    }
+    let x0 = Math.max(TREE_X[0], trunkRange(species[0])[0]);
+    let x1 = Math.min(TREE_X[1], trunkRange(species[n - 1])[1]);
+    const gaps = [];
+    for (let i = 1; i < n; i++) gaps.push(Math.max(MIN_TRUNK_GAP, 0.6 * (CROWN_HALF[species[i - 1]] + CROWN_HALF[species[i]])));
+    // a clearing for the spore: before the first trunk, between two, or after the last, so it is not always at the edge
+    const clearing = rng.int(0, n);
+    const room = 2 * (FAIR.trunkGap + 20) + 20;
+    if (clearing === 0) x0 = Math.max(x0, SPORE_X[0] + FAIR.trunkGap + 60);
+    else if (clearing === n) x1 = Math.min(x1, SPORE_X[1] - FAIR.trunkGap - 60);
+    else gaps[clearing - 1] = Math.max(gaps[clearing - 1], room);
+    const slack = x1 - x0 - gaps.reduce((s, g) => s + g, 0);
+    if (slack < 0) continue;
+    // spread the free width over the n + 1 pieces
+    const w = Array.from({ length: n + 1 }, () => 0.4 + rng.next());
+    const wsum = w.reduce((s, v) => s + v, 0);
+    let x = x0 + (slack * w[0]) / wsum;
+    const defs = [];
+    for (let i = 0; i < n; i++) {
+      if (i > 0) x += gaps[i - 1] + (slack * w[i]) / wsum;
+      defs.push({ species: species[i], x, stage: 0 });
+    }
+    // the clearing is the stretch the layout made room for
+    const k = clearing;
+    const lo = k === 0 ? SPORE_X[0] : defs[k - 1].x + FAIR.trunkGap;
+    const hi = k === n ? SPORE_X[1] : defs[k].x - FAIR.trunkGap;
+    const found = { defs, clearing: [lo, hi] };
+    if (tries > 120 || (defs.every((d) => xOk(d.x)) && clearSlots(defs, sporeOk, found.clearing).length > 0)) return found;
+  }
+}
+
+/**
+ * Stretches of the surface where the spore may lie: at least a trunk-gap from every trunk, still near one,
+ * clear of the edges. Returns [[x0, x1], ...] (each at least 40 u wide), scanned every 10 u.
+ */
+function sporeSlots(defs, ok) {
+  const slots = [];
+  let start = null;
+  for (let x = SPORE_X[0]; x <= SPORE_X[1] + 10; x += 10) {
+    const gap = Math.min(...defs.map((d) => Math.abs(d.x - x)));
+    const good = x <= SPORE_X[1] && gap >= FAIR.trunkGap && gap <= SPORE_MAX_GAP && ok(x);
+    if (good && start === null) start = x;
+    if (!good && start !== null) {
+      if (x - 10 - start >= 40) slots.push([start, x - 10]);
+      start = null;
+    }
+  }
+  return slots;
+}
+
+/** The spore slots that lie inside the clearing the layout made room for (clipped to it). */
+function clearSlots(defs, ok, [lo, hi]) {
+  return sporeSlots(defs, ok)
+    .map(([a, b]) => [Math.max(a, lo), Math.min(b, hi)])
+    .filter(([a, b]) => b - a >= 30);
+}
+
+/** The spore: in the clearing between trunks (or beside the outer ones), with a growing tree's root tip in reach but not touching. */
+function pickOrigin(rng, treeDefs, sketch, groundAt, xOk, clearing) {
+  let slots = clearSlots(treeDefs, xOk, clearing);
+  if (!slots.length) slots = sporeSlots(treeDefs, xOk);
+  if (!slots.length) {
+    const x = clamp(treeDefs[0].x + 200, SPORE_X[0], SPORE_X[1]);
+    return { x, y: groundAt(x) + 64 };
+  }
+  const weight = slots.map(([a, b]) => 100 + b - a);
+  const total = weight.reduce((sum, v) => sum + v, 0);
+  let fallback = null;
+  for (let tries = 0; tries < 300; tries++) {
+    let r = rng.next() * total;
+    let k = 0;
+    while (k < slots.length - 1 && r >= weight[k]) r -= weight[k++];
+    const x = rng.range(slots[k][0], slots[k][1]);
+    const y = groundAt(x) + 64;
+    fallback ??= { x, y };
+    let nearest = Infinity;
+    let young = Infinity;
+    let old = Infinity;
+    for (const t of sketch) {
+      for (const tip of t.tips) {
+        if (tip.minStage > t.stage) continue;
+        const d = dist(x, y, tip.x, tip.y);
+        nearest = Math.min(nearest, d);
+        if (t.stage >= 3) old = Math.min(old, d);
+        else young = Math.min(young, d);
+      }
+    }
+    if (nearest >= FAIR.tipMin + 8 && young <= FAIR.tipDist - 30 && young * 1.15 < old) return { x, y };
+  }
+  return fallback;
 }
 
 /**

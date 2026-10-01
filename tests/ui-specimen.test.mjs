@@ -117,6 +117,9 @@ test('specimen: «здесь» words', () => {
 
 test('glade label: «Поляна: <name> · №<seed>», with a fallback when the world has no name', () => {
   const state = createState(7);
+  assert.ok(state.world.name, 'generated glades carry a name');
+  assert.equal(gladeLabel(state), `Поляна: ${state.world.name} · №7`);
+  delete state.world.name;
   assert.equal(gladeLabel(state), 'Поляна №7');
   state.world.name = 'Сосновый бор на холме';
   assert.equal(gladeLabel(state), 'Поляна: Сосновый бор на холме · №7');

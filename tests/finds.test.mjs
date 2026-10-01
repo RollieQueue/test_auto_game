@@ -38,7 +38,13 @@ test('finds: the distance rule is 8 + 10 * scale, exclusive of anything farther'
   for (const seed of [7, 42]) {
     const state = createState(seed);
     state.time = 12.5;
-    const d = state.world.decor[0];
+    const { world } = state;
+    // a curiosity well away from deposits and root tips (a node next to those would also make a link event)
+    const d = world.decor.find(
+      (c) =>
+        [...world.water, ...world.minerals].every((o) => Math.hypot(o.x - c.x, o.y - c.y) > 120) &&
+        world.trees.every((t) => t.tips.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > 60)),
+    );
     const r = findRadius(d);
     assert.equal(r, 8 + 10 * d.scale);
     nodeAt(state, d, r + 0.5);
@@ -94,10 +100,27 @@ test('finds: nothing is discovered by the starting spore', () => {
 });
 
 test('finds: a grown hypha discovers the item at the end of its path (through the real growth step)', () => {
-  const state = createState(42);
-  const d = state.world.decor[12]; // a shell about 130 u below the spore
+  // a curiosity 90-320 u from the spore with an open straight path and no other curiosity near the path
+  let state;
+  let d;
+  for (const seed of [42, 7, 1, 2, 3, 4, 5, 6, 8, 9]) {
+    state = createState(seed);
+    const from = state.net.nodes[state.net.originId];
+    d = state.world.decor.find((c) => {
+      const len = Math.hypot(c.x - from.x, c.y - from.y);
+      if (len < 90 || len > 320) return false;
+      if (sim.estimateGrowth(state, state.net.originId, [{ x: c.x, y: c.y }]).blocked !== null) return false;
+      return state.world.decor.every((e) => {
+        if (e === c) return true;
+        const t = Math.max(0, Math.min(1, ((e.x - from.x) * (c.x - from.x) + (e.y - from.y) * (c.y - from.y)) / (len * len)));
+        return Math.hypot(e.x - (from.x + t * (c.x - from.x)), e.y - (from.y + t * (c.y - from.y))) > 40;
+      });
+    });
+    if (d) break;
+  }
   state.res.sugar = state.cap.sugar = 5000;
   const o = state.net.originId;
+  assert.ok(d, 'a curiosity within reach');
   assert.equal(sim.estimateGrowth(state, o, [{ x: d.x, y: d.y }]).blocked, null, 'the straight path is open');
   assert.ok(sim.commandGrow(state, o, [{ x: d.x, y: d.y }]));
   const seen = [];
