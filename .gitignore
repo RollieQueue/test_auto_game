@@ -1,0 +1,8 @@
+# Local tooling (image generation venv, models, caches) and scratch output
+.tools/
+.tmp/
+node_modules/
+*.log
+__pycache__/
+.DS_Store
+Thumbs.db

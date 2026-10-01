@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Корни и нити</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="src/ui/hud.css" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Лесная поляна в разрезе"></canvas>
+    <div id="hud"></div>
+    <div id="file-warning" hidden>
+      <p>Игру нужно открыть через локальный сервер: запустите <b>start.bat</b> (или <code>node tools/serve.mjs</code>) из папки игры.</p>
+    </div>
+    <script>
+      if (location.protocol === 'file:') document.getElementById('file-warning').hidden = false;
+    </script>
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
