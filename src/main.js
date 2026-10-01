@@ -6,6 +6,7 @@ import { createRenderer } from './render/index.js';
 import { createHud } from './ui/hud.js';
 import { attachInput } from './input/pointer.js';
 import { createAudio } from './audio/index.js';
+import * as persist from './persist.js';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 8;
@@ -13,14 +14,22 @@ const MAX_STEPS = 8;
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('scene');
 const hudRoot = document.getElementById('hud');
+// Seasons and day/night (S2) stay off until the renderer and HUD can show them: ?seasons=1 turns them on.
+const SEASONS = params.get('seasons') === '1';
 
 function pickSeed(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : Math.floor(Math.random() * 1e9) + 1;
 }
 
+function newState(seed) {
+  const state = createState(pickSeed(seed));
+  state.flags.seasons = SEASONS;
+  return state;
+}
+
 const game = {
-  state: createState(pickSeed(params.get('seed'))),
+  state: newState(params.get('seed')),
   view: { scale: 1, ox: 0, oy: 0, cssW: 1, cssH: 1, dpr: 1 },
   debug: params.has('debug'),
   sim,
@@ -47,8 +56,20 @@ game.actions = {
     game.state.ui.preview = null;
   },
   restart(seed) {
-    game.state = createState(pickSeed(seed));
+    game.state = newState(seed);
     game.state.phase = 'playing';
+    game.audio.unlock();
+  },
+  hasSave() {
+    return persist.hasSave();
+  },
+  continueSaved() {
+    const saved = persist.loadSave();
+    if (!saved) return false;
+    game.state = saved;
+    game.state.phase = 'playing';
+    game.audio.unlock();
+    return true;
   },
   setMuted(muted) {
     game.audio.setMuted(muted);
@@ -81,6 +102,15 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// Save when the page is hidden or closed; persist.tick() autosaves while playing.
+const saveOnLeave = () => {
+  if (game.state.phase === 'playing' || game.state.phase === 'paused') persist.saveNow(game.state);
+};
+window.addEventListener('pagehide', saveOnLeave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveOnLeave();
+});
+
 if (params.get('autostart') === '1') game.actions.start();
 
 let last = performance.now();
@@ -100,11 +130,12 @@ function frame(now) {
       steps++;
     }
     if (steps === MAX_STEPS) acc = 0;
+    persist.tick(state, dtReal);
   } else {
     acc = 0;
   }
   game.renderer.draw(state, game.view, dtReal);
-  game.hud.update(state, dtReal);
+  game.hud.update(state, dtReal, game.view);
   game.audio.update(state, dtReal);
   state.events.length = 0;
   requestAnimationFrame(frame);

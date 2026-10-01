@@ -1,99 +1,54 @@
-// STUB simulation: keeps the skeleton runnable. The simulation task replaces this module
-// (same exported API, see docs/ARCHITECTURE.md).
-import { dist2, resample } from '../core/geom.js';
-import { costAt } from '../world/query.js';
+// Simulation facade: see docs/ARCHITECTURE.md for the contract. Pure data, no DOM, deterministic per seed.
+import { B } from './balance.js';
+import { addNode, createSimData, nearestNode } from './network.js';
+import { commandGrow, estimateGrowth, stepGrowth } from './growth.js';
+import { stepEconomy } from './economy.js';
+import { canFruit, commandFruit, pickFruitNode, stepMushrooms } from './mushrooms.js';
+import { recomputeFlows } from './flows.js';
+import { createObjectives, stepObjectives } from './objectives.js';
 
-function addNode(net, x, y, born) {
-  const node = { id: net.nodes.length, x, y, born, alive: true };
-  net.nodes.push(node);
-  return node;
-}
-
-function addEdge(net, a, b, born) {
-  const na = net.nodes[a];
-  const nb = net.nodes[b];
-  const edge = { id: net.edges.length, a, b, len: Math.hypot(nb.x - na.x, nb.y - na.y), born, alive: true, w: 1 };
-  net.edges.push(edge);
-  return edge;
-}
+export { commandGrow, estimateGrowth, canFruit, commandFruit, pickFruitNode };
 
 export function initSim(state) {
   const { world, net } = state;
-  state.res.sugar = 80;
-  const origin = addNode(net, world.origin.x, world.origin.y, 0);
+  state.sim = createSimData(state);
+  net.version ??= 0;
+  net.growing ??= [];
+  net.links ??= [];
+  state.res.sugar = B.startSugar;
+  state.res.water = 0;
+  state.res.minerals = 0;
+  state.res.spores = 0;
+  state.cap.pool = B.poolBase;
+  state.cap.sugar = B.sugarCapBase;
+  const origin = addNode(state, world.origin.x, world.origin.y, -1);
   net.originId = origin.id;
-  for (let i = 0; i < 4; i++) {
-    const a = -0.4 + i * 1.1;
-    const n = addNode(net, origin.x + Math.cos(a) * 36, origin.y + Math.sin(a) * 30, 0);
-    addEdge(net, origin.id, n.id, 0);
+  // A few short hyphae around the spore, all slightly below the fruiting depth.
+  for (const a of [-0.5, 0.5, 1.6, 2.6, 3.7]) {
+    addNode(state, origin.x + Math.cos(a) * B.originRingRadius, origin.y + Math.sin(a) * B.originRingRadius, origin.id);
   }
-  state.objectives = [
-    { id: 'water', text: 'Дотянуться до воды', done: false },
-    { id: 'tree', text: 'Заключить союз с деревом', done: false },
-    { id: 'mushroom', text: 'Вырастить первый гриб', done: false },
-    { id: 'treeGrow', text: 'Помочь дереву подрасти', done: false },
-    { id: 'spores', text: 'Собрать 100 спор', done: false },
-  ];
+  state.objectives = createObjectives();
 }
 
 export function updateSim(state, dt) {
-  void state;
-  void dt;
+  const { res, sim, rates } = state;
+  const before = { sugar: res.sugar, water: res.water, minerals: res.minerals, spores: res.spores };
+  sim.clock += dt;
+  stepGrowth(state, dt);
+  stepEconomy(state, dt);
+  stepMushrooms(state, dt);
+  sim.flowDt += dt;
+  if (sim.flowDt >= B.flowEvery) {
+    recomputeFlows(state, sim.flowDt);
+    sim.flowDt = 0;
+  }
+  stepObjectives(state);
+  // Smoothed net change per second (commands run between steps, so their one-off costs are not counted).
+  const k = Math.min(1, dt / B.rateTau);
+  for (const key of ['sugar', 'water', 'minerals', 'spores']) rates[key] += ((res[key] - before[key]) / dt - rates[key]) * k;
 }
 
+/** Nearest alive node within `radius` of (x, y), or null. */
 export function pickNode(state, x, y, radius = 22) {
-  let best = null;
-  let bestD = radius * radius;
-  for (const n of state.net.nodes) {
-    if (!n.alive) continue;
-    const d = dist2(x, y, n.x, n.y);
-    if (d <= bestD) {
-      bestD = d;
-      best = n.id;
-    }
-  }
-  return best;
-}
-
-export function estimateGrowth(state, fromId, points) {
-  const from = state.net.nodes[fromId];
-  const path = resample([{ x: from.x, y: from.y }, ...points], 8);
-  const reachable = [path[0]];
-  let blocked = null;
-  let length = 0;
-  let cost = 0;
-  for (let i = 1; i < path.length; i++) {
-    const c = costAt(state.world, path[i].x, path[i].y);
-    if (!Number.isFinite(c)) {
-      blocked = path[i];
-      break;
-    }
-    const seg = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
-    length += seg;
-    cost += seg * c;
-    reachable.push(path[i]);
-  }
-  return { from: fromId, points: reachable, blocked, length, cost, affordable: cost <= state.res.sugar };
-}
-
-export function commandGrow(state, fromId, points) {
-  const p = estimateGrowth(state, fromId, points);
-  if (p.points.length < 2 || !p.affordable) return false;
-  const nodes = resample(p.points, 16);
-  let prev = fromId;
-  for (let i = 1; i < nodes.length; i++) {
-    const n = addNode(state.net, nodes[i].x, nodes[i].y, state.time);
-    addEdge(state.net, prev, n.id, state.time);
-    prev = n.id;
-  }
-  state.res.sugar -= p.cost;
-  return true;
-}
-
-export function canFruit() {
-  return false;
-}
-
-export function commandFruit() {
-  return false;
+  return nearestNode(state, x, y, radius);
 }

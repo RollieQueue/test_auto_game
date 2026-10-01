@@ -12,7 +12,9 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 - URL params: `?seed=123` fixes the world, `?autostart=1` skips the title screen, `?debug=1` for debug overlays.
 - `window.__game` exposes `{ state, view, sim, actions, renderer, hud, audio }` for browser automation.
 - `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit')`,
-  `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`. Keyboard shortcuts live in the UI task.
+  `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`, `hasSave()`, `continueSaved()` (loads the saved
+  game and plays it; returns false when there is none). Keyboard shortcuts live in the UI task.
+- `?seasons=1` turns on seasons and day/night (`state.flags.seasons`) until they are finished (S2).
 - Browser checks: `node tools/shot.mjs` drives headless Edge/Chrome over the DevTools protocol with no
   dependencies; it starts its own server for a `/path` URL and runs actions in order, e.g.
   `node tools/shot.mjs --url "/?autostart=1&seed=7" --wait 1000 --drag 717,297,760,380 --wait 2000
@@ -35,6 +37,7 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 | `src/render/*` | render | all canvas drawing; owns its caches and particles |
 | `src/ui/*` (incl. `hud.css`), `src/audio/*`, `assets/fonts/*` | ui | DOM HUD, menus, keyboard shortcuts, sound |
 | `tools/artgen/*`, `assets/art/*` | art | image generation and cutout pipeline, illustrated assets |
+| `src/persist.js` | persistence | save/load in localStorage (`hasSave`, `loadSave`, `saveNow`, `clearSave`, `tick`) |
 
 Do not edit files owned by another task. If the contract must change, say so in your report:
 root integrates it. You may *add* new files inside your own directories freely.
@@ -45,8 +48,9 @@ root integrates it. You may *add* new files inside your own directories freely.
 each animation frame (dtReal ≤ 0.1 s):
   if state.phase === 'playing': run sim.updateSim(state, 1/60) zero or more times
       (accumulator × state.speed, max 8 steps), state.time += 1/60 per step
+  persist.tick(state, dtReal)          // while playing: throttled autosave
   renderer.draw(state, view, dtReal)   // may read state.events
-  hud.update(state, dtReal)            // may read state.events
+  hud.update(state, dtReal, view)      // may read state.events; view maps world to CSS px
   audio.update(state, dtReal)          // may read state.events
   state.events.length = 0              // events live exactly one frame
 ```
@@ -68,7 +72,7 @@ state = {
   world: World, net: Network,
   res:   { sugar, water, minerals, spores },          // current amounts (floats)
   rates: { sugar, water, minerals, spores },          // net change per second, smoothed (for HUD)
-  cap:   { pool },                                    // storage capacity of the network pool (water+minerals)
+  cap:   { pool, sugar },                             // water and minerals are each capped at pool; sugar at sugar
   flows: Flow[],          // what moves through the network now (for visuals and sound)
   mushrooms: Mushroom[],
   objectives: Objective[],
@@ -156,6 +160,27 @@ commandFruit(state, nodeId)          // plant a mushroom; returns boolean
 { type: 'insufficient', x, y }        // not enough sugar
 { type: 'deposit-empty', kind, id, x, y }
 ```
+
+## Time and seasons (S2; the sim keeps the clock always, effects only when `state.flags.seasons`)
+
+```js
+state.clock = {
+  day,          // whole days since the start (0-based)
+  dayFrac,      // 0..1 within the day: 0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset
+  daylight,     // 0..1 smooth light level (renderer tints the scene, sim scales photosynthesis)
+  season,       // 'spring' | 'summer' | 'autumn' | 'winter' (a game starts in spring, morning)
+  seasonIndex,  // 0..3
+  seasonFrac,   // 0..1 progress through the current season
+  year,         // 0-based; a year is one full run
+}
+state.weather = { kind: 'clear' | 'rain' | 'drought' | 'snow', intensity /* 0..1 */ }
+// events: { type: 'dawn' } | { type: 'dusk' } | { type: 'season', season } | { type: 'weather', kind }
+//         | { type: 'year-end', year }   (then state.flags.yearDone = true; play may continue)
+```
+
+Season rules (numbers in `src/sim/balance.js`): spring rains refill water pockets, summer drought slows
+regeneration and makes trees thirstier, autumn fruiting (mushrooms grow faster, spores ×3), winter dormancy
+(trees neither pay nor drink much, mushrooms do not grow, upkeep drops). Photosynthesis follows daylight.
 
 ## Illustrated assets (art task)
 

@@ -1,5 +1,5 @@
 // Spatial queries over the generated world. Pure functions, no DOM.
-import { pointInPolygon } from '../core/geom.js';
+import { distToPolyline, pointInPolygon } from '../core/geom.js';
 
 /** Linear interpolation into a profile sampled every `step` units from x = 0. */
 export function sampleProfile(profile, step, x) {
@@ -45,3 +45,35 @@ export function costAt(world, x, y) {
 }
 
 export const isPassable = (world, x, y) => Number.isFinite(costAt(world, x, y));
+
+/**
+ * What is under a world point, for tooltips: { kind: 'mushroom'|'tree'|'water'|'mineral'|'rock'|'horizon', id } or null
+ * (open sky). `id` is the object id; for 'horizon' it is the horizon id string ('litter', 'humus', ...).
+ */
+export function targetAt(world, mushrooms, x, y) {
+  for (const m of mushrooms) {
+    if (Math.abs(x - m.x) <= 24 && y >= m.baseY - 70 && y <= m.baseY + 8) return { kind: 'mushroom', id: m.id };
+  }
+  const ground = groundYAt(world, x);
+  if (y < ground) {
+    for (const t of world.trees) if (Math.abs(x - t.x) <= 36 && y >= t.baseY - 420) return { kind: 'tree', id: t.id };
+    return null;
+  }
+  for (const w of world.water) {
+    const dx = (x - w.x) / w.rx;
+    const dy = (y - w.y) / w.ry;
+    if (dx * dx + dy * dy <= 1.1) return { kind: 'water', id: w.id };
+  }
+  for (const m of world.minerals) {
+    if ((x - m.x) ** 2 + (y - m.y) ** 2 <= (m.r + 4) ** 2) return { kind: 'mineral', id: m.id };
+  }
+  for (const t of world.trees) {
+    for (const r of t.roots) {
+      if (r.minStage <= t.stage && distToPolyline(x, y, r.points) <= 10) return { kind: 'tree', id: t.id };
+    }
+  }
+  const rock = rockAt(world, x, y);
+  if (rock) return { kind: 'rock', id: rock.id };
+  const h = horizonAt(world, x, y);
+  return h ? { kind: 'horizon', id: h.id } : null;
+}

@@ -1,0 +1,127 @@
+// Pointer tooltip: what is under the cursor, and the cost of the hypha being dragged.
+
+const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
+const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
+
+const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
+const pct = (v) => `${Math.round(Math.max(0, Math.min(1, v || 0)) * 100)} %`;
+const num = (v) => String(Math.round(v));
+const fmt = (v) => (v < 1 ? v.toFixed(2) : v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',');
+
+/** Price in sugar; "сахара" is correct (genitive) after any number. */
+const sugar = (v) => `${Math.max(1, Math.ceil(v - 1e-6))} сахара`;
+
+function describeTarget(state, t) {
+  const world = state.world;
+  switch (t.kind) {
+    case 'water': {
+      const w = find(world.water, t.id);
+      return w ? { main: `Карман воды · ${num(w.amount)}/${num(w.max)}` } : { main: 'Карман воды' };
+    }
+    case 'mineral': {
+      const m = find(world.minerals, t.id);
+      if (!m) return { main: 'Залежь минералов' };
+      return { main: `${MINERAL_NAMES[m.kind] || 'Минералы'} · ${num(m.amount)}/${num(m.max)}` };
+    }
+    case 'tree': {
+      const tree = find(world.trees, t.id);
+      if (!tree) return { main: 'Дерево' };
+      const stage = STAGE_WORDS[tree.stage] || '';
+      return {
+        main: `${tree.name} · ${stage} · довольство ${pct(tree.health)}`,
+        sub: tree.linked ? 'союз заключён' : 'нить сюда ещё не дошла',
+      };
+    }
+    case 'rock':
+      return { main: 'Камень — нить не пройдёт' };
+    case 'mushroom': {
+      const m = find(state.mushrooms, t.id);
+      if (!m) return { main: 'Гриб' };
+      return { main: m.mature ? 'Гриб · зрелый' : `Гриб · растёт ${pct(m.growth)}` };
+    }
+    case 'horizon': {
+      const hz = world.horizons;
+      const h = find(hz, t.id) || (typeof t.id === 'number' ? hz[t.id] : undefined);
+      if (!h) return null;
+      return { main: h.name, sub: `рост нити: ${fmt(h.cost)} сахара за единицу` };
+    }
+    default:
+      return null;
+  }
+}
+
+function describePreview(state, p) {
+  if (!p || !p.points || p.points.length < 2) return null;
+  const have = Math.floor(state.res.sugar);
+  if (p.blocked) {
+    return { main: 'Путь упирается в камень', sub: p.cost > 0 ? `до преграды: ${sugar(p.cost)}` : '', warn: true };
+  }
+  if (!p.affordable) {
+    return { main: 'Не хватает сахара', sub: `нужно ${Math.ceil(p.cost)}, есть ${have}`, warn: true };
+  }
+  return { main: sugar(p.cost), sub: `длина нити ≈ ${num(p.length)}` };
+}
+
+export function createTooltip(host) {
+  host.innerHTML = '<div class="t-main"></div><div class="t-sub"></div>';
+  const mainEl = host.querySelector('.t-main');
+  const subEl = host.querySelector('.t-sub');
+  let shown = false;
+  let key = '';
+  let w = 0;
+  let h = 0;
+  let lastTransform = '';
+
+  function hide() {
+    if (!shown) return;
+    shown = false;
+    host.classList.remove('show');
+  }
+
+  return {
+    reset() {
+      hide();
+      key = '';
+    },
+    update(state) {
+      const ui = state.ui;
+      const p = ui.pointer;
+      const live = state.phase === 'playing' || state.phase === 'paused';
+      let info = null;
+      if (live && p && p.inside !== false) {
+        if (ui.drag) info = describePreview(state, ui.preview);
+        else if (ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
+      }
+      if (!info) {
+        hide();
+        return;
+      }
+      const k = `${info.main}|${info.sub || ''}|${info.warn ? 1 : 0}`;
+      if (k !== key) {
+        key = k;
+        mainEl.textContent = info.main;
+        subEl.textContent = info.sub || '';
+        host.classList.toggle('warn', Boolean(info.warn));
+        w = host.offsetWidth;
+        h = host.offsetHeight;
+      }
+      if (!shown) {
+        shown = true;
+        host.classList.add('show');
+        w = host.offsetWidth;
+        h = host.offsetHeight;
+      }
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let x = p.sx + 16;
+      let y = p.sy + 20;
+      if (x + w > vw - 6) x = p.sx - w - 12;
+      if (y + h > vh - 6) y = p.sy - h - 14;
+      const transform = `translate(${Math.max(4, x).toFixed(0)}px, ${Math.max(4, y).toFixed(0)}px) rotate(-0.6deg)`;
+      if (transform !== lastTransform) {
+        lastTransform = transform;
+        host.style.transform = transform;
+      }
+    },
+  };
+}

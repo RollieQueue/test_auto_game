@@ -142,15 +142,17 @@ export function generateWorld(seed) {
     [240, 440],
     [470, 650],
   ];
+  const side = rng.chance(0.5) ? 1 : -1; // the nearest pocket and nitrogen vein lie on opposite sides of the spore
   for (const [d0, d1] of waterDepths) {
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const x = rng.range(80, WORLD_W - 80);
+    for (let attempt = 0; attempt < 200; attempt++) {
+      // Winnability: the first pocket is always a short reach from the spore (inside the starting sugar budget).
+      const x = water.length === 0 ? origin.x + (attempt % 2 ? side : -side) * rng.range(150, 320 + attempt / 2) : rng.range(80, WORLD_W - 80);
       const y = groundAt(x) + rng.range(d0, d1);
       const rx = rng.range(38, 68);
       if (!freeSpot(x, y, rx)) continue;
       const deep = depthAt(x, y) > 300;
-      const max = Math.round(deep ? rng.range(120, 160) : rng.range(60, 90));
-      water.push({ id: water.length, x, y, rx, ry: rx * rng.range(0.42, 0.55), amount: max, max, regen: deep ? 0.12 : 0.25 });
+      const max = Math.round(deep ? rng.range(120, 160) : rng.range(90, 130));
+      water.push({ id: water.length, x, y, rx, ry: rx * rng.range(0.42, 0.55), amount: max, max, regen: deep ? 0.3 : 0.6 });
       deposits.push({ x, y, size: rx });
       break;
     }
@@ -165,8 +167,8 @@ export function generateWorld(seed) {
     ['phosphorus', 420, 720],
   ];
   for (const [kind, d0, d1] of mineralPlan) {
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const x = rng.range(80, WORLD_W - 80);
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const x = minerals.length === 0 ? origin.x + (attempt % 2 ? -side : side) * rng.range(130, 300 + attempt / 2) : rng.range(80, WORLD_W - 80);
       const y = groundAt(x) + rng.range(d0, d1);
       const r = rng.range(16, 26);
       if (!freeSpot(x, y, r + 14)) continue;

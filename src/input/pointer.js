@@ -1,7 +1,10 @@
-// Pointer input (basic version; the simulation task owns and extends it).
-// Drag from a network node to grow a hypha; in 'fruit' mode click a node to plant a mushroom.
+// Pointer input. Drag from a network node to grow a hypha (right click cancels the drag); in 'fruit'
+// mode a click plants a mushroom. Keeps state.ui.pointer / hoverNode / hoverTarget / drag / preview current.
+// Keyboard handling belongs to the UI (actions.cancelDrag, actions.setTool, ...).
+import { targetAt } from '../world/query.js';
 
 const MIN_POINT_SPACING = 6;
+const MAX_DRAG_POINTS = 800;
 
 export function attachInput(canvas, game) {
   const toWorld = (ev) => {
@@ -12,17 +15,42 @@ export function attachInput(canvas, game) {
     return { x: (sx - v.ox) / v.scale, y: (sy - v.oy) / v.scale, sx, sy };
   };
 
-  const onDown = (ev) => {
-    const state = game.state;
-    if (state.phase !== 'playing' || ev.button !== 0) return;
-    const p = toWorld(ev);
-    const node = game.sim.pickNode(state, p.x, p.y);
-    if (node === null) return;
-    if (state.ui.tool === 'fruit') {
-      game.sim.commandFruit(state, node);
+  const cancelDrag = () => {
+    const ui = game.state.ui;
+    if (!ui.drag) return false;
+    ui.drag = null;
+    ui.preview = null;
+    return true;
+  };
+
+  const updateHover = (state, p) => {
+    const ui = state.ui;
+    if (state.phase !== 'playing') {
+      ui.hoverNode = null;
+      ui.hoverTarget = null;
       return;
     }
-    canvas.setPointerCapture(ev.pointerId);
+    ui.hoverNode = game.sim.pickNode(state, p.x, p.y);
+    ui.hoverTarget = targetAt(state.world, state.mushrooms, p.x, p.y);
+  };
+
+  const onDown = (ev) => {
+    const state = game.state;
+    if (state.phase !== 'playing') return;
+    if (ev.button === 2) {
+      cancelDrag();
+      return;
+    }
+    if (ev.button !== 0 || state.ui.drag) return;
+    const p = toWorld(ev);
+    if (state.ui.tool === 'fruit') {
+      const node = game.sim.pickFruitNode(state, p.x, p.y);
+      if (node !== null) game.sim.commandFruit(state, node);
+      return;
+    }
+    const node = game.sim.pickNode(state, p.x, p.y);
+    if (node === null) return;
+    canvas.setPointerCapture?.(ev.pointerId);
     state.ui.drag = { from: node, points: [] };
     state.ui.preview = null;
   };
@@ -31,27 +59,39 @@ export function attachInput(canvas, game) {
     const state = game.state;
     const p = toWorld(ev);
     state.ui.pointer = { ...p, inside: true };
-    state.ui.hoverNode = state.phase === 'playing' ? game.sim.pickNode(state, p.x, p.y) : null;
+    updateHover(state, p);
     const drag = state.ui.drag;
     if (!drag) return;
+    if (state.phase !== 'playing' || (ev.buttons & 2) !== 0) {
+      cancelDrag(); // right button pressed while dragging
+      return;
+    }
     const last = drag.points[drag.points.length - 1];
     if (!last || Math.hypot(p.x - last.x, p.y - last.y) >= MIN_POINT_SPACING) {
-      drag.points.push({ x: p.x, y: p.y });
+      if (drag.points.length < MAX_DRAG_POINTS) drag.points.push({ x: p.x, y: p.y });
       state.ui.preview = game.sim.estimateGrowth(state, drag.from, drag.points);
     }
   };
 
-  const onUp = () => {
+  const onUp = (ev) => {
     const state = game.state;
     const drag = state.ui.drag;
     if (!drag) return;
-    if (drag.points.length > 0) game.sim.commandGrow(state, drag.from, drag.points);
-    state.ui.drag = null;
-    state.ui.preview = null;
+    if (ev.type === 'pointerup' && ev.button === 0 && state.phase === 'playing' && drag.points.length > 0) {
+      game.sim.commandGrow(state, drag.from, drag.points);
+    }
+    cancelDrag();
   };
 
   const onLeave = () => {
-    if (game.state.ui.pointer) game.state.ui.pointer.inside = false;
+    const state = game.state;
+    if (state.ui.pointer) state.ui.pointer.inside = false;
+    if (!state.ui.drag) state.ui.hoverTarget = null;
+  };
+
+  const onContextMenu = (ev) => {
+    ev.preventDefault();
+    cancelDrag();
   };
 
   canvas.addEventListener('pointerdown', onDown);
@@ -59,7 +99,7 @@ export function attachInput(canvas, game) {
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointercancel', onUp);
   canvas.addEventListener('pointerleave', onLeave);
-  canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  canvas.addEventListener('contextmenu', onContextMenu);
 
   return {
     detach() {
@@ -68,6 +108,7 @@ export function attachInput(canvas, game) {
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('pointerleave', onLeave);
+      canvas.removeEventListener('contextmenu', onContextMenu);
     },
   };
 }
