@@ -3,6 +3,7 @@
 //   spore -> water -> tree -> fruit -> mineral -> wait -> (quiet)
 import { groundYAt, rockAt } from '../world/query.js';
 import * as balance from '../sim/balance.js';
+import { wormHint } from './threats.js';
 
 const FRUIT_DEPTH = () => balance.B?.fruitMaxDepth ?? 45;
 const FRUIT_COST = () => balance.B?.mushroomCost ?? 24;
@@ -59,9 +60,10 @@ const hint = (id, title, text, extra = {}) => ({ id, title, text, ring: null, ..
 /**
  * The hint for the current state, or null when the guide has nothing more to say.
  * `prevKey` is the key of the target chosen last time (for stickiness).
+ * `extras.wormHint`: the one-time arrow at the first worm ever may interrupt the normal steps.
  * Returns { id, title, text, ring: {x, y, rx, ry} | null, key, duration? }.
  */
-export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool) {
+export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool, extras = {}) {
   const { net, world } = state;
   const links = net.links || [];
   const has = (kind) => links.some((l) => l.kind === kind);
@@ -69,6 +71,10 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
 
   // a) nothing grown yet: point at the spore
   const started = (net.growing && net.growing.length > 0) || net.nodes.some((n) => n.born > 0.05);
+  if (started && extras.wormHint) {
+    const wh = wormHint(state);
+    if (wh) return wh;
+  }
   if (!started) {
     const o = net.nodes[net.originId] || nodes[0];
     if (!o) return null;

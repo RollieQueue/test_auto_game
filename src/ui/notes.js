@@ -4,6 +4,7 @@
 import { icons } from './icons.js';
 import { LOCAL_EVENTS } from './labels.js';
 import { findNames } from './atlas-logic.js';
+import { THREAT_BOTH, threatNote } from './threats.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 
 const MAX_NOTES = 4;
@@ -81,7 +82,7 @@ function describe(state, ev, prevWeather = 'clear') {
     case 'objective':
       return { key: `obj:${ev.id}`, text: `Отмечено: ${ev.text ? ev.text.charAt(0).toLowerCase() + ev.text.slice(1) : ''}`, tone: 'good', icon: 'check' };
     default:
-      return null;
+      return threatNote(ev);
   }
 }
 
@@ -157,7 +158,7 @@ export function createNotes(host) {
     process(state, skipLocal = false) {
       const events = state.events;
       for (let i = 0; i < events.length; i++) {
-        if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find') continue;
+        if (skipLocal && LOCAL_EVENTS.has(events[i].type) && events[i].type !== 'find' && !THREAT_BOTH.has(events[i].type)) continue;
         const ev = events[i];
         const d = describe(state, ev, prevWeather);
         if (ev.type === 'weather') prevWeather = ev.kind;

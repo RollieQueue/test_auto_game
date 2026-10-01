@@ -66,3 +66,29 @@ export function markAtlasHint() {
     // in-memory flag is enough for this session
   }
 }
+
+// One-time pointers about the soil threats, once per player: the margin note on the first worm ever, and the
+// guide's arrow at it (separate flags: the note is for everyone, the arrow only while the guide is on).
+const seenMemory = new Set();
+
+function seen(name) {
+  try {
+    return window.localStorage.getItem(`roots-threads.seen.${name}`) === '1';
+  } catch {
+    return seenMemory.has(name);
+  }
+}
+
+function markSeen(name) {
+  seenMemory.add(name);
+  try {
+    window.localStorage.setItem(`roots-threads.seen.${name}`, '1');
+  } catch {
+    // in-memory flag is enough for this session
+  }
+}
+
+export const wormNoteSeen = () => seen('worm-note');
+export const markWormNote = () => markSeen('worm-note');
+export const wormHintSeen = () => seen('worm-hint');
+export const markWormHint = () => markSeen('worm-hint');

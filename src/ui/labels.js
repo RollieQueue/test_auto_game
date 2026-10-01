@@ -2,16 +2,18 @@
 // mushroom). Global news (objectives, tree stages) stays in the note stack at the top (notes.js).
 import { icons } from './icons.js';
 import { findNames } from './atlas-logic.js';
+import { THREAT_LOCAL, threatLabel } from './threats.js';
 
 const LIFE = 2.7; // s
 const MAX_LABELS = 12;
+const BITE_GAP = 2.6; // s between two «укус» labels: a worm chews for a while, the label should not nag
 const MERGE_RADIUS = 70; // CSS px: a repeat this close restarts the label instead of adding another
 const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
 /** Events a label is made for (notes.js skips the same ones when labels are available). */
-export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature', 'find']);
+export const LOCAL_EVENTS = new Set(['link', 'insufficient', 'fruit-denied', 'deposit-empty', 'mushroom-mature', 'find', ...THREAT_LOCAL]);
 
 /** Maps an event to { key, text, tone, icon } or null. `sugarDenied` is true when this frame has a fruit-denied for sugar. */
 function describe(state, ev, sugarDenied) {
@@ -57,13 +59,15 @@ function describe(state, ev, sugarDenied) {
     case 'mushroom-mature':
       return { key: 'mature', text: 'созрел!', tone: 'good', icon: 'spores' };
     default:
-      return null;
+      return threatLabel(ev);
   }
 }
 
 export function createLabels(host) {
   /** @type {{el: HTMLElement, cnt: HTMLElement, key: string, sx: number, sy: number, age: number, count: number}[]} */
   let labels = [];
+  let clock = 0; // s of real time, for throttling
+  let lastBite = -Infinity;
 
   function remove(l) {
     l.el.remove();
@@ -120,6 +124,8 @@ export function createLabels(host) {
     reset() {
       host.textContent = '';
       labels = [];
+      clock = 0;
+      lastBite = -Infinity;
     },
     /** Reads this frame's events; returns true when `view` was usable (so the note stack can skip them). */
     process(state, view) {
@@ -132,12 +138,17 @@ export function createLabels(host) {
       for (let i = 0; i < events.length; i++) {
         const ev = events[i];
         if (!LOCAL_EVENTS.has(ev.type) || typeof ev.x !== 'number') continue;
+        if (ev.type === 'bite') {
+          if (clock - lastBite < BITE_GAP) continue;
+          lastBite = clock;
+        }
         const d = describe(state, ev, sugarDenied);
         if (d) spawn(d, ev.x * view.scale + view.ox, ev.y * view.scale + view.oy - 8, view);
       }
       return true;
     },
     tick(dt) {
+      clock += dt;
       for (const l of labels.slice()) {
         l.age += dt;
         if (l.age >= LIFE) remove(l);

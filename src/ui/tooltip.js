@@ -4,6 +4,7 @@
 import * as sim from '../sim/index.js';
 import * as mushrooms from '../sim/mushrooms.js';
 import * as balance from '../sim/balance.js';
+import { describeTrapPick, threatsOn, trapCost } from './threats.js';
 
 const STAGE_WORDS = ['росток', 'молодое', 'взрослое', 'вековое'];
 const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
@@ -136,6 +137,7 @@ export function createTooltip(host) {
         else if (extra) info = extra;
         else {
           if (ui.tool === 'fruit') info = describeFruit(state);
+          else if (ui.tool === 'trap' && threatsOn(state)) info = describeTrapPick(ui.trapPick, trapCost(balance.B), state.res.sugar);
           if (!info && ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
         }
       }

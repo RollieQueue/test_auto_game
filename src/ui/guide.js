@@ -2,7 +2,7 @@
 // Which hint to show comes from guide-logic.js; this file is the drawing, placement and timing.
 // The overlay never takes pointer events, except for the small "×" that hides the guide for good.
 import { pickHint } from './guide-logic.js';
-import { guideEnabled, setGuideEnabled } from './prefs.js';
+import { guideEnabled, setGuideEnabled, wormHintSeen, markWormHint } from './prefs.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const MARGIN = 12; // keep the note this far from the viewport edge
@@ -11,6 +11,7 @@ const FIRST_DELAY = 1.2; // s of play before the first hint
 const STEP_GAP = 0.55; // s between two hints
 const OUT_TIME = 0.35; // fade-out, matches the CSS transition
 const RECHECK = 0.25; // s between hint recomputations
+const WORM_HINT_TIME = 11; // s the arrow at the first worm stays
 
 // ---- small deterministic helpers (the "hand" must wobble the same way on every redraw) -----------------
 
@@ -225,6 +226,8 @@ export function createGuide(host, obstacles) {
   let dimmed = false;
   let doneAtStart = false;
   let doneHandled = false;
+  let wormLive = false; // the first-worm arrow is on screen (it was marked seen when it appeared)
+  let wormT = 0;
 
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => (layoutDirty = true)) : null;
   ro?.observe(noteEl);
@@ -248,6 +251,8 @@ export function createGuide(host, obstacles) {
     finished = false;
     prevKey = null;
     doneHandled = false;
+    wormLive = false;
+    wormT = 0;
     doneAtStart = Boolean(cur && cur.flags && cur.flags.allObjectivesDone);
     hideDom();
   }
@@ -351,6 +356,11 @@ export function createGuide(host, obstacles) {
     void noteEl.offsetWidth; // let the start state paint so the transition runs
     noteEl.classList.add('in');
     mode = 'in';
+    if (h.id === 'worm') {
+      wormLive = true;
+      wormT = 0;
+      markWormHint(); // once per player; the arrow stays until the worm leaves or the ring tool is taken
+    }
   }
 
   function startOut() {
@@ -405,13 +415,19 @@ export function createGuide(host, obstacles) {
       recheck -= dt;
       if (recheck <= 0) {
         recheck = RECHECK;
-        desired = want ? pickHint(state, prevKey, state.ui.tool) : null;
+        const extras = { wormHint: Boolean(state.flags && state.flags.threats) && (wormLive || !wormHintSeen()) };
+        desired = want ? pickHint(state, prevKey, state.ui.tool, extras) : null;
       } else if (!want) {
         desired = null;
       }
 
       if (shown) {
+        if (shown.id === 'worm') {
+          wormT += dt;
+          if (wormT > WORM_HINT_TIME || state.ui.tool === 'trap') desired = null; // done: the player took the ring tool
+        }
         if (!desired || desired.id !== shown.id) {
+          if (shown.id === 'worm') wormLive = false;
           startOut();
           return;
         }

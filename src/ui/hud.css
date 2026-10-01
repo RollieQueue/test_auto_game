@@ -2099,3 +2099,41 @@ kbd {
 .obj-card.open .obj-glade {
   display: block;
 }
+
+/* ------------------------------------------------------------------ soil threats (S3): ring tool, bites, chapters */
+
+.tool:nth-child(3) {
+  transform: translateY(0.25em) rotate(0.3deg);
+}
+.tool:nth-child(3):hover {
+  transform: translateY(0) rotate(0deg);
+}
+.tool:nth-child(3).active {
+  transform: translateY(-0.2em) rotate(-0.3deg);
+}
+/* a bite is only a pinch of ink: smaller and paler than the other labels */
+.lab.bite {
+  font-size: 1.05em;
+  color: rgba(168, 50, 45, 0.78);
+  opacity: 0.85;
+}
+.lab.warn .ico-snip {
+  width: 1.15em;
+  height: 1.15em;
+}
+/* the «page complete» summary: a longer title, so a smaller one, and the seal tucked into the corner */
+.sum-page.chapter h2 {
+  font-size: 2.1em;
+  max-width: 14em;
+  margin-left: auto;
+  margin-right: auto;
+}
+.sum-page.chapter .sub {
+  font-size: 1.6em;
+}
+.sum-page.chapter .stamp-seal {
+  right: 1.2em;
+  top: 1.1em;
+  width: 7.2em;
+  height: 7.2em;
+}

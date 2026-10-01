@@ -3,6 +3,7 @@
 import { icons, flourish } from './icons.js';
 import * as balance from '../sim/balance.js';
 import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
+import { chapterTotal, threatsOn, trapCost } from './threats.js';
 
 const FALLBACK_HORIZONS = [
   { name: 'Лесная подстилка', depth: 0, cost: 0.1 },
@@ -39,6 +40,26 @@ function seasonsSection(state) {
         </section>`;
 }
 
+/** «Нематоды и кольца» and «Главы»: shown only when the soil threats are on. */
+function threatsSection(state) {
+  if (!threatsOn(state)) return '';
+  const cost = trapCost(balance.B);
+  return `
+        <section>
+          <h3>Нематоды</h3>
+          <p>В почве бродят нематоды — тонкие черви. Червь перекусывает тонкую нить, и всё, что отрезано от споры, отмирает:
+          узлы, а с ними и грибы на них. Береги тонкие ответвления и держи у них кольца.</p>
+          <p>Нажми <kbd>3</kbd> и щёлкни по нити: на ней вырастет <i>ловчее кольцо</i>. Оно стоит ${cost} сахара.
+          Червь, подползший к кольцу, застревает, а грибница забирает его минералы. Каждое кольцо ловит ограниченное число
+          червей и истощается; <kbd>Esc</kbd> возвращает к нити.</p>
+        </section>
+        <section>
+          <h3>Главы</h3>
+          <p>Закончив страницу наблюдений, переверни её: на новой странице наблюдения труднее. Всего в тетради
+          ${chapterTotal(state)} главы. Номер главы написан над списком наблюдений.</p>
+        </section>`;
+}
+
 const KEYS = [
   ['1', '2', 'нить / гриб'],
   ['Пробел', '', 'пауза'],
@@ -58,9 +79,11 @@ export function buildHelp(state) {
   const fruitSeconds = Math.round(B.mushroomGrowSeconds ?? 20);
   const goal = Math.round(B.sporesGoal ?? 100);
   const speed = Math.round(B.growSpeed ?? 140);
-  const keys = KEYS.map(
-    ([a, b, text]) => `<li><span class="kk"><kbd>${a}</kbd>${b ? ` <kbd>${b}</kbd>` : ''}</span><span>${text}</span></li>`,
-  ).join('');
+  const threats = threatsOn(state);
+  const keys = KEYS.map(([a, b, text]) => {
+    const toolKeys = a === '1' && threats; // «1 2 3 нить / гриб / кольцо»
+    return `<li><span class="kk"><kbd>${a}</kbd>${b ? ` <kbd>${b}</kbd>` : ''}${toolKeys ? ' <kbd>3</kbd>' : ''}</span><span>${toolKeys ? 'нить / гриб / кольцо' : text}</span></li>`;
+  }).join('');
 
   return `
     <div class="overline">Тетрадь натуралиста · памятка на полях</div>
@@ -88,6 +111,7 @@ export function buildHelp(state) {
           <p class="cap">Цена роста в сахаре за единицу длины, по горизонтам почвы:</p>
           <ul class="help-hz">${horizonRows(state && state.world)}</ul>
         </section>
+${threatsSection(state)}
       </div>
       <div class="help-col">
         <section>

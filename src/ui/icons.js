@@ -49,6 +49,28 @@ export const icons = {
     `<path d="M14.8 14.8 L20.6 20.6" stroke-width="2.6"/>` +
     `<path d="M7.4 8.6 C8 7.2 9 6.6 10.4 6.5" stroke="#fff6dc" stroke-width="1.1" opacity=".9"/>` +
     close,
+  // ---- soil threats (S3): a trapping ring on a hypha, a nematode, a cut thread ----
+  ring:
+    open('ico-ring') +
+    `<ellipse cx="12" cy="11" rx="6.2" ry="8" fill="#9dbb5c" fill-opacity=".38" stroke="none"/>` +
+    `<path d="M5.8 11 A6.2 8 0 0 1 18.2 11" stroke-width="1.9"/>` +
+    `<path d="M2.4 17.6 C6.6 17.6 8.4 12.6 12 12.6 S17.4 8.2 21.6 8.2" stroke-width="1.5"/>` +
+    `<path d="M5.8 11 A6.2 8 0 0 0 18.2 11" stroke-width="1.9"/>` +
+    `<circle cx="2.4" cy="17.6" r="1.3" fill="#fff6dc"/><circle cx="21.6" cy="8.2" r="1.3" fill="#fff6dc"/>` +
+    close,
+  worm:
+    open('ico-worm') +
+    `<path d="M3.8 16.6 C5.4 9.4 9.2 19.8 12.4 13.2 S18 8 19.6 10.2" stroke-width="4"/>` +
+    `<path d="M3.8 16.6 C5.4 9.4 9.2 19.8 12.4 13.2 S18 8 19.6 10.2" stroke="#e5c3a8" stroke-width="2.3"/>` +
+    `<path d="M8.4 13.2 L8.6 15.6 M12.6 14.2 L13.6 12.2 M16.4 9.4 L16.8 11.8" stroke-width=".9" opacity=".7"/>` +
+    `<circle cx="20.2" cy="9.8" r="1.5" fill="#d99a7f"/>` +
+    close,
+  snip:
+    open('ico-snip') +
+    `<path d="M2.6 13.4 C5 12 6.6 12.6 9 11.6 M15 12.6 C17.4 12 19.4 12.8 21.4 11.2"/>` +
+    `<circle cx="2.6" cy="13.4" r="1.3" fill="#fff6dc"/><circle cx="21.4" cy="11.2" r="1.3" fill="#fff6dc"/>` +
+    `<path d="M9.4 4.8 L14.8 19.6 M14.6 4.8 L9.2 19.6" stroke="#a8322d" stroke-width="1.9"/>` +
+    close,
   // ---- seasons and weather (S2): the same ink and watercolor, for notes and the calendar ----
   sun:
     open('ico-sun') +

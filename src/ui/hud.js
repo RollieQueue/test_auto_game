@@ -13,7 +13,9 @@ import { createAtlasStore } from './atlas-store.js';
 import { calendarHtml, createCalendar } from './calendar.js';
 import { seasonNote } from './season-logic.js';
 import { buildYearPage } from './year.js';
-import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint } from './prefs.js';
+import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
+import { FIRST_WORM_NOTE, chapterOf, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
+import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
 const BAR_COLORS = { sugar: ['#e0b04a', '#b97a14'], water: ['#78b6dc', '#2f6f9f'], minerals: ['#8d7bc0', '#6a4a8c'] };
@@ -62,7 +64,7 @@ export function createHud(root, actions) {
 
       <section class="scrap tape obj-card" aria-label="Наблюдения">
         <div class="obj-head">
-          <h3 class="card-title">Наблюдения</h3>
+          <h3 class="card-title" data-k="obj-title">Наблюдения</h3>
           <span class="obj-count">0 / 0</span>
           <span class="obj-cur"></span>
         </div>
@@ -76,6 +78,7 @@ export function createHud(root, actions) {
       <div class="tools" role="tablist" aria-label="Инструмент">
         <button class="tool" data-tool="grow" type="button" role="tab">${icons.thread}<span>Нить</span><kbd>1</kbd></button>
         <button class="tool" data-tool="fruit" type="button" role="tab">${icons.mushroom}<span>Гриб</span><kbd>2</kbd></button>
+        <button class="tool" data-tool="trap" type="button" role="tab" hidden>${icons.ring}<span>Кольцо</span><kbd>3</kbd></button>
       </div>
 
       <div class="stamps">
@@ -116,7 +119,7 @@ export function createHud(root, actions) {
           </div>
           <div class="hint">
             <span>Нить: зажми мышь на узле и веди</span>
-            <span><kbd>1</kbd> <kbd>2</kbd> инструмент</span>
+            <span><kbd>1</kbd> <kbd>2</kbd> <kbd class="k3" hidden>3</kbd> инструмент</span>
             <span><kbd>Пробел</kbd> пауза</span>
             <span><kbd>F</kbd> скорость</span>
             <span><kbd>M</kbd> звук</span>
@@ -152,11 +155,11 @@ export function createHud(root, actions) {
     </div>
 
     <div class="screen summary-screen">
-      <div class="page sum-page">
-        <div class="stamp-seal">наблюдения<br />завершены</div>
-        <div class="overline">Тетрадь натуралиста · итог</div>
-        <h2>Поляна изучена</h2>
-        <div class="sub">все наблюдения отмечены</div>
+      <div class="page sum-page" data-sum="page">
+        <div class="stamp-seal" data-sum="seal">наблюдения<br />завершены</div>
+        <div class="overline" data-sum="overline">Тетрадь натуралиста · итог</div>
+        <h2 data-sum="title">Поляна изучена</h2>
+        <div class="sub" data-sum="sub">все наблюдения отмечены</div>
         <div class="glade-line" data-glade="summary"></div>
         ${flourish}
         <ul class="stats">
@@ -164,9 +167,11 @@ export function createHud(root, actions) {
           <li><span class="k">Длина нитей</span><span class="v" data-s="length"></span></li>
           <li><span class="k">Наибольшая глубина</span><span class="v" data-s="depth"></span></li>
           <li><span class="k">Время наблюдений</span><span class="v" data-s="time"></span></li>
+          <li class="threat-stat" hidden><span class="k">Поймано нематод</span><span class="v" data-s="caught"></span></li>
+          <li class="threat-stat" hidden><span class="k">Отмерло узлов</span><span class="v" data-s="lost"></span></li>
         </ul>
         <div class="actions">
-          <button class="ink-btn" data-act="continue" type="button">Продолжить наблюдения</button>
+          <button class="ink-btn" data-act="continue" data-sum="button" type="button">Продолжить наблюдения</button>
           <button class="ink-btn" data-act="restart" type="button">Новая поляна</button>
         </div>
       </div>
@@ -180,6 +185,9 @@ export function createHud(root, actions) {
     gladeTitle: q('[data-glade="title"]'),
     gladeSummary: q('[data-glade="summary"]'),
     objCard: q('.obj-card'),
+    objTitle: q('[data-k="obj-title"]'),
+    trapTab: q('.tool[data-tool="trap"]'),
+    kbd3: q('.hint .k3'),
     objCount: q('.obj-count'),
     objCur: q('.obj-cur'),
     objList: q('.obj-list'),
@@ -219,7 +227,22 @@ export function createHud(root, actions) {
     };
   }
   const stat = (s) => q(`[data-s="${s}"]`);
-  const statEls = { spores: stat('spores'), length: stat('length'), depth: stat('depth'), time: stat('time') };
+  const statEls = {
+    spores: stat('spores'),
+    length: stat('length'),
+    depth: stat('depth'),
+    time: stat('time'),
+    caught: stat('caught'),
+    lost: stat('lost'),
+  };
+  const sumEls = {
+    seal: q('[data-sum="seal"]'),
+    overline: q('[data-sum="overline"]'),
+    title: q('[data-sum="title"]'),
+    sub: q('[data-sum="sub"]'),
+    button: q('[data-sum="button"]'),
+    page: q('[data-sum="page"]'),
+  };
   const pauseIco = el.pause.querySelector('.sp-ico');
   const speedText = el.speed.querySelector('.sp-text');
   const soundIco = el.sound.querySelector('.sp-ico');
@@ -298,6 +321,10 @@ export function createHud(root, actions) {
   let yearOpen = false;
   let pausedByYear = false;
   let pendingYear = null; // a year-end waiting for the page that is open now (the summary) to close
+  let prevChapter = 1; // the chapter at the previous frame (the page that just closed when all-objectives arrives)
+  let muteDoneFlag = false; // a new page turned while allObjectivesDone was still set: ignore it until it drops
+  let caught = 0; // worms caught and nodes lost in this game (the summary page tells them)
+  let lostNodes = 0;
   let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
   let objHold = 0; // s the card stays open after the pointer left it
   let seasonIntro = false; // the first season's note was shown for this game
@@ -323,6 +350,10 @@ export function createHud(root, actions) {
     yearOpen = false;
     pausedByYear = false;
     pendingYear = null;
+    prevChapter = chapterOf(state);
+    muteDoneFlag = false;
+    caught = 0;
+    lostNodes = 0;
     objReveal = state.time < 2 ? OBJ_REVEAL_START : 0;
     objHold = 0;
     seasonIntro = false;
@@ -350,9 +381,20 @@ export function createHud(root, actions) {
     return true;
   }
 
-  function openSummary(state) {
+  function openSummary(state, completed) {
     summaryShown = true;
     summaryOpen = true;
+    const t = summaryTexts(state, completed);
+    sumEls.overline.textContent = t.overline;
+    sumEls.title.textContent = t.title;
+    sumEls.sub.textContent = t.sub;
+    sumEls.seal.innerHTML = t.seal;
+    sumEls.button.textContent = t.button;
+    sumEls.page.classList.toggle('chapter', threatsOn(state));
+    statEls.caught.parentElement.hidden = !(threatsOn(state) && caught > 0);
+    statEls.lost.parentElement.hidden = !(threatsOn(state) && lostNodes > 0);
+    statEls.caught.textContent = nf.format(caught);
+    statEls.lost.textContent = nf.format(lostNodes);
     statEls.spores.textContent = nf.format(Math.floor(state.res.spores));
     statEls.length.textContent = `${nf.format(Math.round(state.stats.hyphaeLength))} ед.`;
     statEls.depth.textContent = `${nf.format(Math.round(state.stats.maxDepth))} ед.`;
@@ -526,6 +568,10 @@ export function createHud(root, actions) {
       case 'Numpad2':
         if (phase !== 'title') actions.setTool('fruit');
         break;
+      case 'Digit3':
+      case 'Numpad3':
+        if (phase !== 'title' && threatsOn(cur)) actions.setTool('trap');
+        break;
       case 'Space':
         if (ev.repeat) break;
         if (phase === 'title') startPrimary();
@@ -557,6 +603,7 @@ export function createHud(root, actions) {
         if (cur.ui.drag) actions.cancelDrag();
         else if (summaryOpen) dismissSummary();
         else if (yearOpen) dismissYear();
+        else if (cur.ui.tool === 'trap') actions.setTool('grow'); // the ring tool lets go first, a second Esc pauses
         else if (phase === 'paused' || phase === 'playing') actions.togglePause();
         else handled = false;
         break;
@@ -674,6 +721,7 @@ export function createHud(root, actions) {
     }
     // the compact line: «2 / 5» and the first objective still open
     const doneCount = list.filter((o) => o.done).length;
+    setText(el.objTitle, shown, 'obj.title', objectivesTitle(state));
     setText(el.objCount, shown, 'obj.count', `${doneCount} / ${list.length}`);
     const next = list.find((o) => !o.done);
     setText(el.objCur, shown, 'obj.cur', next ? next.text : list.length ? 'всё отмечено' : '');
@@ -735,7 +783,31 @@ export function createHud(root, actions) {
     }
   }
 
+  /** The ring tab and the «3» of the title page exist only while the soil threats are on. */
+  function updateThreatTab(state) {
+    const on = threatsOn(state);
+    if (shown.threats === on) return;
+    shown.threats = on;
+    el.trapTab.hidden = !on;
+    el.kbd3.hidden = !on;
+    el.trapTab.title = trapTabTitle(trapCost(balance.B));
+  }
+
+  /** One-time pointer to the nematodes at the first worm ever, and the counters of the summary page. */
+  function updateThreats(state) {
+    if (!threatsOn(state) || state.phase === 'title') return;
+    for (const ev of state.events) {
+      if (ev.type === 'worm-caught') caught += 1;
+      else if (ev.type === 'severed') lostNodes += Number.isFinite(ev.nodes) ? ev.nodes : Number.isFinite(ev.lost) ? ev.lost : 0;
+      else if (ev.type === 'worm-spawn' && !wormNoteSeen()) {
+        markWormNote();
+        notes.say({ key: 'threat:first-worm', text: FIRST_WORM_NOTE, tone: 'warn', icon: 'worm', life: 13 });
+      }
+    }
+  }
+
   function updateControls(state) {
+    updateThreatTab(state);
     const tool = state.ui.tool;
     for (const t of el.tools) {
       const on = t.dataset.tool === tool;
@@ -786,16 +858,33 @@ export function createHud(root, actions) {
       const labelled = labels.process(state, view);
       notes.process(state, labelled);
       updateFinds(state);
+      updateThreats(state);
       notes.tick(dt);
       labels.tick(dt);
       guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
-      if (!summaryShown && phase !== 'title') {
-        let trigger = Boolean(state.flags && state.flags.allObjectivesDone);
-        if (!trigger) {
-          for (const ev of state.events) if (ev.type === 'all-objectives') trigger = true;
-        }
-        if (trigger) openSummary(state);
+      // a page of observations is full: the summary opens. With chapters the sim turns to the next page afterwards.
+      let chapterEv = null;
+      let pageDone = false;
+      for (const ev of state.events) {
+        if (ev.type === 'chapter') chapterEv = ev;
+        else if (ev.type === 'all-objectives') pageDone = true;
       }
+      const flagDone = Boolean(state.flags && state.flags.allObjectivesDone);
+      if (!flagDone) muteDoneFlag = false;
+      const chapterNow = chapterOf(state);
+      if (!chapterEv && threatsOn(state) && chapterNow > prevChapter) chapterEv = { type: 'chapter', chapter: chapterNow };
+      if (phase !== 'title') {
+        if (!summaryShown && (pageDone || (flagDone && !muteDoneFlag))) {
+          openSummary(state, chapterEv ? Math.max(1, chapterEv.chapter - 1) : prevChapter);
+        }
+        if (chapterEv) {
+          // the next page: its own all-objectives opens the summary again
+          summaryShown = false;
+          muteDoneFlag = flagDone;
+          objReveal = OBJ_REVEAL_START;
+        }
+      }
+      prevChapter = chapterNow;
       // the end of the first (and every later) year: its page waits for the summary page if that is open
       for (const ev of state.events) if (ev.type === 'year-end') pendingYear = ev.year;
       if (pendingYear !== null && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen) {
