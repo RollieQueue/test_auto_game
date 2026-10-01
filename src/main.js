@@ -42,6 +42,10 @@ game.actions = {
   setTool(tool) {
     game.state.ui.tool = tool;
   },
+  cancelDrag() {
+    game.state.ui.drag = null;
+    game.state.ui.preview = null;
+  },
   restart(seed) {
     game.state = createState(pickSeed(seed));
     game.state.phase = 'playing';

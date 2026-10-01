@@ -11,12 +11,14 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
   Node-testable (they must never touch the DOM).
 - URL params: `?seed=123` fixes the world, `?autostart=1` skips the title screen, `?debug=1` for debug overlays.
 - `window.__game` exposes `{ state, view, sim, actions, renderer, hud, audio }` for browser automation.
+- `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit')`,
+  `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`. Keyboard shortcuts live in the UI task.
 - Screenshots: start the server, then use the Playwright MCP tools if you have them, otherwise
   headless Edge/Chrome, e.g.
   `"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu
   --hide-scrollbars --window-size=1600,900 --screenshot=C:\abs\shot.png "http://127.0.0.1:5173/?autostart=1&seed=7"`
   and open the PNG with your image-reading tool. Put scratch screenshots in `.tmp/` (ignored).
-  Parallel helpers use distinct ports: 5174 render, 5175 ui/audio, 5176 sim.
+  Parallel helpers use distinct ports: 5174 render, 5175 ui/audio, 5176 sim, 5177 art gallery.
 
 ## Modules and ownership
 
@@ -107,14 +109,19 @@ Spatial queries live in `src/world/query.js`: `groundYAt`, `horizonIndexAt`, `ro
 
 ```js
 Network = {
-  nodes: [{ id, x, y, born, alive }],          // id === index; never spliced, only marked dead
-  edges: [{ id, a, b, len, born, alive, w }],  // w: thickness factor (1 = fine hypha)
+  nodes: [{ id, x, y, born, alive, parent, dist }], // id === index; never spliced, only marked dead.
+                                               // parent: next node towards the origin (-1 for the origin),
+                                               // dist: length along the network to the origin
+  edges: [{ id, a, b, len, born, alive, w }],  // w: thickness factor (1 = fine hypha; busy cords get thicker)
   links: [{ nodeId, kind: 'water'|'mineral'|'tree', targetId, born }],
   growing: [{ id, from, path: [{x,y}], grown, total, lastNode, tip: {x,y} }],  // hyphae growing right now
   originId,
+  version,   // incremented whenever nodes, edges, alive flags or w change (renderers cache by it)
 }
-Flow = { from: nodeId, to: nodeId, kind: 'water' | 'mineral' | 'sugar', rate }
-Mushroom = { id, nodeId, x, baseY, species, age, growth: 0..1, mature, spores }
+Flow = { from: nodeId, to: nodeId, kind: 'water' | 'mineral' | 'sugar', rate, path: nodeId[] }
+     // path: node ids along the network from `from` to `to` inclusive (walk parents to the common ancestor)
+Mushroom = { id, nodeId, x, baseY, species /* 'common' in MVP */, variant /* int, visual variety */,
+             age, growth: 0..1, mature, spores }
 Objective = { id, text, done }
 Preview = { from, points: [{x,y}] /* reachable part */, blocked: {x,y} | null, length, cost, affordable }
 ```
@@ -144,6 +151,22 @@ commandFruit(state, nodeId)          // plant a mushroom; returns boolean
 { type: 'insufficient', x, y }        // not enough sugar
 { type: 'deposit-empty', kind, id, x, y }
 ```
+
+## Illustrated assets (art task)
+
+Generated illustrations are cut out to transparent images in `assets/art/` and listed in
+`assets/art/manifest.json`:
+
+```js
+{ version: 1, assets: [{ id /* e.g. 'mushroom.common.1', 'decor.acorn.1' */, group /* 'mushroom'|'decor'|'plate'|... */,
+    type /* species or decor type */, file /* path from the project root */, w, h,
+    anchor: { x, y } /* px in the image: where it touches the world (stipe base, resting point) */,
+    worldSize /* suggested height in world units */ }] }
+```
+
+The title page frontispiece is `assets/art/frontispiece.webp`. Procedural drawing stays the fallback:
+the game must look complete when an asset is missing. The generation toolchain (Python venv, models,
+caches) lives in the project's ignored `.tools/` folder, never in system-wide locations.
 
 ## Conventions
 
