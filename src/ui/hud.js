@@ -1,6 +1,8 @@
 // DOM HUD: a naturalist's notebook around the scene. API: createHud(root, actions) -> { update(state, dt, view) }.
 // update() runs every frame, so every write below is guarded by a "changed?" check.
-import { icons, checkbox, flourish, poolBar } from './icons.js';
+import { icons, checkbox, flourish, capBar } from './icons.js';
+import { RESOURCES, resourceView, resourceTip } from './resources-logic.js';
+import { gladeLabel } from './glade.js';
 import { createNotes } from './notes.js';
 import { createTooltip } from './tooltip.js';
 import { createLabels } from './labels.js';
@@ -13,12 +15,8 @@ import { seasonNote } from './season-logic.js';
 import { buildYearPage } from './year.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint } from './prefs.js';
 
-const RESOURCES = [
-  { k: 'sugar', label: 'Сахар' },
-  { k: 'water', label: 'Влага' },
-  { k: 'minerals', label: 'Минералы' },
-  { k: 'spores', label: 'Споры' },
-];
+// bar colours of the capped stocks (spores have no cap and no bar)
+const BAR_COLORS = { sugar: ['#e0b04a', '#b97a14'], water: ['#78b6dc', '#2f6f9f'], minerals: ['#8d7bc0', '#6a4a8c'] };
 
 const ART_URL = 'assets/art/frontispiece.webp';
 const OBJ_REVEAL_START = 8; // s the objectives card is open at the start of a game
@@ -55,14 +53,11 @@ export function createHud(root, actions) {
         ${RESOURCES.map(
           (r) => `
         <div class="res-row" data-k="${r.k}">
-          ${icons[r.k]}<span class="lbl">${r.label}</span><span class="val">0</span><span class="rate"></span>
+          ${icons[r.k]}<span class="lbl">${r.label}</span><span class="val"><b class="num">0</b><span class="cap"></span></span><span class="rate"></span>${
+            BAR_COLORS[r.k] ? capBar(`cb-${r.k}`, ...BAR_COLORS[r.k]) : ''
+          }
         </div>`,
         ).join('')}
-        <div class="pool" title="Влага и минералы копятся отдельно: каждой можно держать не больше, чем вмещает сеть">
-          <div class="pool-head">Запас сети</div>
-          <div class="pool-row" data-k="water"><span class="plbl">влага</span>${poolBar('pb-water', '#78b6dc', '#2f6f9f')}<span class="num">0 / 0</span></div>
-          <div class="pool-row" data-k="minerals"><span class="plbl">минералы</span>${poolBar('pb-minerals', '#8d7bc0', '#6a4a8c')}<span class="num">0 / 0</span></div>
-        </div>
       </section>
 
       <section class="scrap tape obj-card" aria-label="Наблюдения">
@@ -71,6 +66,7 @@ export function createHud(root, actions) {
           <span class="obj-count">0 / 0</span>
           <span class="obj-cur"></span>
         </div>
+        <div class="obj-glade"></div>
         <div class="obj-body"><ul class="obj-list"></ul></div>
       </section>
 
@@ -103,6 +99,7 @@ export function createHud(root, actions) {
           <div class="overline">Тетрадь натуралиста · страница первая</div>
           <h1>Корни и нити</h1>
           <div class="sub">наблюдения за юной грибницей</div>
+          <div class="glade-line" data-glade="title"></div>
           ${flourish}
           <div class="intro">
             <p>Под лесной поляной, в тёплом перегное, проросла одна спора. Тяни нити сквозь землю к воде и минералам, заключай союз с корнями деревьев: они заплатят тебе сахаром.</p>
@@ -160,6 +157,7 @@ export function createHud(root, actions) {
         <div class="overline">Тетрадь натуралиста · итог</div>
         <h2>Поляна изучена</h2>
         <div class="sub">все наблюдения отмечены</div>
+        <div class="glade-line" data-glade="summary"></div>
         ${flourish}
         <ul class="stats">
           <li><span class="k">Споры</span><span class="v" data-s="spores"></span></li>
@@ -177,10 +175,10 @@ export function createHud(root, actions) {
   const q = (sel) => root.querySelector(sel);
   const el = {
     resRows: Object.fromEntries(RESOURCES.map((r) => [r.k, q(`.res-row[data-k="${r.k}"]`)])),
-    pool: {
-      water: q('.pool-row[data-k="water"]'),
-      minerals: q('.pool-row[data-k="minerals"]'),
-    },
+    resCard: q('.res-card'),
+    objGlade: q('.obj-glade'),
+    gladeTitle: q('[data-glade="title"]'),
+    gladeSummary: q('[data-glade="summary"]'),
     objCard: q('.obj-card'),
     objCount: q('.obj-count'),
     objCur: q('.obj-cur'),
@@ -210,16 +208,14 @@ export function createHud(root, actions) {
     year: q('.year-screen'),
     yearPage: q('.year-page'),
   };
-  for (const k of ['water', 'minerals']) {
-    const row = el.pool[k];
-    el.pool[k] = { row, num: row.querySelector('.num'), fill: row.querySelector('.gauge-fill') };
-  }
   for (const k of RESOURCES) {
     const row = el.resRows[k.k];
     el.resRows[k.k] = {
       row,
-      val: row.querySelector('.val'),
+      num: row.querySelector('.num'),
+      cap: row.querySelector('.cap'),
       rate: row.querySelector('.rate'),
+      fill: row.querySelector('.gauge-fill'),
     };
   }
   const stat = (s) => q(`[data-s="${s}"]`);
@@ -361,6 +357,7 @@ export function createHud(root, actions) {
     statEls.length.textContent = `${nf.format(Math.round(state.stats.hyphaeLength))} ед.`;
     statEls.depth.textContent = `${nf.format(Math.round(state.stats.maxDepth))} ед.`;
     statEls.time.textContent = formatTime(state.time);
+    el.gladeSummary.textContent = gladeLabel(state);
     setScreen(el.summary, true);
     if (state.phase === 'playing') {
       pausedBySummary = true;
@@ -484,6 +481,12 @@ export function createHud(root, actions) {
     }
   });
 
+  // a click on the dark margin around the atlas page: back from a specimen to the grid, or out of the atlas
+  el.atlas.addEventListener('click', (ev) => {
+    if (ev.target !== el.atlas) return;
+    if (!atlas.back()) closeAtlas();
+  });
+
   // ---- keyboard ----------------------------------------------------------
   // e.code is layout-independent: F and M keep working on a Russian layout.
   window.addEventListener('keydown', (ev) => {
@@ -499,7 +502,15 @@ export function createHud(root, actions) {
       return;
     }
     if (atlasOpen) {
-      // the atlas owns the keyboard: A, Esc, Space and Enter close it
+      // the atlas owns the keyboard: a specimen page takes ← → Esc Space Enter itself; otherwise A, Esc, Space and Enter close it
+      if (ev.repeat && ['Escape', 'Space', 'Enter'].includes(ev.code)) {
+        ev.preventDefault(); // a held key must not walk back out of the atlas
+        return;
+      }
+      if (atlas.key(ev.code)) {
+        ev.preventDefault();
+        return;
+      }
       if (['KeyA', 'Escape', 'Space', 'Enter'].includes(ev.code)) {
         if (!ev.repeat) closeAtlas();
         ev.preventDefault();
@@ -564,8 +575,22 @@ export function createHud(root, actions) {
     const k = Math.min(1, dt * 4);
     for (const r of RESOURCES) {
       const row = el.resRows[r.k];
-      const value = Math.floor((state.res[r.k] || 0) + 1e-6);
-      setText(row.val, shown, `${r.k}.v`, String(value));
+      const view = resourceView(state, r.k);
+      const value = view.value;
+      setText(row.num, shown, `${r.k}.v`, String(value));
+      if (r.cap) {
+        // «71 / 90» and a thin bar under it that fills toward the cap and goes wax-red when the stock is full
+        setText(row.cap, shown, `${r.k}.c`, view.cap > 0 ? ` / ${view.cap}` : '');
+        const fracKey = Math.round(view.frac * 200);
+        if (shown[`${r.k}.f`] !== fracKey) {
+          shown[`${r.k}.f`] = fracKey;
+          row.fill.style.transform = `scaleX(${view.frac.toFixed(3)})`;
+        }
+        if (shown[`${r.k}.full`] !== view.full) {
+          shown[`${r.k}.full`] = view.full;
+          row.row.classList.toggle('full', view.full);
+        }
+      }
       const prev = lastVal[r.k];
       if (prev !== undefined && value > prev && (r.k === 'spores' || value - prev >= 3)) {
         row.row.classList.remove('bump');
@@ -574,11 +599,13 @@ export function createHud(root, actions) {
       }
       lastVal[r.k] = value;
       smooth[r.k] += ((state.rates[r.k] || 0) - smooth[r.k]) * k;
-      const text = state.phase === 'paused' ? '' : formatRate(smooth[r.k]);
+      // a full stock says so instead of a rate (it cannot grow, the sim clamps it)
+      const full = view.full;
+      const text = full ? 'полно' : state.phase === 'paused' ? '' : formatRate(smooth[r.k]);
       if (shown[`${r.k}.r`] !== text) {
         shown[`${r.k}.r`] = text;
         row.rate.textContent = text;
-        row.rate.className = `rate${text ? (smooth[r.k] > 0 ? ' pos' : ' neg') : ''}`;
+        row.rate.className = `rate${full ? ' full' : text ? (smooth[r.k] > 0 ? ' pos' : ' neg') : ''}`;
       }
     }
     // sugar at zero: warn colour on the figure
@@ -587,20 +614,36 @@ export function createHud(root, actions) {
       shown.dry = dry;
       el.resRows.sugar.row.classList.toggle('warn', dry);
     }
-    // water and minerals are capped separately (state.cap.pool each): one thin bar per stock
-    const cap = state.cap.pool || 0;
-    for (const k of ['water', 'minerals']) {
-      const bar = el.pool[k];
-      const have = Math.min(Math.max(0, state.res[k] || 0), cap);
-      const frac = cap > 0 ? have / cap : 0;
-      setText(bar.num, shown, `pool.${k}`, `${Math.floor(have + 1e-6)} / ${Math.floor(cap)}`);
-      const fracKey = Math.round(frac * 200);
-      if (shown[`pool.${k}.f`] !== fracKey) {
-        shown[`pool.${k}.f`] = fracKey;
-        bar.fill.style.transform = `scaleX(${frac.toFixed(3)})`;
-        bar.row.classList.toggle('full', frac >= 0.98);
+  }
+
+  /** The tooltip of the resources row under the pointer (the cards let the pointer through to the scene). */
+  function resourceHover(state) {
+    const p = state.ui.pointer;
+    let hit = null;
+    const pageOpen = helpOpen || atlasOpen || summaryOpen || yearOpen;
+    if (state.phase !== 'title' && !pageOpen && p && p.inside !== false && !state.ui.drag && p.sx < 480 && p.sy < 560) {
+      const c = el.resCard.getBoundingClientRect();
+      if (p.sx >= c.left && p.sx <= c.right && p.sy >= c.top && p.sy <= c.bottom) {
+        for (const r of RESOURCES) {
+          const b = el.resRows[r.k].row.getBoundingClientRect();
+          if (p.sy >= b.top - 1 && p.sy <= b.bottom + 1) {
+            hit = r.k;
+            break;
+          }
+        }
       }
     }
+    if (shown.resHover !== hit) {
+      if (shown.resHover) el.resRows[shown.resHover].row.classList.remove('hover');
+      if (hit) el.resRows[hit].row.classList.add('hover');
+      shown.resHover = hit;
+    }
+    if (!hit) return null;
+    const tip = resourceTip(state, hit);
+    const b = el.resRows[hit].row.getBoundingClientRect();
+    const c = el.resCard.getBoundingClientRect();
+    if (tip) tip.at = { x: c.right + 10, y: b.top - 6 };
+    return tip;
   }
 
   function updateObjectives(state) {
@@ -634,6 +677,7 @@ export function createHud(root, actions) {
     setText(el.objCount, shown, 'obj.count', `${doneCount} / ${list.length}`);
     const next = list.find((o) => !o.done);
     setText(el.objCur, shown, 'obj.cur', next ? next.text : list.length ? 'всё отмечено' : '');
+    setText(el.objGlade, shown, 'obj.glade', gladeLabel(state));
   }
 
   /**
@@ -731,6 +775,7 @@ export function createHud(root, actions) {
       setScreen(el.title, phase === 'title');
       setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
 
+      if (phase === 'title') setText(el.gladeTitle, shown, 'glade.title', gladeLabel(state, hasSave ? 'Новая поляна' : 'Поляна'));
       updateResources(state, dt);
       updateObjectives(state);
       updateObjCard(state, dt);
@@ -758,7 +803,7 @@ export function createHud(root, actions) {
         pendingYear = null;
       }
 
-      tooltip.update(state);
+      tooltip.update(state, resourceHover(state));
     },
   };
 }

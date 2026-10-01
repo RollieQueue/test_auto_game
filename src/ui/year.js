@@ -1,6 +1,7 @@
 // The year-end notebook page (S2): what the glade looks like after the first full cycle of seasons.
 // Inner HTML for the .year-page; the buttons are handled by hud.js (data-act year-continue / restart).
 import { flourish } from './icons.js';
+import { gladeLabel } from './glade.js';
 import { yearStats, yearTitle } from './season-logic.js';
 
 const nf = new Intl.NumberFormat('ru-RU');
@@ -15,6 +16,7 @@ export function buildYearPage(state, year) {
     <div class="overline">Тетрадь натуралиста · итог года</div>
     <h2>${yearTitle(year)}</h2>
     <div class="sub">весна, лето, осень и зима записаны</div>
+    <div class="glade-line">${esc(gladeLabel(state))}</div>
     ${flourish}
     <div class="year-cols">
       <div>

@@ -104,9 +104,10 @@ function describeFruit(state) {
 }
 
 export function createTooltip(host) {
-  host.innerHTML = '<div class="t-main"></div><div class="t-sub"></div>';
+  host.innerHTML = '<div class="t-main"></div><div class="t-sub"></div><div class="t-body"></div>';
   const mainEl = host.querySelector('.t-main');
   const subEl = host.querySelector('.t-sub');
+  const bodyEl = host.querySelector('.t-body');
   let shown = false;
   let key = '';
   let w = 0;
@@ -124,13 +125,15 @@ export function createTooltip(host) {
       hide();
       key = '';
     },
-    update(state) {
+    /** `extra`: a tooltip { main, sub, body: string[], warn, at?: {x, y} } for what the HUD itself is hovered over (a resources row). */
+    update(state, extra = null) {
       const ui = state.ui;
       const p = ui.pointer;
       const live = state.phase === 'playing' || state.phase === 'paused';
       let info = null;
       if (live && p && p.inside !== false) {
         if (ui.drag) info = describePreview(state, ui.preview);
+        else if (extra) info = extra;
         else {
           if (ui.tool === 'fruit') info = describeFruit(state);
           if (!info && ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
@@ -140,11 +143,20 @@ export function createTooltip(host) {
         hide();
         return;
       }
-      const k = `${info.main}|${info.sub || ''}|${info.warn ? 1 : 0}`;
+      const body = info.body || null;
+      const k = `${info.main}|${info.sub || ''}|${info.warn ? 1 : 0}|${body ? body.join('/') : ''}`;
       if (k !== key) {
         key = k;
         mainEl.textContent = info.main;
         subEl.textContent = info.sub || '';
+        bodyEl.replaceChildren(
+          ...(body || []).map((line) => {
+            const p = document.createElement('p');
+            p.textContent = line;
+            return p;
+          }),
+        );
+        host.classList.toggle('long', Boolean(body));
         host.classList.toggle('warn', Boolean(info.warn));
         w = host.offsetWidth;
         h = host.offsetHeight;
@@ -157,10 +169,12 @@ export function createTooltip(host) {
       }
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      let x = p.sx + 16;
-      let y = p.sy + 20;
-      if (x + w > vw - 6) x = p.sx - w - 12;
-      if (y + h > vh - 6) y = p.sy - h - 14;
+      // a tooltip with an anchor (a resources row) sits beside it; the others follow the pointer
+      const at = info.at;
+      let x = at ? at.x : p.sx + 16;
+      let y = at ? at.y : p.sy + 20;
+      if (x + w > vw - 6) x = (at ? at.x : p.sx) - w - 12;
+      if (y + h > vh - 6) y = (at ? at.y : p.sy) - h - 14;
       const transform = `translate(${Math.max(4, x).toFixed(0)}px, ${Math.max(4, y).toFixed(0)}px) rotate(-0.6deg)`;
       if (transform !== lastTransform) {
         lastTransform = transform;

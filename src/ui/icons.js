@@ -130,19 +130,19 @@ export const flourish =
   `</svg>`;
 
 /**
- * Thin ink tube for one pool stock (water or minerals). The fill is a separate rect scaled from the left by CSS.
- * `id` keeps the clip path and the gradient of the two bars apart.
+ * Thin ink tube under a capped stock (sugar, water, minerals). The fill is a separate rect that CSS scales from the
+ * left to the share of the cap; it turns wax-red when the stock is full. `id` keeps the clip path and the gradient
+ * of the bars apart.
  */
-export function poolBar(id, from, to) {
-  const tube = 'M3 2.6 C30 1.4 100 2.8 147 2.2 C148.6 3.8 148.4 6.4 147 8 C100 8.8 30 7.8 3 8 C1.4 6.4 1.4 4.2 3 2.6 Z';
+export function capBar(id, from, to) {
+  const tube = 'M2.5 1.6 C30 0.8 100 1.8 147.5 1.3 C149 2.4 148.8 4.4 147.5 5.4 C100 6 30 5.2 2.5 5.4 C1.1 4.4 1.1 2.7 2.5 1.6 Z';
   return (
-    `<svg class="gauge" viewBox="0 0 150 10" width="150" height="10" fill="none" aria-hidden="true">` +
+    `<svg class="gauge" viewBox="0 0 150 7" width="150" height="7" preserveAspectRatio="none" fill="none" aria-hidden="true">` +
     `<defs><clipPath id="${id}-clip"><path d="${tube}"/></clipPath>` +
     `<linearGradient id="${id}-fill" x1="0" x2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs>` +
-    `<g clip-path="url(#${id}-clip)"><rect class="gauge-back" x="0" y="0" width="150" height="10" fill="#3a2a1e" opacity=".1"/>` +
-    `<rect class="gauge-fill" x="0" y="0" width="150" height="10" fill="url(#${id}-fill)" opacity=".88"/>` +
-    `<path d="M8 3 L11 8 M16 3 L19 8 M24 3 L27 8 M32 3 L35 8 M40 3 L43 8 M48 3 L51 8 M56 3 L59 8 M64 3 L67 8 M72 3 L75 8 M80 3 L83 8 M88 3 L91 8 M96 3 L99 8 M104 3 L107 8 M112 3 L115 8 M120 3 L123 8 M128 3 L131 8 M136 3 L139 8" stroke="#3a2a1e" stroke-width=".6" opacity=".24"/></g>` +
-    `<path d="${tube}" stroke="#3a2a1e" stroke-width="1.2" stroke-linejoin="round"/>` +
+    `<g clip-path="url(#${id}-clip)"><rect class="gauge-back" x="0" y="0" width="150" height="7" fill="#3a2a1e" opacity=".12"/>` +
+    `<rect class="gauge-fill" x="0" y="0" width="150" height="7" fill="url(#${id}-fill)" opacity=".9"/></g>` +
+    `<path d="${tube}" stroke="#3a2a1e" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>` +
     `</svg>`
   );
 }

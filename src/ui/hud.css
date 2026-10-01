@@ -163,7 +163,7 @@ kbd {
   position: absolute;
   left: 0.8em;
   top: 0.9em;
-  width: 14.4em;
+  width: 15.6em;
   padding: 0.7em 0.9em 0.6em 0.95em;
   transform: rotate(-0.5deg);
 }
@@ -173,6 +173,36 @@ kbd {
   align-items: center;
   column-gap: 0.25em;
   min-height: 1.62em;
+  padding: 0.04em 0.2em 0;
+  margin: 0 -0.2em;
+  border-radius: 0.3em 0.5em 0.3em 0.45em / 0.45em 0.3em 0.5em 0.3em;
+  transition: background-color 0.15s ease;
+}
+.res-row:has(.gauge) {
+  padding-bottom: 0.2em;
+}
+.res-row.hover {
+  background: rgba(255, 250, 235, 0.55);
+  box-shadow: 0 0 0 1px rgba(58, 42, 30, 0.18);
+}
+.res-row .gauge {
+  grid-column: 2 / -1;
+  width: 100%;
+  height: 0.5em;
+  margin-top: 0.12em;
+  overflow: visible;
+}
+.res-row .gauge-fill {
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  transition:
+    transform 0.35s ease-out,
+    fill 0.3s ease;
+}
+.res-row.full .gauge-fill {
+  fill: var(--wax);
+  opacity: 0.92;
 }
 .res-row .ico {
   width: 1.4em;
@@ -186,7 +216,18 @@ kbd {
 .res-row .val {
   font: 700 1.22em/1 var(--font-serif);
   text-align: right;
+  white-space: nowrap;
   font-variant-numeric: lining-nums tabular-nums;
+}
+.res-row .val .num {
+  font-weight: 700;
+}
+.res-row .val .cap {
+  font: 400 0.74em/1 var(--font-serif);
+  color: rgba(58, 42, 30, 0.62);
+}
+.res-row.full .val .cap {
+  color: var(--wax);
 }
 .res-row .rate {
   font-size: 0.98em;
@@ -200,6 +241,10 @@ kbd {
 }
 .res-row .rate.neg {
   color: var(--wax);
+}
+.res-row .rate.full {
+  color: var(--wax);
+  font-size: 1.05em;
 }
 .res-row[data-k='sugar'] .val {
   color: #8a5a0c;
@@ -226,49 +271,6 @@ kbd {
   100% {
     transform: none;
   }
-}
-.pool {
-  margin-top: 0.3em;
-  padding-top: 0.4em;
-  border-top: 1px dashed rgba(58, 42, 30, 0.35);
-}
-.pool-head {
-  font-size: 1.02em;
-  line-height: 1;
-  margin-bottom: 0.22em;
-}
-.pool-row {
-  display: grid;
-  grid-template-columns: 3.7em 1fr 3.55em;
-  align-items: center;
-  column-gap: 0.4em;
-  min-height: 1.28em;
-}
-.pool-row .plbl {
-  font-size: 1.1em;
-  line-height: 1;
-  color: rgba(58, 42, 30, 0.85);
-}
-.pool-row .num {
-  font: 400 0.84em/1 var(--font-serif);
-  font-variant-numeric: lining-nums tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-  color: rgba(58, 42, 30, 0.8);
-}
-.pool-row .gauge {
-  width: 100%;
-  height: auto;
-  overflow: visible;
-}
-.pool-row .gauge-fill {
-  transform-box: fill-box;
-  transform-origin: 0 50%;
-  transition: transform 0.35s ease-out;
-}
-.pool-row.full .num {
-  color: var(--wax);
-  font-weight: 700;
 }
 
 /* season calendar: the first block of the resources card (only with seasons on) */
@@ -345,7 +347,7 @@ kbd {
     transform 0.3s ease;
 }
 .obj-card.open {
-  width: 17em;
+  width: 18.6em;
   padding-top: 0.85em;
   padding-bottom: 0.7em;
   top: 0.9em;
@@ -724,6 +726,34 @@ kbd {
 }
 .tip .t-sub:empty {
   display: none;
+}
+.tip .t-body:empty {
+  display: none;
+}
+/* the longer explanation over a resources row: wraps, with a ruled line above it */
+.tip.long {
+  width: 21em;
+  max-width: 21em;
+}
+.tip.long .t-main,
+.tip.long .t-sub {
+  white-space: normal;
+}
+.tip .t-body {
+  margin-top: 0.3em;
+  padding-top: 0.3em;
+  border-top: 1px dashed rgba(58, 42, 30, 0.4);
+  font: 400 0.98em/1.28 var(--font-serif);
+  color: rgba(58, 42, 30, 0.92);
+}
+.tip .t-body p {
+  margin: 0 0 0.3em;
+}
+.tip .t-body p:last-child {
+  margin-bottom: 0;
+}
+.tip.long.warn .t-body p:last-child {
+  color: var(--wax);
 }
 .tip.warn .t-main {
   color: var(--wax);
@@ -1470,6 +1500,20 @@ kbd {
   .help-page .actions {
     margin-top: 0.3em;
   }
+  .help-page p,
+  .help-res li,
+  .help-keys li {
+    font-size: 0.95em;
+    line-height: 1.25;
+  }
+  .help-hz li {
+    font-size: 0.95em;
+    line-height: 1.22;
+  }
+  .help-page h3 {
+    margin-top: 0.3em;
+    font-size: 1.35em;
+  }
 }
 @media (max-height: 920px) {
   .help-keys {
@@ -1657,7 +1701,7 @@ kbd {
   opacity: 0.4;
 }
 .atl-latin {
-  font: italic 400 0.92em/1.2 var(--font-serif);
+  font: italic 400 0.88em/1.18 var(--font-serif);
   color: rgba(58, 42, 30, 0.75);
 }
 .atl-zone {
@@ -1820,4 +1864,238 @@ kbd {
 .help-seasons li {
   margin: 0.1em 0;
   font: 400 1.04em/1.3 var(--font-serif);
+}
+
+/* ------------------------------------------------------------------ atlas: the specimen page */
+.atl-entry.found {
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+.atl-entry.found:hover,
+.atl-entry.found:focus-visible {
+  background: rgba(255, 250, 235, 0.62);
+  box-shadow:
+    0 0 0 1px rgba(38, 48, 74, 0.45),
+    0.05em 0.14em 0.4em rgba(40, 24, 8, 0.25);
+  transform: translateY(-1px) rotate(-0.15deg);
+  outline: none;
+}
+.atl-entry.found:active {
+  transform: scale(0.99);
+}
+
+.atlas-page.spec-mode {
+  width: 92em;
+  padding: 1.5em 2.4em 1.2em 3.6em;
+}
+.spec {
+  display: grid;
+  grid-template-columns: min(36em, calc(100vh - 14em)) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 2.6em;
+  animation: spec-in 0.35s ease-out both;
+}
+@keyframes spec-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0.5em);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.spec-left {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.spec-plate {
+  width: 100%;
+  margin: 0;
+  padding: 0.55em 0.55em 0.4em;
+  background: rgba(255, 252, 240, 0.6);
+  box-shadow:
+    0 0 0 1px rgba(58, 42, 30, 0.6),
+    0 0 0 0.4em rgba(255, 252, 240, 0.5),
+    0 0 0 calc(0.4em + 1px) rgba(58, 42, 30, 0.35),
+    0.1em 0.3em 0.7em rgba(40, 24, 8, 0.4);
+  transform: rotate(-0.9deg);
+}
+.spec-canvas,
+.spec-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border: 1.5px solid rgba(38, 48, 74, 0.85);
+  border-radius: 0.25em 0.45em 0.3em 0.4em / 0.4em 0.25em 0.45em 0.3em;
+}
+.spec-img {
+  border: 0;
+  mix-blend-mode: multiply;
+}
+.spec-plate figcaption {
+  margin-top: 0.35em;
+  font: italic 400 1.02em/1.2 var(--font-serif);
+  text-align: center;
+  color: rgba(58, 42, 30, 0.78);
+}
+.spec-right {
+  min-width: 0;
+  align-self: center;
+}
+.spec-right .overline {
+  font-size: 1.05em;
+}
+.spec-name {
+  margin: 0.05em 0 0;
+  font-size: 2.7em;
+}
+.spec-latin {
+  font: italic 400 1.4em/1.15 var(--font-serif);
+  color: rgba(58, 42, 30, 0.8);
+}
+.spec-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 1.4em;
+  margin-top: 0.15em;
+  font: 400 1.3em/1.2 var(--font-hand);
+  color: var(--indigo);
+}
+.spec-rar {
+  color: var(--wax);
+  letter-spacing: 0.06em;
+}
+.spec-rar i {
+  font-style: normal;
+  letter-spacing: 0;
+  margin-left: 0.2em;
+}
+.spec-rar .off {
+  opacity: 0.22;
+}
+.spec-right .flourish {
+  width: 11em;
+  margin: 0.2em 0 0.35em;
+}
+.spec-note {
+  margin: 0;
+  font: italic 400 1.14em/1.38 var(--font-serif);
+  color: rgba(58, 42, 30, 0.92);
+}
+.spec-sub {
+  margin: 0.7em 0 0.05em;
+  font: 400 1.6em/1.1 var(--font-script);
+  color: var(--wax);
+}
+.spec-more {
+  margin: 0;
+  font: 400 1.12em/1.45 var(--font-serif);
+  color: rgba(58, 42, 30, 0.96);
+}
+.spec-where {
+  margin: 0.8em 0 0;
+  padding: 0.5em 0.8em 0.45em;
+  border: 1px solid rgba(58, 42, 30, 0.28);
+  border-radius: 0.4em 0.7em 0.45em 0.65em / 0.65em 0.4em 0.7em 0.45em;
+  background: rgba(255, 250, 235, 0.3);
+}
+.spec-row {
+  display: grid;
+  grid-template-columns: 8.2em 1fr;
+  column-gap: 0.6em;
+  padding: 0.08em 0;
+  font-size: 1.12em;
+  line-height: 1.25;
+}
+.spec-row dt {
+  font: 400 1.12em/1.15 var(--font-script);
+  color: var(--wax);
+}
+.spec-row dd {
+  margin: 0;
+  font: 400 1em/1.25 var(--font-serif);
+  color: rgba(38, 48, 74, 0.95);
+}
+.spec-nav {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.6em;
+  margin-top: 1em;
+}
+.spec-arrow {
+  min-width: 2.6em;
+  padding-left: 0.7em;
+  padding-right: 0.7em;
+}
+.spec-nav .ink-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
+}
+@media (max-height: 760px) {
+  .atlas-page.spec-mode {
+    padding-top: 1em;
+    padding-bottom: 0.8em;
+  }
+  .spec-name {
+    font-size: 2.2em;
+  }
+  .spec-latin {
+    font-size: 1.2em;
+  }
+  .spec-right .flourish {
+    display: none;
+  }
+  .spec-note,
+  .spec-more {
+    font-size: 1.04em;
+    line-height: 1.34;
+  }
+  .spec-note {
+    margin-top: 0.4em;
+  }
+  .spec-sub {
+    margin-top: 0.45em;
+    font-size: 1.4em;
+  }
+  .spec-where {
+    margin-top: 0.5em;
+    padding: 0.3em 0.7em;
+  }
+  .spec-row {
+    font-size: 1.02em;
+    line-height: 1.18;
+  }
+  .spec-nav {
+    margin-top: 0.6em;
+  }
+}
+
+/* ------------------------------------------------------------------ the glade's name */
+.glade-line {
+  margin: 0.15em 0 0.1em;
+  font: italic 400 1.2em/1.25 var(--font-serif);
+  color: rgba(58, 42, 30, 0.82);
+}
+.glade-line:empty {
+  display: none;
+}
+.obj-glade {
+  display: none;
+  margin: -0.15em 0 0.3em;
+  font: italic 400 0.92em/1.2 var(--font-serif);
+  color: rgba(58, 42, 30, 0.72);
+  white-space: normal;
+}
+.obj-card.open .obj-glade {
+  display: block;
 }
