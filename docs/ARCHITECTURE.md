@@ -19,7 +19,9 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 - `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit')`,
   `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`, `hasSave()`, `continueSaved()` (loads the saved
   game and plays it; returns false when there is none). Keyboard shortcuts live in the UI task.
-- `?seasons=1` turns on seasons and day/night (`state.flags.seasons`) until they are finished (S2).
+- Seasons with day/night (`state.flags.seasons`) and soil threats (`state.flags.threats`) are on in the game by
+  default; `?seasons=0` / `?threats=0` turn them off. Tests that build a state with `createState` get both off
+  unless they set the flags.
 - Browser checks: `node tools/shot.mjs` drives headless Edge/Chrome over the DevTools protocol with no
   dependencies; it starts its own server for a `/path` URL and runs actions in order, e.g.
   `node tools/shot.mjs --url "/?autostart=1&seed=7" --wait 1000 --drag 717,297,760,380 --wait 2000
@@ -169,7 +171,7 @@ commandFruit(state, nodeId)          // plant a mushroom; returns boolean
 { type: 'deposit-empty', kind, id, x, y }
 ```
 
-## Time and seasons (S2; the sim keeps the clock always, effects only when `state.flags.seasons`)
+## Time and seasons (the sim keeps the clock always, effects only when `state.flags.seasons`)
 
 ```js
 state.clock = {

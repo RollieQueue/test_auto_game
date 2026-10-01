@@ -14,8 +14,9 @@ const MAX_STEPS = 8;
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('scene');
 const hudRoot = document.getElementById('hud');
-// Seasons and day/night (S2) stay off until the renderer and HUD can show them: ?seasons=1 turns them on.
-const SEASONS = params.get('seasons') === '1';
+// Seasons with day and night, and threats in the soil, are on by default; ?seasons=0 / ?threats=0 turn them off.
+const SEASONS = params.get('seasons') !== '0';
+const THREATS = params.get('threats') !== '0';
 
 function pickSeed(value) {
   const n = Number(value);
@@ -25,6 +26,7 @@ function pickSeed(value) {
 function newState(seed) {
   const state = createState(pickSeed(seed));
   state.flags.seasons = SEASONS;
+  state.flags.threats = THREATS;
   return state;
 }
 
