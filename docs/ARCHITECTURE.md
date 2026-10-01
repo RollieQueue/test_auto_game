@@ -20,6 +20,8 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
   `node tools/shot.mjs --url "/?autostart=1&seed=7" --wait 1000 --drag 717,297,760,380 --wait 2000
   --eval "__game.state.res" --shot .tmp/a.png` (also `--click`, `--key`, `--clip`, `--size`, `--dpr`; see
   its header). Console errors and exceptions are printed and make the exit code 1.
+  `--eval-file tools/scenarios/fast-forward.js` lets the balance bot play the seed headless for
+  `window.__ffSeconds` game seconds first, to look at mid- and late-game scenes without waiting.
 - Screenshots: start the server, then use the Playwright MCP tools if you have them, otherwise
   headless Edge/Chrome, e.g.
   `"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu
@@ -38,6 +40,7 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 | `src/ui/*` (incl. `hud.css`), `src/audio/*`, `assets/fonts/*` | ui | DOM HUD, menus, keyboard shortcuts, sound |
 | `tools/artgen/*`, `assets/art/*` | art | image generation and cutout pipeline, illustrated assets |
 | `src/persist.js` | persistence | save/load in localStorage (`hasSave`, `loadSave`, `saveNow`, `clearSave`, `tick`) |
+| `src/content/*` | root | shared game texts and data (e.g. naturalist notes on finds), pure data |
 
 Do not edit files owned by another task. If the contract must change, say so in your report:
 root integrates it. You may *add* new files inside your own directories freely.
@@ -181,6 +184,13 @@ state.weather = { kind: 'clear' | 'rain' | 'drought' | 'snow', intensity /* 0..1
 Season rules (numbers in `src/sim/balance.js`): spring rains refill water pockets, summer drought slows
 regeneration and makes trees thirstier, autumn fruiting (mushrooms grow faster, spores ×3), winter dormancy
 (trees neither pay nor drink much, mushrooms do not grow, upkeep drops). Photosynthesis follows daylight.
+
+## Finds (planned, docs/BACKLOG.md A3)
+
+A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` item discovers it:
+`state.finds[decor.id] = { kind: decor.type, at: state.time }` and the event
+`{ type: 'find', id: decor.id, kind: decor.type, x, y }`. Names, notes and rarity per kind come from
+`src/content/finds.js`; the HUD shows them on an «Атлас находок» page, the renderer marks found items.
 
 ## Illustrated assets (art task)
 
