@@ -9,6 +9,11 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 - Run: `node tools/serve.mjs` (opens the browser; `--port N`, `--no-open`). Default port 5173.
 - Test: `npm test` (= `node --test tests/*.test.mjs`). Only `src/core`, `src/world`, `src/sim` are
   Node-testable (they must never touch the DOM).
+- Build: `npm run build` writes `dist/roots-and-threads.html`, the whole game in one file that runs from
+  `file://` (see `tools/build/README.md`). To stay bundleable, code must keep module references as literal
+  relative strings ending in `.js`, check `typeof Worker !== 'undefined'` before creating workers (the
+  bundle has none and takes the main-thread path), and load assets with `fetch('assets/…')`, `Image.src` or
+  `new URL(…, import.meta.url)`.
 - URL params: `?seed=123` fixes the world, `?autostart=1` skips the title screen, `?debug=1` for debug overlays.
 - `window.__game` exposes `{ state, view, sim, actions, renderer, hud, audio }` for browser automation.
 - `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit')`,
