@@ -22,6 +22,10 @@
    "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, single specimen, bare stem base, pure white background",
    "negative": "beige, cream background, gradient, grass, moss, fern, leaves, twigs, insects, several mushrooms, cluster, group, splatter, stains, ground, soil, shadow, text, signature, watermark, border, frame, page, photograph, 3d render, cropped"
   },
+  "naturalist": {
+   "suffix": "19th century naturalist atlas plate, fine sepia ink linework, cross-hatching, soft watercolor wash, muted earthy colors, plain cream paper",
+   "negative": "text, letters, words, numbers, captions, labels, signature, watermark, border, frame, photograph, 3d render, cartoon, anime, oversaturated, several specimens, grid, collage, ground, soil, hands"
+  },
   "plate": {
    "suffix": "19th century naturalist atlas plate, scientific cross-section illustration, fine sepia ink linework, cross-hatching, delicate watercolor wash, muted earthy colors, aged paper",
    "negative": "photograph, photo, 3d render, text, letters, numbers, signature, watermark, caption, label, border, frame, blurry, oversaturated, neon, cartoon, anime"
@@ -134,28 +138,30 @@
      "id": "mushroom.chanterelle.1",
      "group": "mushroom",
      "type": "chanterelle",
-     "subject": "a single lone chanterelle mushroom, side view, golden yellow funnel-shaped wavy cap, ridges running down the stem",
+     "subject": "a single chanterelle mushroom, side view, golden yellow wavy funnel-shaped cap with a lobed rim, forked blunt ridges running down the stem",
      "anchor": "bottom",
      "height": 320,
      "worldSize": 52,
-     "seedOffset": 700,
-     "picked": 1705,
+     "seedOffset": 760,
+     "negExtra": "bolete, fly agaric, round dome cap, flat cap, pores, ring, collar, grass",
+     "picked": 1766,
      "cut": {
-      "basecut": 0.2
+      "basecut": 0.03
      }
     },
     {
      "id": "mushroom.chanterelle.2",
      "group": "mushroom",
      "type": "chanterelle",
-     "subject": "a single lone chanterelle mushroom, side view, apricot yellow wavy cap, tapering stem",
+     "subject": "a single chanterelle mushroom, side view, apricot yellow trumpet-shaped cap with a wavy rim, false gills forking down a tapering stem",
      "anchor": "bottom",
      "height": 320,
      "worldSize": 52,
-     "seedOffset": 800,
-     "picked": 1811,
+     "seedOffset": 860,
+     "negExtra": "bolete, fly agaric, round dome cap, flat cap, pores, ring, collar, grass",
+     "picked": 1861,
      "cut": {
-      "basecut": 0.05
+      "basecut": 0.03
      }
     },
     {
@@ -211,12 +217,16 @@
      "id": "decor.acorn.2",
      "group": "decor",
      "type": "acorn",
-     "subject": "one acorn standing upright, brown nut in its rough scaly cup",
+     "subject": "a single acorn nut sitting in its scaly cup, glossy brown nut, standing upright, nothing else",
      "anchor": "bottom",
      "worldSize": 20,
      "height": 128,
-     "seedOffset": 150,
-     "negExtra": "leaves, branch, plate, bowl, pot, pine cone"
+     "seedOffset": 160,
+     "negExtra": "leaves, oak leaf, branch, twig, plate, bowl, pot, pine cone, several acorns",
+     "picked": 2160,
+     "cut": {
+      "basecut": 0.04
+     }
     },
     {
      "id": "decor.leaf.1",
@@ -277,12 +287,13 @@
      "id": "decor.seed.1",
      "group": "decor",
      "type": "seed",
-     "subject": "one single sunflower seed, small striped seed, oval",
+     "subject": "one winged seed, a small round brown seed with a single wide translucent papery wing, like a maple key, helicopter seed",
      "anchor": "center",
      "worldSize": 22,
      "height": 128,
-     "seedOffset": 750,
-     "negExtra": "flower, leaves, insect, wings"
+     "seedOffset": 770,
+     "negExtra": "feather, plume, fluff, hair, dandelion, bird, insect, flower, leaves, branch, several seeds",
+     "picked": 2772
     },
     {
      "id": "decor.seed.2",
@@ -345,12 +356,13 @@
      "id": "decor.shell.1",
      "group": "decor",
      "type": "shell",
-     "subject": "one fossil clam shell, oval bivalve with concentric growth rings",
+     "subject": "one empty pale garden snail shell, spiral coil with a round opening, side view, no animal",
      "anchor": "center",
      "worldSize": 24,
      "height": 128,
-     "seedOffset": 1300,
-     "picked": 3305
+     "seedOffset": 1360,
+     "negExtra": "mushroom, fungus, bracket, clam, scallop, snail body, tentacles, foot",
+     "picked": 3366
     },
     {
      "id": "decor.shell.2",
@@ -384,6 +396,322 @@
      "height": 144,
      "seedOffset": 1600,
      "picked": 3602
+    }
+   ]
+  },
+  "plates": {
+   "style": "naturalist",
+   "width": 1024,
+   "height": 1024,
+   "seedBase": 5000,
+   "candidates": 6,
+   "assets": [
+    {
+     "id": "plate.acorn",
+     "group": "plate",
+     "type": "acorn",
+     "file": "assets/art/plate/acorn.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "oak acorn, a glossy nut in a scaly cup, one large specimen in the middle, a small cross-section of an acorn beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 0,
+     "picked": 5003
+    },
+    {
+     "id": "plate.leaf",
+     "group": "plate",
+     "type": "leaf",
+     "file": "assets/art/plate/leaf.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "a fallen oak leaf with brown veins, one large specimen in the middle, a small detail of leaf veins beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 100,
+     "picked": 5101
+    },
+    {
+     "id": "plate.twig",
+     "group": "plate",
+     "type": "twig",
+     "file": "assets/art/plate/twig.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "a dry bare twig with side shoots and bark, one large specimen in the middle, a small cross-section of the wood beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 200,
+     "picked": 5205
+    },
+    {
+     "id": "plate.seed",
+     "group": "plate",
+     "type": "seed",
+     "file": "assets/art/plate/seed.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "a pair of maple samara seed keys, round brown seeds with long papery wings, one large specimen in the middle, a small single seed beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 380,
+     "negExtra": "butterfly, moth, insect, wings of an insect, leaf, feather, cone, needles",
+     "candidates": 8,
+     "picked": 5303
+    },
+    {
+     "id": "plate.snail",
+     "group": "plate",
+     "type": "snail",
+     "file": "assets/art/plate/snail.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "a garden snail with a banded spiral shell, side view, one large specimen in the middle, a small view of the shell from above beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 400,
+     "picked": 5402
+    },
+    {
+     "id": "plate.beetle",
+     "group": "plate",
+     "type": "beetle",
+     "file": "assets/art/plate/beetle.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.02,
+      0.95,
+      0.94
+     ],
+     "subject": "a ground beetle, glossy dark body, six legs, dorsal view, one large specimen in the middle, a small head and antenna detail beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 500,
+     "picked": 5501
+    },
+    {
+     "id": "plate.pebble",
+     "group": "plate",
+     "type": "pebble",
+     "file": "assets/art/plate/pebble.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "a smooth rounded river pebble with a pale quartz stripe, one large specimen in the middle, a small broken half of a pebble beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 640,
+     "negExtra": "cross, relief, carving, engraving, slab, platform, base",
+     "candidates": 8,
+     "picked": 5644
+    },
+    {
+     "id": "plate.bone",
+     "group": "plate",
+     "type": "bone",
+     "file": "assets/art/plate/bone.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.04,
+      0.015,
+      0.96,
+      0.95
+     ],
+     "subject": "a weathered mammal femur bone, long shaft with two rounded knobbed joint ends, one large specimen in the middle, a small view of the joint end beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 780,
+     "negExtra": "skull, head, teeth, jaw, face, skeleton, vase, column, funnel, tool, mushroom, branch, wood",
+     "candidates": 8,
+     "picked": 5780
+    },
+    {
+     "id": "plate.shell",
+     "group": "plate",
+     "type": "shell",
+     "file": "assets/art/plate/shell.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "an empty land snail shell, round glossy whorls, aperture with a thin lip, three-quarter view, one large specimen in the middle, a small view from above beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 840,
+     "negExtra": "animal, body, tentacles, nautilus, fossil, ammonite",
+     "candidates": 8,
+     "picked": 5847
+    },
+    {
+     "id": "plate.potsherd",
+     "group": "plate",
+     "type": "potsherd",
+     "file": "assets/art/plate/potsherd.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.05,
+      0.05,
+      0.95,
+      0.93
+     ],
+     "subject": "a broken fragment of ancient pottery, jagged curved edges, painted band pattern, one large shard in the middle, a small shard beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 940,
+     "negExtra": "whole pot, vase, jar, bowl, plate, complete vessel, handle",
+     "candidates": 8,
+     "picked": 5944
+    },
+    {
+     "id": "plate.ammonite",
+     "group": "plate",
+     "type": "ammonite",
+     "file": "assets/art/plate/ammonite.webp",
+     "target": [
+      768,
+      null
+     ],
+     "crop": [
+      0.03,
+      0.03,
+      0.99,
+      0.95
+     ],
+     "subject": "a fossil ammonite, ribbed spiral shell, one large specimen in the middle, a small cross-section of the spiral beside it",
+     "cut": {
+      "gamma": 1.25,
+      "sat": 0.9,
+      "vig0": 0.97,
+      "vig1": 1.1,
+      "paper": "#f3eddc",
+      "maxkb": 90
+     },
+     "seedOffset": 1000,
+     "picked": 6001
     }
    ]
   },

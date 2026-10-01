@@ -87,7 +87,17 @@ Open `assets/art/gallery.html` (`node tools/serve.mjs --port 5177 --no-open`, th
 See the final size in the task report; roughly: venv 6–7 GB (torch CUDA), SDXL fp16 + VAE 7 GB, raw candidates ~1 MB each.
 `assets/art` stays under 10 MB.
 
-## Known gaps (first set)
+## Atlas plates (`--set plates`)
 
-* `decor.acorn.2` and `decor.seed.1` have no picked seed: SDXL draws acorns with oak leaves and "seed" as dragonflies (see contact sheets). Next try: shorter subjects ("single oak acorn in its cup"), 8+ seeds, or img2img from `acorn.1`. They are skipped by `--build` until `picked` is set.
+One naturalist plate per find kind (`assets/art/plate/<kind>.webp`, group `plate`, type = kind), shown on the atlas full-screen card
+(`plateByKind()` in `src/ui/atlas-logic.js`). Style `naturalist` (no text/frame in the prompt, text is garbage in SDXL), 1024² raw,
+cropped (`crop`, drops printed frames/captions), paper normalised to `#f3eddc` (`cut.paper`: the card's `mix-blend-mode: multiply`
+over its cream frame hides the paper), ragged vignette on the corners, WebP ≤ `cut.maxkb` (90 KB; quality is lowered until it fits).
+Picks live in `make_prompts.py` (`PLATE_PICKS`, `PLATE_CROP`, `PLATE_SHIFT` = fresh seeds after a prompt rewrite).
+`cutout.py --sheets --fresh` shows only the seeds of the current prompt (older seeds stay in `.tools/raw`).
+
+## Known gaps
+
+* `decor.seed.1`: SDXL turns "winged seed" into insects/feathers; the pick (2772) is a leaf-like winged seed, not a pine samara. The `seed` plate shows a Scots pine twig with a cone and loose seeds instead.
+* Plate subjects ignore "small detail view beside it" most of the time (acorn, pine, bone have one); the `bone` plate is long bones, not a vole's.
 * Trees (stretch goal) were not generated.
