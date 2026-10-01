@@ -167,7 +167,8 @@ commandFruit(state, nodeId)          // plant a mushroom; returns boolean
 { type: 'spores', id, amount, x, y }
 { type: 'objective', id, text }
 { type: 'all-objectives' }
-{ type: 'insufficient', x, y }        // not enough sugar
+{ type: 'insufficient', x, y }        // not enough sugar for even a short hypha
+{ type: 'insufficient', x, y, partial: true, got, want }  // the hypha grew only `got` of `want` u (sugar ran out)
 { type: 'deposit-empty', kind, id, x, y }
 ```
 
@@ -206,6 +207,13 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 features vary the ground line. A glade has 2–5 trees (not always three) and the spore starts anywhere across
 the width; `fairness.js` guarantees an affordable opening (water, a root tip, nitrogen) for every seed.
 
+Glades also differ in play: `B.biomes` (src/sim/balance.js) sets worm spawn rate and speed and the water and
+mineral draw per link (birch wet and worm-heavy, pine dry and mineral-rich, oak rich, mixed neutral), and
+`B.species` sets each tree species' growth, thirst and pay by stage (an ancient oak pays 1.5x). Page 2 of the
+notebook gets one observation of the glade's biome (`gladeBirch|gladeOak|gladePine|gladeMixed`,
+`createObjectives(chapter, seasons, biome)`; the birch one counts `state.sim.holdT`, a saved field). The first
+nights are mild: `B.firstLight` keeps the night pay floor at 0.85 for the first 240 s (then `photoFloor` 0.4).
+
 ## Threats and chapters (`state.flags.threats`)
 
 ```js
@@ -228,6 +236,47 @@ Events: `worm-spawn`, `worm-sense`, `worm-gone`, `bite`, `bite-abort`, `severed 
 mushrooms, cut, edges, cause}`, `worm-caught {x, y, trapId, wormId, minerals}`, `trap-placed`, `trap-ready`,
 `trap-spent {lost?}`, `trap-denied {reason: 'sugar'|'crowded'|'dead'}`, `mushroom-wilted`,
 `all-objectives {chapter}`, `chapter {chapter}`. Chapter titles: `CHAPTER_TITLES` in src/sim/objectives.js.
+A worm bites no sooner than 3 s after its `worm-sense`, and a bite lasts 5 / 3.4 / 2.8 s in chapters 1 / 2 / 3,
+so the warning (a red «!» over the worm, a dashed line to its target, a cue and a note) leaves time for a ring.
+
+## Rival: honey fungus (`state.flags.rival`) — PLANNED contract for S3b, not built yet
+
+Biology: honey fungus (Armillaria) spreads by black rhizomorphs from an old stump, grips the roots of trees and
+rots them. Mycorrhiza protects its partners (a mantle around the root tips), and antagonism keeps the rival away.
+The flag is on together with threats; `?rival=0` turns it off, `?rival=1` wakes it at once (tests, screenshots).
+
+```js
+world.stumps = Stump[]  // { id, x, y, r } 1–2 old stumps at the surface near the glade edges, deterministic per seed;
+                        // fairness: ≥ 260 u from the spore, ≥ 140 u from any trunk
+state.rival = null | {
+  awake,                // wakes at the start of chapter 2 + B.rivalWakeDelay s
+  nodes:    [{ id, x, y, alive, born }],
+  edges:    [{ id, a, b, w, alive, born, wither }],  // wither 0..1 while a barrier dissolves it; alive=false at 1
+  tips:     [{ id, node, x, y, dir, target: { kind: 'tree', id } | null, speed }],
+  grip:     [{ treeId, node, x, y, since }],          // a rhizomorph holding a tree's root zone
+  clusters: [{ id, treeId, x, y, n, age }],           // honey-mushroom clusters at infected trunks (autumn)
+  spores,                                             // the rival's score from its clusters
+}
+tree.infection          // 0..1: grows while gripped (× (1 − B.mantleProtect × tree.mantle), × season), heals when free
+tree.mantle             // 0..1: the player's protection, follows how well the player has fed the tree lately
+tree.lost               // infection reached 1: the tree stops paying, stands as a snag, its base becomes a new stump
+state.barriers = Barrier[]  // { id, nodeId, x, y, r, t, dur } tool 'barrier' (key 4), cost barrierCost(state)
+state.ui.tool           // ... | 'barrier'; while 'barrier', state.ui.barrierPick = null | { nodeId, x, y, ok, reason }
+```
+
+Rules: rhizomorph tips steer to the most valuable tree with the weakest mantle, around rocks; player edges with
+`w ≥ B.rivalBlockW` block them. A barrier (placed on a player node) withers rhizomorph edges inside `r` and kills
+tips there; a grip whose edges are all dead is released. Rhizomorphs grow fastest in spring and autumn and sleep in
+winter; clusters appear in autumn at trees with infection ≥ 0.4.
+
+API (`src/sim/index.js`): `canBarrier(state, nodeId)`, `commandBarrier(state, nodeId)`, `pickBarrierNode(state, x, y)`,
+`barrierDenial(state, nodeId)` → `'sugar'|'crowded'|'dead'|'max'|null`, `barrierCost(state)`. Pointer input for the
+tool lives in `src/input/pointer.js` (sim); the key `4` and the tool tab in `src/ui`.
+
+Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-grip {treeId, x, y}`,
+`tree-infected {treeId, level}` (at 0.25 / 0.5 / 0.75), `tree-freed {treeId, x, y}`, `tree-lost {treeId, x, y}`,
+`rival-cut {x, y, edges}`, `rival-fruit {treeId, x, y, n}`, `barrier-placed {id, x, y}`,
+`barrier-denied {reason, x, y}`, `barrier-gone {id}`.
 
 ## Illustrated assets (art task)
 
@@ -242,7 +291,10 @@ Generated illustrations are cut out to transparent images in `assets/art/` and l
 ```
 
 The title page frontispiece is `assets/art/frontispiece.webp`. Procedural drawing stays the fallback:
-the game must look complete when an asset is missing. The generation toolchain (Python venv, models,
+the game must look complete when an asset is missing. `src/render/sprites.js` loads the manifest (also inside
+the world worker) and draws mushrooms (look picked by the nearest tree: birch fly agaric, oak porcini, pine saffron
+milk cap, else common or chanterelle) and finds (on a light label so the ink reads on dark soil). The atlas uses
+`plate` assets whose `type` is a find kind for the full-screen card. The generation toolchain (Python venv, models,
 caches) lives in the project's ignored `.tools/` folder, never in system-wide locations.
 
 ## Conventions
