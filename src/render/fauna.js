@@ -17,7 +17,9 @@ const NITRO = '#b7c85a'; // nitrogen sparkles
 const TAU = Math.PI * 2;
 const MAX_FX = 520;
 const SEG = 16; // spine samples per worm
-const RING_R = [15.5, 11.4, 7.5]; // radii of the three concentric hyphal loops (world units)
+const RING_R = [18.6, 13.7, 9]; // radii of the three concentric hyphal loops (world units; drawn ~20% larger than the lure suggests so they read)
+const WORM_LEN = 1.12; // drawn worm length / thickness relative to the sim body (readability)
+const WORM_THICK = 1.25;
 const RING_N = 20; // points per loop
 const CUT_SPEED = 320; // u/s: how fast the dying wave runs away from the cut
 const CUT_FADE = 2.1; // s one hypha takes to go from cream to grey and vanish
@@ -28,6 +30,31 @@ const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 const lerp = (a, b, k) => a + (b - a) * k;
 const ease = (k) => smooth01(k);
 
+/* "The worm has caught a scent": a wax-red «!» over the worm and a dashed ink line to the hypha it is heading for. */
+export const SENSE_LIFE = 4.6; // s a marker stays up when nothing ends it earlier
+const SENSE_IN = 0.22; // s to fade in
+const SENSE_OUT = 1.3; // s of the gentle fade at the end of the natural life
+const SENSE_CUT = 0.55; // s of the fade after an early end (bite, catch, the worm leaving)
+const SENSE_ENDS = new Set(['bite', 'worm-gone']);
+
+/** Opacity 0..1 of a marker `age` seconds after it was raised; `endAge` is seconds since it was ended early (null while up). */
+export function senseAlpha(age, endAge = null, life = SENSE_LIFE) {
+  if (!(age >= 0)) return 0;
+  let a = ease(Math.min(1, age / SENSE_IN));
+  const left = life - age;
+  if (left < SENSE_OUT) a = Math.min(a, ease(Math.max(0, left) / SENSE_OUT));
+  if (endAge !== null && endAge >= 0) a = Math.min(a, 1 - ease(Math.min(1, endAge / SENSE_CUT)));
+  return a;
+}
+
+/** The worm id whose marker an event ends early (a bite, a catch in a ring, the worm leaving), or null. */
+export function senseEndsOn(ev) {
+  if (!ev || typeof ev !== 'object') return null;
+  if (SENSE_ENDS.has(ev.type)) return ev.id ?? null;
+  if (ev.type === 'worm-caught') return ev.wormId ?? null;
+  return null;
+}
+
 export function createFauna() {
   let px = 1;
   let refs = null;
@@ -35,6 +62,7 @@ export function createFauna() {
   const traps = new Map(); // trap id -> { caughtAt, coolMax, seen }
   const list = []; // timed effects: { k, born (-1 until first draw), life, delay, ... }
   const holds = new Set(); // trap ids that currently have a snared worm
+  const senses = new Map(); // worm id -> { born (-1 until first draw), endedAt (-1 while up), x, y, tx, ty }
   const wilts = new Map(); // mushroom sprite cache: key -> { col, grey }
   let seq = 1;
   let lastT = 0;
@@ -129,7 +157,17 @@ export function createFauna() {
     if (!ev || typeof ev !== 'object') return;
     const x = num(ev.x);
     const y = num(ev.y);
+    const endId = senseEndsOn(ev);
+    if (endId !== null) {
+      const s = senses.get(endId);
+      if (s && s.endedAt < 0) s.endedAt = lastT; // faded out on the next frames
+    }
     switch (ev.type) {
+      case 'worm-sense':
+        if (ev.id !== undefined && ev.id !== null && Number.isFinite(ev.tx) && Number.isFinite(ev.ty)) {
+          senses.set(ev.id, { born: -1, endedAt: -1, x, y, tx: ev.tx, ty: ev.ty });
+        }
+        break;
       case 'worm-spawn':
         sparks(x, y, 7, { v0: 4, v1: 14, life: 0.9, size: 1.5, color: '#a98a68', jit: 6, g: 18 });
         push({ k: 'ripple', x, y, r0: 3, r1: 15, life: 0.9, color: '#d9b3a8', lw: 1.1 });
@@ -185,7 +223,7 @@ export function createFauna() {
       const dy = Math.sin(num(w.a));
       const len = clamp(num(w.len, 40), 20, 80);
       const pts = [{ x: num(w.x), y: num(w.y) }];
-      for (let k = 3; k <= len + 16; k += 3) pts.push({ x: num(w.x) - dx * k, y: num(w.y) - dy * k });
+      for (let k = 3; k <= len * WORM_LEN + 16; k += 3) pts.push({ x: num(w.x) - dx * k, y: num(w.y) - dy * k });
       r = { pts, bk: 0, snaredAt: -1, nextChip: 0, X: new Float32Array(SEG), Y: new Float32Array(SEG), W: 6, seen: t };
       worms.set(w.id, r);
     }
@@ -229,7 +267,7 @@ export function createFauna() {
       const dx = Math.cos(num(w.a));
       const dy = Math.sin(num(w.a));
       pts.length = 1;
-      for (let k = 3; k <= num(w.len, 40) + 16; k += 3) pts.push({ x: hx - dx * k, y: hy - dy * k });
+      for (let k = 3; k <= num(w.len, 40) * WORM_LEN + 16; k += 3) pts.push({ x: hx - dx * k, y: hy - dy * k });
     }
     pts[0].x = hx;
     pts[0].y = hy;
@@ -239,7 +277,7 @@ export function createFauna() {
     let acc = 0;
     for (let i = 1; i < pts.length; i++) {
       acc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      if (acc > len0 + 14 && i + 1 < pts.length) {
+      if (acc > len0 * WORM_LEN + 14 && i + 1 < pts.length) {
         pts.length = i + 1;
         break;
       }
@@ -251,9 +289,9 @@ export function createFauna() {
       k = ease((t - r.snaredAt) / 0.9);
     } else r.snaredAt = -1;
     r.k = k;
-    const len = len0 * (1 - 0.24 * k);
+    const len = len0 * WORM_LEN * (1 - 0.24 * k);
     sampleTrail(pts, len, r.X, r.Y);
-    r.W = clamp(len0 * 0.175, 6, 9.2) * (1 + 0.22 * k);
+    r.W = clamp(len0 * 0.175, 6, 9.2) * WORM_THICK * (1 + 0.22 * k);
     // wriggle: a sine wave riding along the body, running backwards from the head as the worm advances
     const speed = num(w.speed);
     const moving = clamp(speed / 16, 0, 1);
@@ -555,6 +593,110 @@ export function createFauna() {
       r.nextChip = t + 0.07 + 0.12 * (1 - p);
       const a = Math.random() * TAU;
       push({ k: 'spark', x: b.x, y: b.y, vx: Math.cos(a) * (12 + Math.random() * 22), vy: Math.sin(a) * (12 + Math.random() * 22) - 6, g: 30, life: 0.35 + Math.random() * 0.3, color: Math.random() < 0.6 ? CREAM : '#ffd9a0', size: 1.1 + Math.random() * 1.1, delay: 0, tw: 0, glow: 0 });
+    }
+  }
+
+  /* ------------------------------------------------------------------ scent markers */
+
+  /** A hand-drawn «!» in sealing wax, cream-rimmed so it reads on dark soil too. */
+  function paintBang(ctx, x, y, id, a, pulse) {
+    const j = (k) => (((hash32('sense', id * 8 + k) & 1023) / 1023) - 0.5) * 0.8; // fixed wobble per worm
+    const sc = 1.3 * (1 + 0.07 * pulse);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(sc, sc);
+    ctx.globalAlpha *= a;
+    ctx.fillStyle = 'rgba(20,10,4,0.4)'; // a soft dark seat
+    ctx.beginPath();
+    ctx.arc(0, -1.5, 11.5, 0, TAU);
+    ctx.fill();
+    const bar = new Path2D();
+    bar.moveTo(-3.2 + j(0), -11 + j(1));
+    bar.quadraticCurveTo(0, -12.4 + j(2), 3.2 + j(3), -11 + j(4));
+    bar.lineTo(1.3 + j(5), 1.8);
+    bar.lineTo(-1.3 + j(6), 1.8);
+    bar.closePath();
+    const dot = new Path2D();
+    dot.ellipse(j(7) * 0.5, 6.1, 2.2, 2.1, 0, 0, TAU);
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.4;
+    ctx.strokeStyle = CREAM;
+    ctx.stroke(bar);
+    ctx.stroke(dot);
+    ctx.fillStyle = '#b3342a';
+    ctx.fill(bar);
+    ctx.fill(dot);
+    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = INK;
+    ctx.stroke(bar);
+    ctx.stroke(dot);
+    ctx.restore();
+  }
+
+  /** A dashed, slightly wobbling line from the worm to the thread it has smelled, and a dashed ring on that spot. */
+  function paintScentLine(ctx, x0, y0, x1, y1, id, a, t) {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const d = Math.hypot(dx, dy);
+    if (d < 14) return;
+    const ux = dx / d;
+    const uy = dy / d;
+    const sag = d * 0.07 * Math.sin(id * 1.9) + 1.6 * Math.sin(t * 2.1 + id);
+    const sx = x0 + ux * 8;
+    const sy = y0 + uy * 8;
+    const ex = x1 - ux * 6;
+    const ey = y1 - uy * 6;
+    const cx = (sx + ex) / 2 - uy * sag;
+    const cy = (sy + ey) / 2 + ux * sag;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.globalAlpha *= a;
+    ctx.setLineDash([5.5, 4.5]);
+    ctx.lineDashOffset = -t * 9;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(cx, cy, ex, ey);
+    ctx.lineWidth = 4.2;
+    ctx.strokeStyle = 'rgba(14,8,4,0.4)';
+    ctx.stroke();
+    ctx.lineWidth = 2.3;
+    ctx.strokeStyle = '#d4493e';
+    ctx.stroke();
+    ctx.setLineDash([2.5, 3]);
+    ctx.lineDashOffset = t * 6;
+    ctx.beginPath();
+    ctx.arc(x1, y1, 7 + 0.8 * Math.sin(t * 3 + id), 0, TAU);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSenses(ctx, fauna, t) {
+    for (const [id, s] of senses) {
+      if (s.born < 0) s.born = t;
+      let w = null;
+      for (let i = 0; i < fauna.length; i++) {
+        if (fauna[i] && fauna[i].id === id) {
+          w = fauna[i];
+          break;
+        }
+      }
+      // the worm began to chew, was snared, or is no longer there: the warning has done its job
+      if ((!w || w.mode === 'bite' || w.mode === 'snared') && s.endedAt < 0) s.endedAt = t;
+      const age = t - s.born;
+      const endAge = s.endedAt >= 0 ? t - s.endedAt : null;
+      const a = senseAlpha(age, endAge);
+      if (a <= 0.003 && (age > SENSE_LIFE || endAge !== null)) {
+        senses.delete(id);
+        continue;
+      }
+      if (w && Number.isFinite(w.x) && Number.isFinite(w.y)) {
+        s.x = w.x;
+        s.y = w.y;
+      }
+      const fade = w ? clamp(num(w.fade, 1), 0, 1) : 1;
+      paintScentLine(ctx, s.x, s.y, s.tx, s.ty, id, a * fade, t);
+      paintBang(ctx, s.x, s.y - 25 - 1.6 * Math.sin(t * 5 + id), id, a * fade, 0.5 + 0.5 * Math.sin(t * 7));
     }
   }
 
@@ -1048,7 +1190,10 @@ export function createFauna() {
     const fauna = Array.isArray(state.fauna) ? state.fauna : [];
     const trapList = Array.isArray(state.traps) ? state.traps : [];
     const preview = state.ui && state.ui.tool === 'trap';
-    if (!fauna.length && !trapList.length && !list.length && !preview) return;
+    if (!fauna.length && !trapList.length && !list.length && !preview) {
+      senses.clear();
+      return;
+    }
     dt = clamp(num(dt, 1 / 60), 0, 0.1);
     ctx.save();
     ctx.lineCap = 'round';
@@ -1067,6 +1212,13 @@ export function createFauna() {
         const r = wormRt(w, t);
         updateWorm(r, w, state, t, dt);
         drawWorm(ctx, r, w, state, t, dt);
+      }
+    }
+    if (senses.size) {
+      try {
+        drawSenses(ctx, fauna, t);
+      } catch {
+        senses.clear(); // a marker must never break the frame
       }
     }
 
@@ -1113,6 +1265,7 @@ export function createFauna() {
       traps.clear();
       list.length = 0;
       holds.clear();
+      senses.clear();
     },
     event,
     draw,

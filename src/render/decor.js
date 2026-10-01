@@ -5,6 +5,7 @@
 // a watercolor shade crescent on the lower-right (light from the upper left), hatching on the shadow side, a glint.
 import { inkStroke, inkOutline, hatch, stipple, blobPoly, raggedPoly, tracePath, boundsOf, darken, rgba, mulberry, noise1 } from './ink.js';
 import { hash32 } from '../core/rng.js';
+import { getSprite, levelFor } from './sprites.js';
 
 export const DECOR_TYPES = ['acorn', 'leaf', 'snail', 'beetle', 'seed', 'twig', 'pebble', 'bone', 'shell', 'potsherd', 'ammonite'];
 
@@ -757,13 +758,79 @@ function contactShadow(ctx, type, sc, rot) {
   ctx.restore();
 }
 
+/** Illustrated specimens are drawn a little larger than the manifest's world size: they lie on dark soil and read small. */
+const SPECIMEN_BOOST = 1.3;
+
+/** Types whose illustration rests on the soil (anchor at the bottom): they only tilt a little. */
+const UPRIGHT = new Set(['snail']);
+
+/**
+ * An illustrated specimen (assets/art, group 'decor'): a soft pale «label» behind it and a thin light rim, so the
+ * ink cut-out does not drown in dark soil. Returns false when the type has no image (the caller draws it by hand).
+ * o.px = device pixels per world unit of the current transform (picks a pre-filtered copy of the image).
+ */
+function drawSpecimen(ctx, decor, type, seed, px) {
+  const hv = hash32(seed, decor.id ?? 0, 'sprite');
+  const sp = getSprite('decor', type, hv);
+  if (!sp) return false;
+  const sc = decor.scale || 1;
+  const k = (sp.worldSize * sc * SPECIMEN_BOOST) / sp.h; // world units per image pixel
+  const rot = UPRIGHT.has(type) ? Math.max(-0.4, Math.min(0.4, Math.sin(decor.rot || 0) * 0.4)) : decor.rot || 0;
+  const dw = sp.w * k;
+  const dh = sp.h * k;
+  const cx = (sp.w / 2 - sp.anchor.x) * k; // image centre relative to the resting point
+  const cy = (sp.h / 2 - sp.anchor.y) * k;
+  const lv = levelFor(sp, dh * (px || 1));
+  ctx.save();
+  ctx.translate(decor.x || 0, decor.y || 0);
+  ctx.rotate(rot);
+  if (hv & 1) ctx.scale(-1, 1);
+  // a small dark seat so the piece lies in the soil
+  const sr = Math.max(dw, dh) * 0.5;
+  const seat = ctx.createRadialGradient(cx + 1.5 * sc, cy + 2.5 * sc, 0, cx + 1.5 * sc, cy + 2.5 * sc, sr);
+  seat.addColorStop(0, 'rgba(6,3,3,0.5)');
+  seat.addColorStop(1, 'rgba(6,3,3,0)');
+  ctx.fillStyle = seat;
+  ctx.beginPath();
+  ctx.arc(cx + 1.5 * sc, cy + 2.5 * sc, sr, 0, Math.PI * 2);
+  ctx.fill();
+  // the specimen label: pale parchment wash behind the piece
+  const lr = Math.max(dw, dh) * 0.62;
+  const lab = ctx.createRadialGradient(cx, cy, 0, cx, cy, lr);
+  lab.addColorStop(0, 'rgba(243,232,204,0.38)');
+  lab.addColorStop(0.65, 'rgba(236,222,190,0.19)');
+  lab.addColorStop(1, 'rgba(236,222,190,0)');
+  ctx.fillStyle = lab;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, lr * (dw >= dh ? 1 : 0.8), lr * (dw >= dh ? 0.8 : 1), 0, 0, Math.PI * 2);
+  ctx.fill();
+  // thin light rim: the cut-out's own shadow, blurred and pale (the blur is in device pixels)
+  ctx.shadowColor = 'rgba(250,240,214,0.95)';
+  ctx.shadowBlur = Math.max(1.5, (px || 1) * 1.4);
+  const dx = -sp.anchor.x * k;
+  const dy = -sp.anchor.y * k;
+  ctx.drawImage(lv.src, dx, dy, dw, dh);
+  ctx.shadowColor = 'rgba(0,0,0,0)';
+  ctx.shadowBlur = 0;
+  ctx.drawImage(lv.src, dx, dy, dw, dh);
+  ctx.restore();
+  return true;
+}
+
 /**
  * Draw one world.decor item. ctx has a world-unit transform.
- * decor: { id, type, x, y, rot, scale }; o: { seed = 0 } (the world seed, so the same world paints the same plates).
+ * decor: { id, type, x, y, rot, scale }; o: { seed = 0 (the world seed, so the same world paints the same plates),
+ * px = device pixels per world unit }. An illustration is used when the manifest has one for the type, else the
+ * hand-drawn specimen below.
  */
 export function drawDecor(ctx, decor, o = {}) {
   const { seed = 0 } = o;
   const type = DRAWERS[decor.type] ? decor.type : 'pebble';
+  try {
+    if (decor.type !== undefined && drawSpecimen(ctx, decor, decor.type, seed, o.px)) return;
+  } catch (e) {
+    if (typeof console !== 'undefined') console.warn('decor sprite failed for', decor && decor.type, e);
+  }
   const sc = decor.scale || 1;
   const rot = decor.rot || 0;
   ctx.save();

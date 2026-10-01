@@ -514,6 +514,7 @@ export function createAudio(options = {}) {
       tone(mtof(91), t + 0.08, { gain: 0.013, decay: 0.32, attack: 0.004 });
     },
     'trap-denied': (t, ev) => handlers.insufficient(t, ev),
+    'worm-sense': (t, ev) => voices + 4 <= MAX_VOICES - AMBIENT_RESERVE && cues['worm-sense'](t, ev),
     // S2: cues live in cues.js; ignored while the seasons are off
     dawn: (t, ev) => seasonsOn && cues.dawn(t, ev),
     dusk: (t, ev) => seasonsOn && cues.dusk(t, ev),

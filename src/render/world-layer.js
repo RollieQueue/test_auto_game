@@ -31,7 +31,7 @@ export function paintWorldLayer(g, w, h, world, view, season) {
   paintTerrain(g, world, ext, { avoid, cssUnit: 1 / view.scale, season });
   for (const d of world.decor) {
     try {
-      drawDecor(g, d, { seed: world.seed });
+      drawDecor(g, d, { seed: world.seed, px: s });
     } catch (err) {
       console.error('[render:decor]', err);
       fallbackDecor(g, d);

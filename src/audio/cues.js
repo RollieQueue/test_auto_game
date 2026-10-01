@@ -1,7 +1,7 @@
 // Short musical cues for the S2 events: dawn, dusk, a new season, the end of the year.
 // All of them are quiet (about the level of the "objective" bells) and play through index.js helpers.
 //
-//   createCues({ tone, pluck, bell, throttled, later, fx }) -> { dawn, dusk, season, 'year-end' }
+//   createCues({ tone, pluck, bell, throttled, later, fx }) -> { dawn, dusk, season, 'year-end', 'worm-sense' }
 // Each handler is (t, event) like the other event handlers.
 
 import { PALETTES } from './scales.js';
@@ -15,9 +15,9 @@ const MOTIFS = {
 };
 
 export function createCues({ tone, pluck, bell, throttled, later, fx }) {
+  const f = (midi) => 440 * 2 ** ((midi - 69) / 12);
   const pad = (midi, t, gain, decay) => {
-    const f = 440 * 2 ** ((midi - 69) / 12);
-    tone(f, t, { gain, attack: 0.28, decay, type: 'triangle', lowpass: 1500, bus: fx() });
+    tone(f(midi), t,{ gain, attack: 0.28, decay, type: 'triangle', lowpass: 1500, bus: fx() });
   };
 
   return {
@@ -44,6 +44,13 @@ export function createCues({ tone, pluck, bell, throttled, later, fx }) {
         if (m.kind === 'bell') bell(midi, t + dt, 0.055 * gain, 2.4);
         else pluck(midi, t + dt, 0.08 * gain, fx(), PALETTES[key]);
       }
+    },
+
+    // a worm has caught the scent of a hypha: two soft wooden notes, a falling minor third, barely above the ambience
+    'worm-sense'(t) {
+      if (throttled('worm-sense', 2.5)) return;
+      tone(f(74), t, { gain: 0.032, attack: 0.006, decay: 0.2, type: 'triangle', lowpass: 1800 });
+      tone(f(71), t + 0.17, { gain: 0.026, attack: 0.006, decay: 0.3, type: 'triangle', lowpass: 1400 });
     },
 
     // a calm cadence F - G - C(add9): three soft chords, then two bells

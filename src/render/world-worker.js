@@ -2,6 +2,7 @@
 // the page for the GPU either) and hands it back as an ImageBitmap.
 //   in:  { id, w, h, world, view, season? }      out: { id, bitmap, ms } | { id, error }
 import { paintWorldLayer } from './world-layer.js';
+import { loadSprites, spritesReady } from './sprites.js';
 
 let fonts = null;
 /** The plate lettering uses the notebook's italic; load it here too (workers do not see the page's @font-face). */
@@ -27,6 +28,7 @@ self.onmessage = async (e) => {
   const job = e.data;
   latest = job.id;
   await loadFonts();
+  await Promise.race([loadSprites(), new Promise((ok) => setTimeout(ok, 4000))]); // illustrations for the curiosities (none = hand-drawn)
   if (job.id !== latest) return; // a newer request arrived meanwhile
   try {
     const t0 = performance.now();
@@ -34,7 +36,7 @@ self.onmessage = async (e) => {
     const g = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
     paintWorldLayer(g, job.w, job.h, job.world, job.view, job.season);
     const bitmap = canvas.transferToImageBitmap();
-    self.postMessage({ id: job.id, bitmap, ms: performance.now() - t0 }, [bitmap]);
+    self.postMessage({ id: job.id, bitmap, ms: performance.now() - t0, sprites: spritesReady() }, [bitmap]);
   } catch (err) {
     self.postMessage({ id: job.id, error: String((err && err.stack) || err) });
   }

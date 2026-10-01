@@ -4,6 +4,7 @@
 // Public API: createRenderer(canvas) -> { resize(view), draw(state, view, dt) }.
 import { PAL, makeCanvas } from './ink.js';
 import { paintWorldLayer } from './world-layer.js';
+import { loadSprites, onSpritesReady, spritesReady } from './sprites.js';
 
 const optional = (path) =>
   import(path).catch((err) => {
@@ -11,6 +12,8 @@ const optional = (path) =>
     if (!(err instanceof TypeError)) console.error(`[render] ${path}`, err);
     return null;
   });
+// illustrations (assets/art): loaded in the background; startup waits for them only briefly, and never fails without them
+const spritesLoaded = Promise.race([loadSprites(), new Promise((ok) => setTimeout(ok, 2500))]);
 const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod, faunaMod] = await Promise.all([
   optional('./trees.js'),
   optional('./mushrooms.js'),
@@ -22,6 +25,7 @@ const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod
   optional('./ambient.js'),
   optional('./atmosphere.js'),
   optional('./fauna.js'),
+  spritesLoaded,
 ]);
 
 const REBUILD_DELAY = 0.2; // seconds the window size must stay put before the world layer is repainted
@@ -31,7 +35,11 @@ const SEASON_FADE = 20; // seconds an old season's plate takes to dissolve into 
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d', { alpha: false });
-  const layer = { canvas: null, world: null, key: '', vkey: '', season: '', dirty: false, born: -1 };
+  const layer = { canvas: null, world: null, key: '', vkey: '', season: '', dirty: false, born: -1, bare: false };
+  // a plate painted before the illustrations arrived is painted again once they have
+  onSpritesReady(() => {
+    if (layer.bare) layer.dirty = true;
+  });
   let fade = null; // season change: { from: the old plate's canvas, at } while it dissolves into layer.canvas
   let changedAt = 0; // real time of the last size change
   let lastKey = '';
@@ -137,7 +145,7 @@ export function createRenderer(canvas) {
     return c;
   }
 
-  function install(c, world, key, vkey, season) {
+  function install(c, world, key, vkey, season, bare = false) {
     const fresh = layer.world !== world;
     const prev = layer.canvas;
     const dur = globalThis.__seasonFade ?? SEASON_FADE;
@@ -160,6 +168,7 @@ export function createRenderer(canvas) {
     layer.key = key;
     layer.vkey = vkey;
     layer.season = season;
+    layer.bare = bare;
     layer.dirty = false;
     if (fresh) layer.born = performance.now() / 1000;
   }
@@ -198,7 +207,7 @@ export function createRenderer(canvas) {
         const c = makeCanvas(msg.bitmap.width, msg.bitmap.height);
         c.getContext('2d', { alpha: false }).drawImage(msg.bitmap, 0, 0);
         msg.bitmap.close?.();
-        install(c, done.world, done.key, done.vkey, done.season);
+        install(c, done.world, done.key, done.vkey, done.season, !msg.sprites);
         stats.worldBuildMs = Math.round(msg.ms);
         stats.worldSeason = done.season;
         (stats.worldBuildBySeason ||= {})[done.season || 'none'] = stats.worldBuildMs;
@@ -220,7 +229,7 @@ export function createRenderer(canvas) {
     const t0 = performance.now();
     const c = makeCanvas(canvas.width, canvas.height);
     paintWorldLayer(c.getContext('2d', { alpha: false }), canvas.width, canvas.height, state.world, view, season);
-    install(c, state.world, key, vkey, season);
+    install(c, state.world, key, vkey, season, !spritesReady());
     stats.worldBuildMs = Math.round(performance.now() - t0);
     stats.worldSeason = season;
     (stats.worldBuildBySeason ||= {})[season || 'none'] = stats.worldBuildMs;
