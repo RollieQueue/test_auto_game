@@ -220,6 +220,19 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 `{ type: 'find', id: decor.id, kind: decor.type, x, y }`. Names, notes and rarity per kind come from
 `src/content/finds.js`; the HUD shows them on an «Атлас находок» page, the renderer marks found items.
 
+## HUD layout rules
+
+- `hud.js` `cardRects()` is the one avoid list of floating labels and the cursor tooltip: `.res-card`, `.obj-card`
+  (the size it settles at, not the half-open frame), `.tools`, `.stamps`. `placeTip(..., keepOut)` (tip-logic.js)
+  slides the tooltip to the nearest free spot; a resources-row tooltip beside its own row is exempt.
+- Margin notes: at a window height ≤ 720 px at most 2 are visible (a newer note cuts older ones to 2.4 s, fades take
+  0.5 s); the stack slides sideways through the CSS variable `--notes-dx` to cover fewer crowns and mushrooms and
+  re-picks its spot only while empty.
+- A sugar refusal for a mushroom, ring or barrier suppresses the plain «не хватает сахара» of the same click
+  (within 60 u; `sugarDenialSpots` in labels-logic.js).
+- The objectives card folds on `rival-wake` and stays folded 12 s (`OBJ_QUIET_WAKE`), so the stump and the wake label
+  show.
+
 ## Margin marks (achievements)
 
 «Пометки на полях»: 14 achievements, kept per player across games, shown on the atlas's second tab.
@@ -239,7 +252,11 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 ## Glades (src/world/biomes.js, fairness.js)
 
 `world.biome` is one of `birch | oak | pine | mixed` and `world.name` a generated Russian glade name
-(«Дубрава у оврага»). Biomes weight tree species and set horizon depths, rocks, water and minerals; terrain
+(«Дубрава у оврага»). The name is a base, an optional landmark (88 %, e.g. «у ручья») and the ground phrase, drawn
+by `gladeName(rng, biome, terrain)` from its own `createRng(hash32(seed, 'name'))`; the identity generator still
+burns its 2 old draws, so ground and soil of every seed are unchanged (279 distinct names in seeds 1–300).
+`main.js` `restart()` re-rolls a random new glade once when its biome equals the previous one, and
+`actions.savedGlade()` gives the title the saved glade's seed and name («Сохранённая поляна: …»). Biomes weight tree species and set horizon depths, rocks, water and minerals; terrain
 features vary the ground line. A glade has 2–5 trees (not always three) and the spore starts anywhere across
 the width; `fairness.js` guarantees an affordable opening (water, a root tip, nitrogen) for every seed.
 
