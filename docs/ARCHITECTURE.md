@@ -297,27 +297,33 @@ so the warning (a red «!» over the worm, a dashed line to its target, a cue an
 Biology: honey fungus (Armillaria) spreads by black rhizomorphs from an old stump, grips the roots of trees and
 rots them. Mycorrhiza protects its partners (a mantle around the root tips), and antagonism keeps the rival away.
 The flag is on together with threats; `?rival=0` turns it off, `?rival=1` turns it on and wakes it at once (tests,
-screenshots): `state.flags.rival` is `false`, `true` (wakes at chapter 2 + `B.rivalWakeDelay` s) or `'now'`.
+screenshots): `state.flags.rival` is `false`, `true` (wakes at min(chapter 2 + `B.rivalWakeDelay`, `B.rivalWakeBy` = 420 s of
+play); with seasons a wake that falls from `B.rivalLateAutumn` (0.6) of autumn on, or in winter, waits for spring:
+`rival.dormant`, one `rival-dormant` event) or `'now'`.
 Code: `src/sim/rival.js` (the whole rival, barriers included), `economy.js` (pay cut, mantle), `objectives.js`.
 
 ```js
 world.stumps = Stump[]  // { id, x, y, r } 1–2 old stumps at the surface, deterministic per seed; fairness: ≥ 260 u
                         // from the spore, ≥ 140 u from any trunk (src/world/fairness.js stumpProblems). They stand
-                        // where no HUD card hides them (STUMP.seen: world x 420–700 or 1220–1872; the resource card
-                        // covers x < ~372 at 1280×720) and fall back to the whole bands only when nothing fits.
+                        // where no HUD card hides them (STUMP.seen: world x 420–700 or 1220–1450; at 1280×720 the
+                        // resource card covers x < ~372 and the open objectives card x > ~1479). About a third of the
+                        // glades have no such spot: they use the whole right band, then the left (the objectives card
+                        // folds on the wake).
 state.rival = null | {  // created by the first step with the flag; null while the flag is off
-  awake,                // wakes at the start of chapter 2 + B.rivalWakeDelay s
+  awake, dormant,       // the wake rule above; dormant: the wake fell in late autumn or winter, it waits for spring
   nodes:    [{ id, x, y, alive, born }],
   edges:    [{ id, a, b, w, alive, born, wither }],  // a is towards the source; wither 0..1 while a barrier dissolves it;
                                                      // alive=false at 1. Extra: orphan (cut off from its source, withers away),
                                                      // cut (the barrier's doing). w 1.5 on a trunk, 1.2 on a side branch.
-  tips:     [{ id, node, x, y, dir, target: { kind: 'tree', id } | null, speed }], // speed is the current u/s (0 = waiting/winter)
+  tips:     [{ id, node, x, y, dir, target: { kind: 'tree', id } | null, speed, gripAt }], // speed is the current u/s (0 = waiting/winter)
+            // gripAt: rival.age before which the tip does not grip (B.rivalGripAfter + seeded 0..B.rivalGripJitter s)
   grip:     [{ treeId, node, x, y, since, tip }],     // a rhizomorph holding a root tip of a tree (tip = index in tree.tips)
   clusters: [{ id, treeId, x, y, n, age }],           // honey-mushroom clusters at infected trunks (autumn)
   spores,                                             // the rival's score from its clusters
   // bookkeeping, saved too: rs ver wait age nextTip nextCluster nextBarrier spawnT emptyT sweepT tipEvT hot
   //   src [{key, node}] (root node of every stump 's<id>' and lost tree 't<id>'), levels [per tree 0..3],
-  //   stats { grips, freed, lost, cut, killed }
+  //   stats { grips, freed, freedTrees, lost, cut, killed }, freedIds [treeId], grace { treeId: time until which no tip
+  //   goes for it }, retreats [{ treeId, at, x, y }] (all default on older saves)
 }
 tree.infection          // 0..1: grows while gripped (× (1 − B.mantleProtect × tree.mantle), × season), heals when free
 tree.mantle             // 0..1: the player's protection, follows how well the player has fed the tree lately
@@ -337,24 +343,29 @@ Rules (numbers are `B.rival*`, `B.barrier*`, `B.mantle*` in `src/sim/balance.js`
 - **Targets**: a tip steers to the tree with the best `worth × (1 − mantleProtect × mantle) / (1 + distance / 450) / (1 + 0.7 × grips)`
   (worth = stage pay × species × 1.5 if linked, 0.7 otherwise). On a tree it goes for a root tip the player has linked (that is where
   the player has a node to put a barrier on), else the nearest; shallow tips preferred. Re-evaluated every 1.5–3 s with hysteresis.
+  A tree the player cannot answer for (not linked, and no player node within `B.rivalReach` (250 u) of the grip point) is wanted
+  × `B.rivalReachWeight` (0.25) and never gripped: the tip waits at its root. A tree a barrier freed is left alone until
+  `B.rivalGrace` (25 s) after that barrier ends (`rival-retreat` when it ends).
 - **Blocking**: a tip whose way ahead crosses a live player edge with `w ≥ B.rivalBlockW` (1.8, a busy cord) turns away (it tries
-  headings up to 155° off, on the side it last chose) or stands; thin hyphae do not block.
+  headings up to 155° off, on the side it last chose) or stands; thin hyphae do not block. A turn away from a thick cord sends
+  `rival-turn` (at most every `B.rivalTurnGap`, 25 s); the UI says «Толстая нить не пускает ризоморф…» once.
 - **Grip**: a tip within `B.rivalGripRadius` (18 u, like the player's links) of its goal root tip grips it, no sooner than
-  `B.rivalGripAfter` (60 s) after the waking (an early tip waits at the root); `rival-grip`. At most 2 grips per tree, one per root
-  tip. Infection rises 1 / `B.rivalInfectSeconds` (180 s) per second for one grip, +50 % per further grip, × `(1 − 0.75 × mantle)` ×
+  `B.rivalGripAfter` (60 s) + the tip's `gripAt` jitter after the waking (an early tip waits at the root); `rival-grip`. At most 2 grips per tree, one per root
+  tip. Infection rises 1 / `B.rivalInfectSeconds` (290 s) per second for one grip (× `B.rivalEarlyRate` 0.5 until 25 %), +50 % per further grip, × `(1 − 0.75 × mantle)` ×
   `B.rivalInfectSeason` (spring 1, summer 0.75, autumn 1.15, winter 0.15); `tree-infected` at 0.25 / 0.5 / 0.75; a pay cut up to
   `B.rivalPayCut` (70 %) and slower growth (× (1 − infection)). At 1 the tree is lost (`tree-lost`): no pay, no drinking, a new source.
   The last living tree is never rotted beyond `B.rivalLastTree` (0.9), so there is always a way on. A free tree heals in
   `B.rivalHealSeconds` (240 s), faster by (1 + 2 × mantle); a released grip emits `tree-freed`.
 - **Mantle** (economy.js, with the flag on): follows `fed share × root contacts factor` (`B.treeContactFactor`, 0.6 / 0.8 / 1 for 1 / 2 /
   3+ links) with a time constant `B.mantleTau` (40 s); it fades the same way once the tree is unlinked.
-- **Barrier**: costs `barrierCost(state)` = `B.barrierCost` (20) + `B.barrierCostStep` (5) per barrier standing; radius `B.barrierRadius`
+- **Barrier**: costs `barrierCost(state)` = `B.barrierCost` (20) + `B.barrierCostStep` (10) per barrier standing; radius `B.barrierRadius`
   (85 u), lasts `B.barrierDur` (40 s), at most `B.barrierMax` (3). Inside it rhizomorph edges wither in `B.barrierWither` (3 s) and die,
   everything beyond a dead edge withers as an orphan (`B.rivalOrphanSeconds`, 6 s), tips die at once, new tips cannot start in it, and
   a grip whose edge died is released. An edge outside any barrier recovers.
 - **Clusters**: in autumn each tree with infection ≥ 0.4 grows one cluster (3–7 mushrooms, `rival-fruit`), they add to `rival.spores`
   and are gone with the first cold (winter). None without seasons.
-- **Objectives** (only with the flag): page 2 «Перерезать барьером тяжи опёнка» (`rivalCut`: `B.rivalCutGoal` = 3 edges cut by barriers),
+- **Objectives** (only with the flag): page 2 «Освободить 2 дерева от опёнка или перерезать 15 тяжей барьером» (`rivalCut`:
+  `stats.freedTrees` ≥ `B.rivalCutFreed` (2) or `stats.cut` ≥ `B.rivalCutGoal` (15)),
   page 3 «Укрепить защиту рощи» (`rivalGuard`: every living tree has mantle ≥ `B.mantleGoal` = 0.5). Both can always be reached: the
   player can grow to a rhizomorph, and a lost tree no longer counts.
 
@@ -367,7 +378,20 @@ treeId)` (a hook for tests and scenarios) and `nearestRootTip(state, tree, x, y)
 Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-grip {treeId, x, y}`,
 `tree-infected {treeId, level}` (at 0.25 / 0.5 / 0.75; also `x, y` of the trunk base), `tree-freed {treeId, x, y}`,
 `tree-lost {treeId, x, y}`, `rival-cut {x, y, edges}`, `rival-fruit {treeId, x, y, n}`, `barrier-placed {id, x, y, nodeId}`,
-`barrier-denied {reason, x, y}` (+ `insufficient` for sugar), `barrier-gone {id, x, y}`.
+`barrier-denied {reason, x, y}` (+ `insufficient` for sugar), `barrier-gone {id, x, y}`, `rival-dormant {x, y}`,
+`rival-retreat {treeId, x, y}`, `rival-turn {x, y}`.
+
+UI (src/ui/rival.js, guide.js, trees-logic.js): the grip hint says «Поставь барьер 4 на узел рядом» only when a player node is
+within `B.barrierRadius` of the grip; otherwise «Протяни нить к этому дереву — барьер ставят на свою нить» with a dotted line
+from the nearest node. `describeTree(tree, state)` shows «заражение · защита» only once the rival is awake; a stump tooltip
+(`describeStump`, target kind `'stump'` from `src/world/query.js` `targetAt`) foreshadows it in chapter 1 or says it is dormant.
+
+Drawing (src/render/rival.js, rival-logic.js, trees-paint.js, infection-look.js): cords near-black with a pale highlight, one step
+thicker than roots, Chaikin-smoothed chains (`chaikin`, `smoothEdges`); bulbous dark tips that pulse (still under
+`reducedMotion()`); a dashed path from a tip to its target root once it is within 150 u. Infected crowns brown, blotch and thin
+by `tree.infection` (`infectionLook(bucket, species, season)`, re-painted only when the infection bucket changes); while gripped,
+a rot ring and «N %» at the trunk foot. The snag is a broken bark trunk (`snagSteps`), honey tufts spread around its foot.
+`src/render/gallery-rival.html` shows every state at 100 % and 50 % scale.
 
 Pinned details (sim, render and UI were built in parallel against them):
 - Trees are `state.world.trees`; `infection`, `mantle`, `lost` live on those objects (missing on old saves = 0 / 0 / false).
@@ -391,10 +415,11 @@ Pinned details (sim, render and UI were built in parallel against them):
 - Art: manifest ids `decor.stump.1` (group `decor`, type `stump`) and `mushroom.honey.1` / `mushroom.honey.2` (group
   `mushroom`, type `honey`). The player's mushrooms never pick type `honey`; procedural drawing stays the fallback.
 
-Balance (tests/bot.mjs, seasons and threats on, 16 seeds incl. one per biome, 1200 s = the first year; see the table in the task report): the
-passive bot (no barrier) loses a tree on 10 seeds (the others woke late or were nearly rotted through); bots that put a barrier on every
-grip, or also when a tip comes within 120 u of its tree, lose at most one tree per seed; the first grip comes ≥ 60 s after the waking on
-every seed. The bot's sugar is tight (about 10–40 in chapter 2), which is why a barrier costs 20 and not more.
+Balance (tests/bot.mjs playBot with seasons, threats and the rival on, 1500 s; seeds 7, 13, 23, 42, 2, 5, 9, 26): every seed
+wakes at 420 s and grips in year 1 (first grip 503–646 s); the passive bot (no barrier) loses 1–4 trees on 8/8 seeds, the
+shortest grip-to-loss 228 s; the bot that puts a barrier on every grip loses none on 8/8. On 20 more seeds 19 grip in year 1
+(the 20th: thick player cords shield the whole glade). The bot's sugar is tight (about 10–80 at the first grip), which is why a
+barrier starts at 20.
 
 ## Illustrated assets (art task)
 
