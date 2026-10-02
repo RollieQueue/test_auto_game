@@ -7,7 +7,7 @@ import { BIOMES, BIOME_IDS, horizonLabel } from '../src/world/biomes.js';
 import { hash32 } from '../src/core/rng.js';
 import { sampleProfile } from '../src/world/query.js';
 import { LABEL_FONT, LABEL_INSET, cardZone, labelLayout } from '../src/render/soil-labels.js';
-import { MAX_COMPANIONS, clusterOf, companionGrowth } from '../src/render/mushroom-cluster.js';
+import { MAX_COMPANIONS, clusterOf, companionGrowth, lookOf, trunkNear } from '../src/render/mushroom-cluster.js';
 
 const seedOf = (biome) => {
   for (let s = 1; s < 400; s++) if (generateWorld(s).biome === biome) return s;
@@ -100,8 +100,8 @@ test('a clump is deterministic: the same seed and mushroom always give the same 
   assert.notEqual(JSON.stringify(clusterOf(7, 0)), JSON.stringify(clusterOf(7, 1)), 'another mushroom, another clump');
 });
 
-test('a clump has one to three caps, smaller and slanting away, and the main cap is not part of it', () => {
-  const counts = [0, 0, 0];
+test('a clump has none to three caps (four beside a trunk), smaller and slanting away, and the main cap is not part of it', () => {
+  const counts = [0, 0, 0, 0];
   const xs = new Set();
   for (let seed = 1; seed <= 20; seed++) {
     for (let id = 0; id < 40; id++) {
@@ -111,18 +111,22 @@ test('a clump has one to three caps, smaller and slanting away, and the main cap
       cl.forEach((c, k) => {
         assert.ok(Math.abs(c.dx) >= 15 && Math.abs(c.dx) <= 46, `dx ${c.dx}`);
         assert.ok(c.dy >= -1 && c.dy <= 2.5, `dy ${c.dy}`);
-        assert.ok(c.scale >= 0.45 && c.scale <= 0.85, `scale ${c.scale}`);
+        assert.ok(c.scale >= 0.4 && c.scale <= 0.92, `scale ${c.scale}`);
+        assert.ok(c.tall >= 0.86 && c.tall <= 1.2, `tall ${c.tall}`);
         assert.ok(Math.abs(c.lean) <= 0.2 && Math.sign(c.lean) === Math.sign(c.dx), `lean ${c.lean} away from the main cap (dx ${c.dx})`);
-        assert.ok(c.start >= 0.12 && c.start <= 0.58, `start ${c.start}`);
+        assert.ok(c.start >= 0.12 && c.start <= 0.7, `start ${c.start}`);
         assert.equal(typeof c.mirror, 'boolean');
         assert.ok(Number.isInteger(c.salt));
         xs.add(c.dx);
-        if (k === 1 && Math.sign(c.dx) === Math.sign(cl[0].dx)) assert.ok(Math.abs(c.dx) > Math.abs(cl[0].dx), 'a second cap on the same side stands further out');
+        const before = cl.slice(0, k).filter((q) => Math.sign(q.dx) === Math.sign(c.dx));
+        assert.ok(before.length <= 1, 'at most two caps on one side');
+        for (const q of before) assert.ok(Math.abs(c.dx) > Math.abs(q.dx), 'a second cap on the same side stands further out');
       });
     }
   }
-  // all three sizes of clump occur, none dominates (a fence is every mushroom alike)
-  for (const n of counts) assert.ok(n / 800 > 0.1, `clump sizes ${counts}`);
+  // every size of clump occurs, none dominates (a fence is every mushroom alike)
+  for (const n of counts.slice(0, 3)) assert.ok(n / 800 > 0.1, `clump sizes ${counts}`);
+  assert.ok(counts[3] / 800 > 0.02 && counts[3] / 800 < 0.15, `a few threes: ${counts}`);
   assert.ok(xs.size > 200, 'offsets vary');
 });
 
@@ -144,4 +148,62 @@ test('the soil tooltip names the horizon as the margin does', async () => {
       assert.match(d.sub, /рост нити/);
     }
   }
+});
+
+test('beside a trunk the clumps are bigger: up to four small caps, more of them than in the open', () => {
+  const mean = (near) => {
+    let sum = 0;
+    let max = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      for (let id = 0; id < 40; id++) {
+        const n = clusterOf(seed, id, near).length;
+        sum += n;
+        max = Math.max(max, n);
+        assert.ok(n <= MAX_COMPANIONS);
+      }
+    }
+    return { mean: sum / 400, max };
+  };
+  const open = mean(0);
+  const trunk = mean(1);
+  assert.ok(open.max <= 3, 'in the open at most three');
+  assert.equal(trunk.max, 4, 'beside a trunk up to four');
+  assert.ok(trunk.mean > open.mean + 0.8, `${trunk.mean} vs ${open.mean}`);
+  assert.deepEqual(clusterOf(7, 3, 0), clusterOf(7, 3), 'no proximity argument = in the open');
+  assert.deepEqual(clusterOf(7, 3, NaN), clusterOf(7, 3), 'a bad proximity counts as none');
+});
+
+test('trunkNear: 1 at a trunk or a stump, falling to 0 beyond 130 units, 0 for a world without either', () => {
+  const w = { trees: [{ x: 500 }], stumps: [{ x: 900 }] };
+  assert.equal(trunkNear(w, 500), 1);
+  assert.equal(trunkNear(w, 540), 1);
+  assert.ok(trunkNear(w, 585) > 0.4 && trunkNear(w, 585) < 0.6);
+  assert.equal(trunkNear(w, 700), 0);
+  assert.equal(trunkNear(w, 880), 1, 'a stump gathers them too');
+  assert.equal(trunkNear({}, 500), 0);
+  assert.equal(trunkNear(null, 500), 0);
+});
+
+test('a mushroom look is deterministic and varied: size, height and slant, in range', () => {
+  const sizes = [];
+  let bent = 0;
+  for (const seed of [1, 7, 13, 23, 42]) {
+    for (let id = 0; id < 60; id++) {
+      const a = lookOf(seed, id);
+      assert.deepEqual(lookOf(seed, id), a);
+      assert.ok(a.size >= 0.62 && a.size <= 1.42, `size ${a.size}`);
+      assert.ok(a.tall >= 0.86 && a.tall <= 1.18, `tall ${a.tall}`);
+      assert.ok(Math.abs(a.lean) <= 0.16, `lean ${a.lean}`);
+      assert.ok(a.phase >= 0 && a.phase <= 40);
+      assert.equal(typeof a.mirror, 'boolean');
+      sizes.push(a.size);
+      if (Math.abs(a.lean) >= 0.09) bent++;
+    }
+  }
+  assert.notDeepEqual(lookOf(7, 1), lookOf(8, 1), 'another world, another look');
+  assert.notDeepEqual(lookOf(7, 1), lookOf(7, 2), 'another mushroom, another look');
+  assert.ok(sizes.filter((v) => v < 0.85).length / sizes.length > 0.1, 'some small caps');
+  assert.ok(sizes.filter((v) => v > 1.15).length / sizes.length > 0.1, 'some big caps');
+  assert.ok(Math.max(...sizes) - Math.min(...sizes) > 0.7, 'the spread is wide, not 0.92..1.08');
+  assert.ok(bent / sizes.length > 0.15 && bent / sizes.length < 0.35, `about one in four leans hard: ${bent}`);
 });

@@ -6,7 +6,7 @@ import { makeSprite, makeCanvas, glowSprite, granulate, smooth01 } from './ink.j
 import { STEPS, extentOf, paintMushroom } from './mushrooms-paint.js';
 import { reducedMotion } from './motion.js';
 import { levelFor, washed, drained, getSprite as artSprite, mushroomLook, mushroomSprite, spritesReady, wiltTarget, growScale, RIVAL_MUSHROOM_TYPES } from './sprites.js';
-import { clusterOf, companionGrowth } from './mushroom-cluster.js';
+import { lookOf, clumpLayout, companionGrowth } from './mushroom-cluster.js';
 import { groundYAt } from '../world/query.js';
 
 const MAX_P = 500;
@@ -23,6 +23,7 @@ const warn = (e) => {
 };
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+const seedOf = (state) => (state && state.world && Number.isFinite(state.world.seed) ? state.world.seed : 0);
 
 // spore kinds: 0 ochre, 1 cream, 2 gold, 3 soil speck
 const DOT_STYLE = [
@@ -57,6 +58,7 @@ export function createMushrooms() {
   let renders = 0;
   const rt = new Map(); // per mushroom runtime: shown growth, per-id variation, wisp timer
   let lastT = 0;
+  let curSeed = 0; // the world's seed (the looks and the clumps are keyed by it)
   let wilt = 0; // 0..1: winter droop of the fruit bodies, follows the season smoothly
   let lastPrune = 0;
   const curS = []; // per frame: the illustration of mushroom i (null = painted procedurally)
@@ -90,14 +92,11 @@ export function createMushrooms() {
   function info(m) {
     const id = m.id;
     let r = rt.get(id);
-    if (!r) {
-      const h = hash32('mushroom', id === undefined ? 0 : id);
-      const a = (h & 1023) / 1023;
-      const b = ((h >>> 10) & 1023) / 1023;
-      const c = ((h >>> 20) & 1023) / 1023;
+    if (!r || r.seed !== curSeed) {
+      const L = lookOf(curSeed, id); // world/clump.js: size 0.62..1.42, height, slant, side, phase: stable per world and mushroom
       const g = clamp(num(m.growth), 0, 1);
-      r = { v: NaN, kind: 0, sub: 0, sg: g, size: 0.92 + 0.16 * a, mirror: b < 0.5, lean: (c - 0.5) * 0.07, phase: a * 40, nextWisp: 0, seen: 0, cx: 0, cy: 0, spr: null, sprReady: false, cl: [], clSeed: NaN, clReady: null, lx: 0, ly: 0 };
-      r.nextWisp = lastT + 1 + 4 * c;
+      r = { v: NaN, kind: 0, sub: 0, sg: g, seed: curSeed, size: L.size, tall: L.tall, mirror: L.mirror, lean: L.lean, phase: L.phase, nextWisp: 0, seen: 0, cx: 0, cy: 0, spr: null, sprReady: false, cl: [], clSeed: NaN, clReady: null, lx: 0, ly: 0 };
+      r.nextWisp = lastT + 1 + 4 * ((L.phase * 7) % 1);
       rt.set(id, r);
     }
     if (r.v !== m.variant) {
@@ -188,9 +187,9 @@ export function createMushrooms() {
 
   function capPoint(m) {
     const r = info(m);
-    if (r.spr) return { x: num(m.x), y: num(m.baseY) - r.spr.worldSize * r.size * growScale(r.sg) * 0.85 };
+    if (r.spr) return { x: num(m.x), y: num(m.baseY) - r.spr.worldSize * r.size * r.tall * growScale(r.sg) * 0.85 };
     const ext = extentOf(r.kind, clamp(num(m.growth), 0, 1));
-    return { x: num(m.x), y: num(m.baseY) - (ext.up - 8) * r.size * 0.85 };
+    return { x: num(m.x), y: num(m.baseY) - (ext.up - 8) * r.size * r.tall * 0.85 };
   }
 
   function sporeBurst(x, y, n, speed) {
@@ -234,6 +233,7 @@ export function createMushrooms() {
   function event(ev, state) {
     if (!ev || typeof ev !== 'object') return;
     try {
+      curSeed = seedOf(state);
       if (ev.type === 'spores') {
         const m = state && Array.isArray(state.mushrooms) ? state.mushrooms.find((q) => q && q.id === ev.id) : null;
         const p = m ? capPoint(m) : { x: num(ev.x), y: num(ev.y) - 40 };
@@ -264,14 +264,14 @@ export function createMushrooms() {
     const g = r ? r.sg : clamp(num(mm.growth), 0, 1);
     const size = r ? r.size : 1;
     if (r && r.spr) {
-      const hh = r.spr.worldSize * size * growScale(g);
+      const hh = r.spr.worldSize * size * r.tall * growScale(g);
       const hw = (r.spr.w / r.spr.h) * hh;
       return { x0: num(mm.x) - hw, y0: num(mm.baseY) - hh, x1: num(mm.x) + hw, y1: num(mm.baseY) + 4 };
     }
     const ext = extentOf(Math.floor(Math.abs(num(mm.variant))) % 4, g);
     const x = num(mm.x);
     const y = num(mm.baseY);
-    return { x0: x - ext.w * size, y0: y - ext.up * size, x1: x + ext.w * size, y1: y + ext.down };
+    return { x0: x - ext.w * size, y0: y - ext.up * size * (r ? r.tall : 1), x1: x + ext.w * size, y1: y + ext.down };
   }
 
   function draw(ctx, state, t, dt) {
@@ -279,6 +279,7 @@ export function createMushrooms() {
     const dtc = clamp(num(dt), 0, 0.1);
     const now = num(t, lastT + dtc);
     lastT = now;
+    curSeed = seedOf(state);
     renders = 0;
     const list = state && Array.isArray(state.mushrooms) ? state.mushrooms : [];
     ctx.save();
@@ -393,7 +394,7 @@ export function createMushrooms() {
       r.lx = m.x;
       r.ly = m.baseY;
       if (r.clSeed !== seed) {
-        r.cl = (world ? clusterOf(seed, m.id) : []).map((c) => ({ ...c, spr: null }));
+        r.cl = (world ? clumpLayout(world, m).cl : []).map((c) => ({ ...c, spr: null })); // more small caps beside a trunk
         r.clSeed = seed;
         r.clReady = null;
       }
@@ -405,7 +406,7 @@ export function createMushrooms() {
       cur[i] = r.spr ? null : getSprite(r.kind, r.sub, step);
       if (m.mature && r.sg > 0.9 && now >= r.nextWisp && !calm) {
         r.nextWisp = now + 3 + Math.random() * 6;
-        const cy = m.baseY - (extentFull(r.kind).up - 8) * 0.85 * r.size;
+        const cy = m.baseY - (extentFull(r.kind).up - 8) * 0.85 * r.size * r.tall;
         const k = 3 + ((Math.random() * 3) | 0);
         for (let j = 0; j < k; j++) {
           emit(m.x + (Math.random() - 0.5) * 14, cy + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 6, -(5 + Math.random() * 9), 0.6 + 0.8 * Math.random(), 4 + 2.5 * Math.random(), Math.random() < 0.7 ? 0 : 1);
@@ -427,7 +428,7 @@ export function createMushrooms() {
       const h = haloOf(r.kind);
       const up = r.spr ? r.spr.worldSize * 0.8 : ext.up * 0.78;
       ctx.globalAlpha = prevA * (0.17 + 0.06 * Math.sin(now * 1.6 + r.phase)) * (1 - wilt);
-      ctx.drawImage(h.canvas, m.x - h.hr, m.baseY - up * r.size - h.hr, h.w, h.h);
+      ctx.drawImage(h.canvas, m.x - h.hr, m.baseY - up * r.size * r.tall - h.hr, h.w, h.h);
     }
     if (lit) {
       ctx.globalCompositeOperation = 'source-over';
@@ -452,14 +453,14 @@ export function createMushrooms() {
         const c = r.cl[k];
         const gk = companionGrowth(r.sg, c);
         if (gk < 0.03) continue;
-        const cx = m.x + c.dx;
+        const cx = m.x + c.dx * r.size;
         const cy = (world ? groundYAt(world, cx) : m.baseY) + c.dy;
         const sway = c.lean + 0.2 * wilt * (c.lean < 0 ? -1 : 1) + (calm ? 0 : 0.011 * Math.sin(now * 0.8 + ph + k * 2.1 + 1));
-        paintBody(ctx, T, c.spr, c.spr ? null : getSprite(r.kind, (r.sub + k + 1) & 1, Math.round(gk * STEPS)), cx, cy, r.size * c.scale, c.mirror, sway, gk, pulse, squash, -1);
+        paintBody(ctx, T, c.spr, c.spr ? null : getSprite(r.kind, (r.sub + k + 1) & 1, Math.round(gk * STEPS)), cx, cy, r.size * c.scale, c.mirror, sway, gk, pulse, squash * c.tall, -1);
       }
       const droop = 0.2 * wilt * (r.lean < 0 ? -1 : 1); // winter: the stalk bows over, the cap hangs
       const sway = r.lean + droop + (calm ? 0 : 0.011 * Math.sin(now * 0.8 + ph) + 0.004 * Math.sin(now * 1.9 + ph * 2.3));
-      paintBody(ctx, T, il, sp, m.x, m.baseY, r.size, r.mirror, sway, r.sg, pulse, squash, -1);
+      paintBody(ctx, T, il, sp, m.x, m.baseY, r.size, r.mirror, sway, r.sg, pulse, squash * r.tall, -1);
     }
     // the clumps of mushrooms that just wilted away: the small caps bow over and fade as the main one does (fauna.js 'wilt')
     for (const r of rt.values()) {
@@ -475,12 +476,12 @@ export function createMushrooms() {
         const c = r.cl[k];
         const gk = companionGrowth(r.sg, c);
         if (gk < 0.03) continue;
-        const cx = r.lx + c.dx;
+        const cx = r.lx + c.dx * r.size;
         const cy = (world ? groundYAt(world, cx) : r.ly) + c.dy;
         const bow = c.lean + (c.lean < 0 ? -1 : 1) * 0.62 * bowT * bowT;
         const a0 = ctx.globalAlpha;
         ctx.globalAlpha = a0 * alpha;
-        paintBody(ctx, T, c.spr, c.spr ? null : getSprite(r.kind, (r.sub + k + 1) & 1, Math.round(gk * STEPS)), cx, cy, r.size * c.scale, c.mirror, bow, gk, 1, sy, colA);
+        paintBody(ctx, T, c.spr, c.spr ? null : getSprite(r.kind, (r.sub + k + 1) & 1, Math.round(gk * STEPS)), cx, cy, r.size * c.scale, c.mirror, bow, gk, 1, sy * c.tall, colA);
         ctx.globalAlpha = a0;
       }
     }

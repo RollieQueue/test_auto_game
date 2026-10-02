@@ -1,5 +1,6 @@
 // Fruiting bodies: planting rules, growth, spore release.
 import { groundYAt } from '../world/query.js';
+import { lookOf } from '../world/clump.js';
 import { B, pressure } from './balance.js';
 import { fedIndex } from './economy.js';
 import { nearestNode } from './network.js';
@@ -11,15 +12,33 @@ export const mushroomCost = (state) => {
   return B.mushroomCost * P.mushCost * (1 + P.mushCount * state.mushrooms.length);
 };
 
+/**
+ * The ground a standing mushroom keeps clear around it (world units): its cap's size decides (world/clump.js lookOf, drawn
+ * as it is), so a big cap claims a wide berth and a small one lets another stand close beside it.
+ */
+export function fruitClaim(state, m) {
+  const size = lookOf(state.world.seed, m.id).size;
+  return Math.min(B.fruitSpacingMax, Math.max(B.fruitSpacingMin, B.fruitSpacing * size ** B.fruitClaimPow));
+}
+
+/** The standing mushroom that keeps the node clear (null when none does). */
+export function crowdingMushroom(state, nodeId) {
+  const node = state.net.nodes[nodeId];
+  if (!node) return null;
+  const ground = groundYAt(state.world, node.x);
+  for (const m of state.mushrooms) {
+    if (Math.hypot(m.x - node.x, m.baseY - ground) < fruitClaim(state, m)) return m;
+  }
+  return null;
+}
+
 /** null when a mushroom may be planted on the node, otherwise 'deep' | 'crowded' | 'sugar'. */
 export function fruitDenial(state, nodeId) {
   const node = state.net.nodes[nodeId];
   if (!node || !node.alive) return 'deep';
   const ground = groundYAt(state.world, node.x);
   if (node.y - ground > B.fruitMaxDepth) return 'deep';
-  for (const m of state.mushrooms) {
-    if (Math.hypot(m.x - node.x, m.baseY - ground) < B.fruitSpacing) return 'crowded';
-  }
+  if (crowdingMushroom(state, nodeId)) return 'crowded';
   if (state.res.sugar < mushroomCost(state)) return 'sugar';
   return null;
 }

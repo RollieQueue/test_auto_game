@@ -236,7 +236,7 @@ test('the species and the species of every mushroom survive a save and a load', 
   assert.deepEqual(copy.mushrooms.map((m) => m.species), ['porcini', 'porcini']);
   assert.equal(mushroomLook(copy.mushrooms[0], copy.world.trees), 'porcini');
   // and it keeps working: the loaded game pays and fruits as its own species
-  const m3 = plant(copy, 140);
+  const m3 = plant(copy, 170); // clear of the 60-unit mushroom's claim (up to B.fruitSpacingMax)
   assert.equal(m3.species, 'porcini');
 });
 

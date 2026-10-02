@@ -1,8 +1,7 @@
 // The HUD cards (resources top-left, objectives top-right) must not hide what the player is looking at:
 // this is the pure part that says what lies under a card (screen rect). No DOM.
 import { CROWN_HALF } from '../world/generate.js';
-import { hash32 } from '../core/rng.js';
-import { clumpCaps } from '../world/clump.js';
+import { clumpCaps, lookOf } from '../world/clump.js';
 import { groundYAt } from '../world/query.js';
 import { mushroomSprite, growScale } from '../render/sprites.js';
 
@@ -18,34 +17,35 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 /**
  * World box {l, r, t, b} of what a mushroom draws. With its illustration loaded (render/mushrooms.js: the picture is
- * worldSize tall times the per-mushroom size 0.92..1.08 and the growth scale, its anchor at the stalk base, mirrored
- * for half of them) this is the picture's own rectangle; without one, a plain box of the same order.
+ * worldSize tall times the per-mushroom look (world/clump.js lookOf: size, height stretch) and the growth scale, its
+ * anchor at the stalk base, mirrored for half of them) this is the picture's own rectangle; without one, a plain box of the same order.
  */
 export function mushroomBox(m, trees, world) {
   const x = num(m.x);
   const y = num(m.baseY);
   const il = mushroomSprite(m, trees);
-  const main = il ? spriteBox(m, il, x, y) : { l: x - MUSHROOM_HALF, r: x + MUSHROOM_HALF, t: y - MUSHROOM_UP, b: y + MUSHROOM_DOWN };
+  const look = world ? lookOf(world.seed, m.id) : null;
+  const main = il ? spriteBox(m, il, x, y, look) : { l: x - MUSHROOM_HALF, r: x + MUSHROOM_HALF, t: y - MUSHROOM_UP * (look ? look.tall : 1), b: y + MUSHROOM_DOWN };
   // the small caps of the clump (seeded, see world/clump.js) widen the box to the whole clump
   for (const c of clumpCaps(world, m, groundYAt).slice(1)) {
     main.l = Math.min(main.l, c.x - MUSHROOM_HALF * c.scale);
     main.r = Math.max(main.r, c.x + MUSHROOM_HALF * c.scale);
-    main.t = Math.min(main.t, c.y - MUSHROOM_UP * c.scale);
+    main.t = Math.min(main.t, c.y - MUSHROOM_UP * c.scale * c.tall);
     main.b = Math.max(main.b, c.y + MUSHROOM_DOWN * c.scale);
   }
   return main;
 }
 
-function spriteBox(m, il, x, y) {
-  const h = hash32('mushroom', m.id === undefined ? 0 : m.id);
-  const size = 0.92 + 0.16 * ((h & 1023) / 1023);
-  const mirror = ((h >>> 10) & 1023) / 1023 < 0.5;
+function spriteBox(m, il, x, y, look) {
+  const size = look ? look.size : 1;
+  const mirror = look ? look.mirror : false;
   const g = Math.max(0, Math.min(1, num(m.growth)));
   const k = (il.worldSize * size * growScale(g)) / il.h; // world units per image pixel
+  const kTall = k * (look ? look.tall : 1); // the stalk may be taller or squatter than the cap is wide
   const left = (mirror ? il.w - il.anchor.x : il.anchor.x) * k;
   const right = (mirror ? il.anchor.x : il.w - il.anchor.x) * k;
   const sink = 0.05 * il.worldSize * size; // the stalk base sits a hair below the ground line
-  return { l: x - left, r: x + right, t: y + sink - il.anchor.y * k, b: y + sink + (il.h - il.anchor.y) * k };
+  return { l: x - left, r: x + right, t: y + sink - il.anchor.y * kTall, b: y + sink + (il.h - il.anchor.y) * kTall };
 }
 
 /** World -> screen rect {l, t, r, b} of a mushroom as drawn (`trees`: state.world.trees, for the species look). */

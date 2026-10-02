@@ -7,6 +7,7 @@
 // Ghosts (cut hyphae, wilting mushroom, withering ring) are short-lived effects kept in one capped list.
 import { glowSprite, granulate, makeSprite, mix, mulberry, noise1, rgba, smooth01, tracePath } from './ink.js';
 import { hash32 } from '../core/rng.js';
+import { lookOf } from '../world/clump.js';
 import { STEPS, extentOf, paintMushroom } from './mushrooms-paint.js';
 import { reducedMotion } from './motion.js';
 import { levelFor, drained, mushroomSprite, growScale, spritesReady } from './sprites.js';
@@ -136,10 +137,7 @@ export function createFauna() {
   function startWilt(ev, state) {
     const v = Math.floor(Math.abs(num(ev.variant)));
     const g = clamp(num(ev.growth, 1), 0.08, 1);
-    const h = hash32('mushroom', ev.id === undefined ? 0 : ev.id);
-    const a = (h & 1023) / 1023;
-    const b = ((h >>> 10) & 1023) / 1023;
-    const c = ((h >>> 20) & 1023) / 1023;
+    const L = lookOf(state && state.world && Number.isFinite(state.world.seed) ? state.world.seed : 0, ev.id); // the look the living mushroom wore (render/mushrooms.js)
     // the illustration the living mushroom wore (same pick as mushrooms.js), so it wilts as itself; null = painted
     const spr = spritesReady() ? mushroomSprite({ id: ev.id, x: ev.x, variant: ev.variant, species: ev.species }, state && state.world ? state.world.trees : null) : null;
     push({
@@ -151,10 +149,11 @@ export function createFauna() {
       kind: v % 4,
       sub: (v >> 2) & 1,
       step: Math.round(g * STEPS),
-      size: 0.92 + 0.16 * a,
-      mirror: b < 0.5,
-      lean0: (c - 0.5) * 0.07,
-      dir: b < 0.5 ? -1 : 1,
+      size: L.size,
+      tall: L.tall,
+      mirror: L.mirror,
+      lean0: L.lean,
+      dir: L.lean < 0 ? -1 : 1, // bows the way it already leans (as the live droop in mushrooms.js)
       life: WILT_LIFE,
     });
   }
@@ -1092,7 +1091,7 @@ export function createFauna() {
           const dw = il.w * k;
           const dh = il.h * k;
           const lean = e.lean0 + e.dir * 0.62 * m * m;
-          const sy = 1 - 0.34 * ease(u / 0.9);
+          const sy = (1 - 0.34 * ease(u / 0.9)) * e.tall;
           const sx = (e.mirror ? -1 : 1) * (1 + 0.1 * m);
           const alpha = 1 - ease((u - 0.3) / 0.7);
           const colA = 1 - ease(u / 0.22);
@@ -1115,7 +1114,7 @@ export function createFauna() {
         }
         const s = wiltSprites(e.kind, e.sub, e.step);
         const lean = e.lean0 + e.dir * 0.62 * m * m;
-        const sy = e.size * (1 - 0.34 * ease(u / 0.9));
+        const sy = e.size * e.tall * (1 - 0.34 * ease(u / 0.9));
         const sx = e.size * (e.mirror ? -1 : 1) * (1 + 0.1 * m);
         const alpha = 1 - ease((u - 0.3) / 0.7);
         ctx.save();

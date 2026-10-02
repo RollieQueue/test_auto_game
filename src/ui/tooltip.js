@@ -118,8 +118,12 @@ function describeFruit(state) {
       return { main: 'Здесь вырастет гриб', sub: `щёлкни: цена ${cost} сахара` };
     case 'deep':
       return { main: 'Слишком глубоко для гриба', sub: `он растёт не глубже ${Math.round(B.fruitMaxDepth ?? 45)} ед. от земли`, warn: true };
-    case 'crowded':
-      return { main: 'Тесно: рядом уже гриб', sub: `между грибами не меньше ${Math.round(B.fruitSpacing ?? 60)} ед.`, warn: true };
+    case 'crowded': {
+      // a standing mushroom keeps clear the ground its cap's size claims: a big cap more, a small one less
+      const by = typeof mushrooms.crowdingMushroom === 'function' ? mushrooms.crowdingMushroom(state, id) : null;
+      const claim = Math.round(by ? mushrooms.fruitClaim(state, by) : (B.fruitSpacing ?? 60));
+      return { main: 'Тесно: рядом уже гриб', sub: `этому грибу нужно ${claim} ед. вокруг: чем крупнее шляпка, тем шире`, warn: true };
+    }
     case 'sugar':
       return { main: 'Не хватает сахара на гриб', sub: `нужно ${cost}, есть ${Math.floor(state.res.sugar)}`, warn: true };
     default:

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
 import { addNode } from '../src/sim/network.js';
+import { findReward } from '../src/sim/finds.js';
 import { B, treeFx } from '../src/sim/balance.js';
 import { NEUTRAL_FX, clockAt, daylightAt, restoreTime, weatherAt } from '../src/sim/clock.js';
 import { groundYAt } from '../src/world/query.js';
@@ -406,7 +407,15 @@ test('determinism with seasons on: same seed and commands give identical games',
 
 for (const seed of [1, 7, 42]) {
   test(`bot playthrough with seasons, seed ${seed}: a game year is fun-paced, winter is survivable`, () => {
-    const { state, completedAt, stats } = playBot(seed, { seasons: true, runOn: true, maxSeconds: YEAR + 10 });
+    let winterFinds = 0; // a thread that touches a find in winter still pays its few spores: they are not a mushroom's
+    const { state, completedAt, stats } = playBot(seed, {
+      seasons: true,
+      runOn: true,
+      maxSeconds: YEAR + 10,
+      onEvent: (ev, s) => {
+        if (ev.type === 'find' && s.clock.season === 'winter') winterFinds += findReward(ev.kind).spores;
+      },
+    });
     const done = Object.entries(stats.doneAt).map(([k, v]) => `${k}@${v.toFixed(0)}s`).join(' ');
     const seasonLine = Object.entries(stats.bySeason)
       .map(([k, v]) => `${k} sugar min ${v.min.toFixed(0)} avg ${(v.sum / v.n).toFixed(0)}, spores +${(v.spores1 - v.spores0).toFixed(0)}`)
@@ -424,7 +433,7 @@ for (const seed of [1, 7, 42]) {
     // no season runs dry: a sugar floor in every full season of the first year
     for (const name of ['summer0', 'autumn0', 'winter0']) assert.ok(stats.bySeason[name].min > 1, `${name}: sugar min ${stats.bySeason[name].min}`);
     assert.ok(stats.bySeason.autumn0.spores1 - stats.bySeason.autumn0.spores0 > 100, 'autumn is the fruiting season');
-    assert.equal(stats.bySeason.winter0.spores1, stats.bySeason.winter0.spores0, 'no spores in winter');
+    assert.ok(Math.abs(stats.bySeason.winter0.spores1 - stats.bySeason.winter0.spores0 - winterFinds) < 1e-6, 'no mushroom spores in winter');
   });
 }
 

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMushrooms } from '../src/render/mushrooms.js';
 import { _setSpritesForTest } from '../src/render/sprites.js';
-import { clusterOf, companionGrowth } from '../src/render/mushroom-cluster.js';
+import { clusterOf, clumpLayout, companionGrowth } from '../src/render/mushroom-cluster.js';
 import { groundYAt, targetAt } from '../src/world/query.js';
 
 // the halo sprites and the mushrooms' wash copies are made on canvases: a stub that accepts any call stands in for them
@@ -58,7 +58,7 @@ test('the main cap stays at the sim position; the small caps stand at the clump 
     const bodies = log.filter((e) => e.alpha === 1); // the bodies (a halo, if any, is drawn lighter)
     let k = 0;
     for (const m of [...ms].sort((a, b) => a.baseY - b.baseY)) { // the view draws from the back (small baseY) to the front
-      const cl = clusterOf(7, m.id);
+      const { look, cl } = clumpLayout(w, m);
       const expect = cl.length + 1;
       const group = bodies.slice(k, k + expect);
       k += expect;
@@ -66,8 +66,8 @@ test('the main cap stays at the sim position; the small caps stand at the clump 
       assert.ok(Math.abs(main.e - m.x) < 1e-6, `mushroom ${m.id}: the main cap's x is the sim x (${main.e} vs ${m.x})`);
       assert.ok(main.f >= m.baseY && main.f <= m.baseY + 4, `mushroom ${m.id}: and sits on its baseY (${main.f} vs ${m.baseY})`);
       cl.forEach((c, j) => {
-        assert.ok(Math.abs(group[j].e - (m.x + c.dx)) < 1e-6, `mushroom ${m.id}: cap ${j} stands at the clump offset`);
-        const ground = groundYAt(w, m.x + c.dx) + c.dy;
+        assert.ok(Math.abs(group[j].e - (m.x + c.dx * look.size)) < 1e-6, `mushroom ${m.id}: cap ${j} stands at the clump offset (scaled by the main cap's size)`);
+        const ground = groundYAt(w, m.x + c.dx * look.size) + c.dy;
         assert.ok(group[j].f >= ground && group[j].f <= ground + 4, 'on the ground at its own x');
       });
     }

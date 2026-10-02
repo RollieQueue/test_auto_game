@@ -2,17 +2,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateWorld } from '../src/world/generate.js';
-import { clusterOf, clumpCaps } from '../src/world/clump.js';
+import { clusterOf, clumpCaps, clumpLayout } from '../src/world/clump.js';
 import * as renderSide from '../src/render/mushroom-cluster.js';
 import { groundYAt, targetAt } from '../src/world/query.js';
 import { mushroomBox, coverage } from '../src/ui/cards-logic.js';
 
 const world = generateWorld(7);
 const mk = (id, x) => ({ id, x, baseY: groundYAt(world, x), growth: 1 });
-/** A mushroom whose clump has two companions. */
+/** A mushroom whose clump (as it stands at x in this world) has exactly n companions. */
 function withClump(n, x) {
   let id = 0;
-  while (clusterOf(world.seed, id).length < n) id++;
+  while (clumpLayout(world, mk(id, x)).cl.length !== n) id++;
   return mk(id, x);
 }
 
@@ -63,7 +63,7 @@ test('mushroomBox covers every cap', () => {
 
 test('a card over only a small cap counts the mushroom', () => {
   let id = 0;
-  while (!clusterOf(world.seed, id).some((q) => Math.abs(q.dx) >= 42)) id++;
+  while (!clumpCaps(world, mk(id, 900), groundYAt).some((q) => Math.abs(q.x - 900) >= 42)) id++;
   const m = mk(id, 900);
   const c = clumpCaps(world, m, groundYAt).find((q) => Math.abs(q.x - m.x) >= 42);
   const state = { world, mushrooms: [m] };

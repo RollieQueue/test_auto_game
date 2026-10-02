@@ -98,7 +98,8 @@ const KEYS = [
 export function buildHelp(state) {
   const B = balance.B || {};
   const fruitDepth = Math.round(B.fruitMaxDepth ?? 45);
-  const fruitSpacing = Math.round(B.fruitSpacing ?? 60);
+  const fruitRoomMin = Math.round(B.fruitSpacingMin ?? B.fruitSpacing ?? 60);
+  const fruitRoomMax = Math.round(B.fruitSpacingMax ?? B.fruitSpacing ?? 60);
   const fruitCost = fruitCostOf(state);
   const fruitSeconds = Math.round(B.mushroomGrowSeconds ?? 20);
   const goal = Math.round(B.sporesGoal ?? 100);
@@ -153,7 +154,7 @@ ${rivalSection(state)}
         </section>
         <section>
           <h3>Грибы</h3>
-          <p>Нажми <kbd>2</kbd> и щёлкни по узлу у самой земли — не глубже ${fruitDepth} ед. и не ближе ${fruitSpacing} ед. к другому грибу.
+          <p>Нажми <kbd>2</kbd> и щёлкни по узлу у самой земли — не глубже ${fruitDepth} ед. и не ближе ${fruitRoomMin}–${fruitRoomMax} ед. к другому грибу: чем крупнее его шляпка, тем больше места он занимает.
           Гриб стоит ${fruitCost} сахара, растёт около ${fruitSeconds} секунд, а потом выпускает споры. Чем сытнее сеть, тем их больше.
           Собери ${goal} спор.</p>
         </section>

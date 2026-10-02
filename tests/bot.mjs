@@ -5,7 +5,7 @@ import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
 import { committedSugar } from '../src/sim/growth.js';
 import { B, pressure } from '../src/sim/balance.js';
-import { mushroomCost } from '../src/sim/mushrooms.js';
+import { mushroomCost, fruitClaim } from '../src/sim/mushrooms.js';
 import { findRadius } from '../src/sim/finds.js';
 import { nearestRootTip } from '../src/sim/rival.js';
 import { costAt, groundYAt } from '../src/world/query.js';
@@ -211,7 +211,7 @@ export function playBot(seed, opts = {}) {
       route(state, grid, (x, y) => {
         const depth = y - groundYAt(world, x);
         if (depth < 16 || depth > 32) return false;
-        return state.mushrooms.every((m) => Math.abs(m.x - x) > B.fruitSpacing + 14);
+        return state.mushrooms.every((m) => Math.abs(m.x - x) > fruitClaim(state, m) + 14);
       }),
     );
 
@@ -250,7 +250,7 @@ export function playBot(seed, opts = {}) {
     grow(
       route(state, grid, (x, y) => {
         const depth = y - groundYAt(world, x);
-        return depth >= 16 && depth <= 32 && Math.abs(x - tree.x) <= B.glade.mixedReach - 40 && state.mushrooms.every((m) => Math.abs(m.x - x) > B.fruitSpacing + 14);
+        return depth >= 16 && depth <= 32 && Math.abs(x - tree.x) <= B.glade.mixedReach - 40 && state.mushrooms.every((m) => Math.abs(m.x - x) > fruitClaim(state, m) + 14);
       }),
       30,
     );

@@ -82,7 +82,10 @@ export const B = {
   // --- Mushrooms ---
   mushroomCost: 24,
   fruitMaxDepth: 45, // a node deeper than this below the surface cannot fruit
-  fruitSpacing: 60, // no other mushroom within this distance
+  fruitSpacing: 57, // ground a mushroom of cap size 1 keeps clear around it; a cap of size s claims fruitSpacing * s^fruitClaimPow
+  fruitClaimPow: 1.6, // a big cap claims much more, a small one lets a neighbour stand close: groups and loners instead of a fence
+  fruitSpacingMin: 34, // ... but never less than this
+  fruitSpacingMax: 96, // ... or more than this
   mushroomGrowSeconds: 20, // when fully fed
   mushroomGrowFloor: 0.4, // growth speed multiplier of an unfed network (fed adds up to 1 - floor)
   mushroomGrowSugar: 0.2, // sugar/s drawn while growing
