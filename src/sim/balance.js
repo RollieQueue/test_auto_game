@@ -35,7 +35,7 @@ export const B = {
   sugarCapPerTreeStage: 40, // per stage of every linked tree (stage 0 counts 1)
 
   // --- Sugar upkeep and saprotrophic baseline ---
-  upkeepPerLength: 0.0006, // sugar/s per u of hyphae
+  upkeepPerLength: 0.0004, // sugar/s per u of hyphae (0.0006 until economy 2)
   upkeepSoftFloor: 8, // below this stock upkeep may not exceed upkeepFloorShare of income (no soft-lock)
   upkeepFloorShare: 0.5,
   sapBase: 0.35, // sugar/s: the spore itself decomposes litter
@@ -51,6 +51,10 @@ export const B = {
   treeSatWater: 0.6, // weight of water in satisfaction (minerals get the rest)
   treeGrowFromHealth: 0.3, // growth starts above this health, full speed at 1
   treeContactFactor: [0.6, 0.8, 1], // share of the sugar payout by number of root-tip contacts (1, 2, 3+)
+  // Economy 2 (page 2 was a dead end: the pockets were drunk dry, the tree pay fell with them and the upkeep of a 1500 u net ate the rest):
+  treeSatFloor: 0.3, // a linked tree pays at least this share of its sugar even when the network brings it no water or minerals (it still does not grow)
+  waterRegen: 2, // x the regeneration of every water pocket (world.water[].regen; the weather's fx.regen comes on top)
+  sapOrphan: 3, // x the saprotrophic trickle from page 2 on while no tree pays (cut off from every tree): time to grow back to a root before the page closes
   // Species of tree (world.trees[].species): grow x growth speed, drinkW / drinkM x water / mineral demand, pay x sugar payout by
   // stage 0..3. Birch races ahead but is thirsty and pays little when old; an oak is slow, yet an ancient one pays a fortune;
   // a pine sips water and wants minerals.
@@ -261,7 +265,7 @@ export const B = {
   // numbers above; the saprotrophic floor stays, so a starved network can always recover.
   hard: {
     upkeep: 1, // x upkeepPerLength ...
-    sprawl: 5000, // ... and then x (1 + hyphaeLength / sprawl): a big network costs more per u than a small one
+    sprawl: 8000, // ... and then x (1 + hyphaeLength / sprawl): a big network costs more per u than a small one
     treePay: 0.85, // x treePay
     growCost: 1.15, // x the horizon cost of growing a hypha
     mushCost: 1.4, // x mushroomCost ...

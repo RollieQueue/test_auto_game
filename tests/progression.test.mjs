@@ -328,7 +328,7 @@ for (const seed of [2, 7, 42]) {
     assert.notEqual(t2, undefined, 'chapter 2 completed');
     assert.ok(t2 <= 2100, `chapter 2 took ${t2} s`);
     assert.equal(state.chapter, 3);
-    assert.ok(Math.max(...early) < 200, 'sugar never piles up in the first 15 minutes');
+    assert.ok(Math.max(...early) < 260, 'sugar never piles up in the first 15 minutes'); // (economy 2: a single sample may now touch the cap, the median below is the constraint)
     assert.ok(median(early) < 70, `typical stock in the first 15 minutes: ${median(early)}`);
     assert.ok(stats.maxZeroStreak < 15, `sugar stuck at zero for ${stats.maxZeroStreak} s`);
     assert.ok(T.nextWorm >= 3 && T.caught >= B.chapter2Worms, 'worms came and the rings caught them');

@@ -17,6 +17,7 @@ export function recomputeFlows(state, dt) {
   const barred = barredNodes(state); // hyphae inside a barrier carry nothing (and so do not thicken): no flow may cross it
   const push = (from, to, kind, rate) => {
     if (rate < B.flowMinRate || flows.length >= B.maxFlows || from === to) return;
+    if (!net.nodes[from] || !net.nodes[to]) return; // a contact that is no node of the net (a hand-made test state) carries nothing
     const path = pathBetween(net, from, to);
     if (barred && path.some((id) => barred.has(id))) return;
     flows.push({ from, to, kind, rate, path });

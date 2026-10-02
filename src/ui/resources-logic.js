@@ -40,6 +40,25 @@ export function sporesGoalOf(state) {
   return o ? goals[o.id] : 0;
 }
 
+/**
+ * Why the trees pay (almost) no sugar right now, in a line the sugar row's tooltip adds, or null when nothing is wrong: who pays,
+ * why not now and what helps. A network with no allied tree lives on litter alone; a dry pool leaves the trees only the small share
+ * B.treeSatFloor of their pay; winter is the trees' quiet time.
+ */
+export function sugarWhy(state) {
+  const trees = state.world && state.world.trees;
+  const contacts = state.sim && state.sim.contacts;
+  if (!trees || !contacts || !state.res) return null;
+  const alive = trees.filter((t) => !t.lost);
+  if (alive.length === 0) return null;
+  const linked = alive.filter((t) => (contacts[t.id] ? contacts[t.id].length : 0) > 0);
+  const started = (state.chapter ?? 1) >= 2 || state.time > 90;
+  if (linked.length === 0) return started ? 'Сейчас сахар даёт только прелая подстилка: ни одно дерево не связано с сетью. Дотянись нитью до корня дерева.' : null;
+  if (state.res.water < 1) return 'Деревьям нечего забрать: вода кончилась, и платят они лишь малую долю. Дотянись до нового кармана влаги.';
+  if (state.flags && state.flags.seasons && state.clock && state.clock.season === 'winter') return 'Зима: деревья почти не платят. Береги сахар до весны.';
+  return null;
+}
+
 /** The tooltip over a row: { main, sub, body, warn } (see tooltip.js), or null for an unknown stock. */
 export function resourceTip(state, k) {
   const info = RESOURCE_INFO[k];
@@ -52,11 +71,13 @@ export function resourceTip(state, k) {
   const feed = k === 'sugar' ? sugarFeedText(state, v.full) : {};
   if (info.limit) lines.push(feed.full || (v.full && info.full ? info.full : info.limit));
   if (feed.extra) lines.push(feed.extra);
+  const why = k === 'sugar' ? sugarWhy(state) : null;
+  if (why) lines.push(why);
   return {
     main,
     sub: v.capped && v.cap > 0 ? fillWords(v.frac) : goal ? `страница ждёт ${goal} спор` : '',
     body: lines,
-    warn: v.full && !(feed.full && state.feed),
+    warn: (v.full && !(feed.full && state.feed)) || Boolean(why),
   };
 }
 

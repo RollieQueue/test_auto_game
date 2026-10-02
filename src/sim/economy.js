@@ -5,6 +5,7 @@ import { stepFeed } from './feed.js';
 import { recheckTips } from './network.js';
 import { treeBarred } from './rival.js';
 import { fungusFx, partnerPay } from './species.js';
+import { stakesOn } from './stakes.js';
 
 function updateCaps(state) {
   const len = state.stats.hyphaeLength;
@@ -20,7 +21,7 @@ function extract(state, dt) {
   const biome = biomeFx(world);
   const mineralFx = fungusFx(state).minerals;
   for (const w of world.water) {
-    w.amount = Math.min(w.max, w.amount + w.regen * sim.fx.regen * dt);
+    w.amount = Math.min(w.max, w.amount + w.regen * sim.fx.regen * B.waterRegen * dt);
     const links = sim.waterLinks[w.id].length;
     if (links === 0) continue;
     if (sim.emptyFlag.water[w.id] && w.amount >= B.emptyRearm * w.max) sim.emptyFlag.water[w.id] = false;
@@ -87,7 +88,7 @@ function stepTrees(state, dt) {
     t.health += (sat - t.health) * Math.min(1, dt / B.treeHealthTau);
     const rot = 1 - (t.infection ?? 0);
     if (mantle) t.mantle = (t.mantle ?? 0) + (sat * fac(t) - (t.mantle ?? 0)) * mk;
-    const pay = B.treePay[t.stage] * sp.pay * partnerPay(state, t) * fac(t) * sat * fx.pay * pressure(state).treePay * (1 - B.rivalPayCut * (t.infection ?? 0)) * dt;
+    const pay = B.treePay[t.stage] * sp.pay * partnerPay(state, t) * fac(t) * Math.max(sat, B.treeSatFloor) * fx.pay * pressure(state).treePay * (1 - B.rivalPayCut * (t.infection ?? 0)) * dt;
     paid += pay;
     const intake = sim.intake[t.id];
     intake.water += takeW;
@@ -114,7 +115,8 @@ function stepTrees(state, dt) {
 
 /** Saprotrophic trickle: the spore and hyphae in litter and humus decompose leaf litter. */
 export function saprotrophSugar(state) {
-  return Math.min(B.sapCap, B.sapBase + B.sapPerLength * state.sim.lenSap);
+  const base = Math.min(B.sapCap, B.sapBase + B.sapPerLength * state.sim.lenSap);
+  return state.sim.orphaned ? base * B.sapOrphan : base;
 }
 
 export function stepEconomy(state, dt) {
@@ -122,6 +124,7 @@ export function stepEconomy(state, dt) {
   updateCaps(state);
   extract(state, dt);
   const paid = stepTrees(state, dt);
+  sim.orphaned = paid <= 0 && stakesOn(state); // from page 2 on: no tree pays (cut off from all of them, or frozen under barriers), the net lives harder on litter
   const income = saprotrophSugar(state) + paid / dt;
   const P = pressure(state);
   let upkeep = B.upkeepPerLength * state.stats.hyphaeLength * (1 + state.stats.hyphaeLength / P.sprawl) * sim.fx.upkeep * P.upkeep;

@@ -215,7 +215,7 @@ test('water and minerals are drawn at the glade rate per link', () => {
     const w0 = water.amount;
     const m0 = mineral.amount;
     run(s, 1);
-    return { water: w0 - water.amount + water.regen, mineral: m0 - mineral.amount };
+    return { water: w0 - water.amount + water.regen * B.waterRegen, mineral: m0 - mineral.amount };
   };
   for (const id of BIOME_IDS) {
     const d = drawn(id);

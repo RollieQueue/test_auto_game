@@ -255,7 +255,7 @@ test('spring rain refills water pockets much faster than clear weather', () => {
     w.amount = 0;
     jump(g, t);
     sim.updateSim(g, 0.5);
-    return w.amount / 0.5 / w.regen;
+    return w.amount / 0.5 / w.regen / B.waterRegen; // the weather's multiplier alone (every pocket also refills B.waterRegen x faster)
   };
   const base = regenOver(clear.t);
   assert.ok(Math.abs(base - B.seasons.spring.regen) < 1e-9);

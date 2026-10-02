@@ -233,7 +233,7 @@ test('water pockets regenerate slowly', () => {
   const w = s.world.water[0];
   w.amount = 10;
   run(s, 10);
-  assert.ok(Math.abs(w.amount - (10 + w.regen * 10)) < 0.05);
+  assert.ok(Math.abs(w.amount - (10 + w.regen * B.waterRegen * 10)) < 0.05);
   w.amount = w.max;
   run(s, 5);
   assert.equal(w.amount, w.max, 'capped at max');
