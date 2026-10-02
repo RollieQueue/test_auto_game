@@ -190,6 +190,16 @@ export function createHud(root, actions) {
           </label>
           <button class="ink-btn quiet set-toggle" data-act="motion-toggle" type="button" aria-pressed="false">Меньше движения: выкл</button>
         </div>
+        <div class="new-glade">
+          <button class="ink-btn quiet" data-act="new-ask" type="button">Новая поляна</button>
+          <div class="new-confirm" role="group" aria-label="Новая поляна" hidden>
+            <div class="new-q">Точно? Эта поляна пропадёт</div>
+            <div class="new-btns">
+              <button class="ink-btn quiet warn" data-act="new-yes" type="button">Да, новая</button>
+              <button class="ink-btn quiet" data-act="new-no" type="button">Нет</button>
+            </div>
+          </div>
+        </div>
         <div class="hint"><kbd>Пробел</kbd> или <kbd>Esc</kbd></div>
       </div>
     </div>
@@ -270,6 +280,8 @@ export function createHud(root, actions) {
     title: q('.title-screen'),
     titlePage: q('.title-page'),
     pauseScreen: q('.pause-screen'),
+    newAsk: q('.pause-page [data-act="new-ask"]'),
+    newConfirm: q('.pause-page .new-confirm'),
     summary: q('.summary-screen'),
     year: q('.year-screen'),
     yearPage: q('.year-page'),
@@ -500,6 +512,7 @@ export function createHud(root, actions) {
     tooltip.reset();
     setScreen(el.summary, false);
     setScreen(el.pauseScreen, false);
+    setNewAsk(false);
     setScreen(el.help, false);
     setScreen(el.atlas, false);
     setScreen(el.year, false);
@@ -642,6 +655,12 @@ export function createHud(root, actions) {
     saveFor = state;
   }
 
+  /** The pause page's «Новая поляна» asks once: the first click turns the button into «Точно? …» with «Да, новая» / «Нет». */
+  function setNewAsk(on) {
+    el.newAsk.hidden = on;
+    el.newConfirm.hidden = !on;
+  }
+
   const toggleMute = () => actions.setMuted(!actions.isMuted());
   const toggleSpeed = () => actions.setSpeed(cur && cur.speed === 2 ? 1 : 2);
 
@@ -683,6 +702,13 @@ export function createHud(root, actions) {
       case 'retry': // the same glade and fungus, from the start
         return actions.restart(cur.seed, cur.flags.species);
       case 'restart':
+        return actions.restart();
+      case 'new-ask':
+        return setNewAsk(true);
+      case 'new-no':
+        return setNewAsk(false);
+      case 'new-yes': // the same action as «Новая поляна» on the summary: a new random glade (never the glade just left)
+        setNewAsk(false);
         return actions.restart();
       default:
     }
@@ -1192,7 +1218,9 @@ export function createHud(root, actions) {
       if (phase === 'title' && saveFor !== state) refreshSave(state);
 
       setScreen(el.title, phase === 'title');
-      setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
+      const pauseOpen = phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen;
+      setScreen(el.pauseScreen, pauseOpen);
+      if (!pauseOpen && !el.newConfirm.hidden) setNewAsk(false); // a closed pause page never keeps the question armed
 
       if (phase === 'title') {
         // with a save the first line is the saved glade («Продолжить»), the second the new one («Новая поляна» starts it)

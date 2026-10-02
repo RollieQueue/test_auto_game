@@ -111,6 +111,9 @@ function treeTipCandidates(state, nodes) {
 
 const hint = (id, title, text, extra = {}) => ({ id, title, text, ring: null, ...extra });
 
+/** The «Теперь жди…» hint is shown before this game time (s), while page 1 is open; page 1 closes at 218-335 s. */
+export const WAIT_HINT_UNTIL = 240;
+
 /**
  * The hint for the current state, or null when the guide has nothing more to say.
  * `prevKey` is the key of the target chosen last time (for stickiness).
@@ -239,7 +242,9 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
     if (dry) return null; // nothing left to point at: «жди, пока полоски не пусты» would be a lie
   }
 
-  // f) all in place: wait
+  // f) all in place: wait. A hint for the first minutes only: once page 1 is closed or the game is four minutes old, the player
+  // has seen the forest grow and «теперь жди» would read as a stray note (it showed at 700 s after a barrier)
+  if (state.flags.allObjectivesDone || state.time >= WAIT_HINT_UNTIL) return null;
   return hint(
     'wait',
     'Теперь жди…',

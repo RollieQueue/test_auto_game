@@ -6,7 +6,7 @@ import { HORIZONS, generateWorld } from '../src/world/generate.js';
 import { BIOMES, BIOME_IDS, horizonLabel } from '../src/world/biomes.js';
 import { hash32 } from '../src/core/rng.js';
 import { sampleProfile } from '../src/world/query.js';
-import { LABEL_FONT, LABEL_INSET, cardZone, labelLayout } from '../src/render/soil-labels.js';
+import { LABEL_FONT, LABEL_INSET, cardZone, freeLabelY, labelLayout, obstacleBoxes } from '../src/render/soil-labels.js';
 import { MAX_COMPANIONS, clusterOf, companionGrowth, lookOf, trunkNear } from '../src/render/mushroom-cluster.js';
 
 const seedOf = (biome) => {
@@ -81,6 +81,53 @@ test('one label per drawn horizon, inside the page, clear of the cards, at both 
       assert.ok(labels.filter((l) => l.align === 'left').length >= world.horizons.length - 1, `${id}: all but the litter in the left margin`);
     }
   }
+});
+
+test('a label slides to the next free line past a pool, a pocket and a rock', () => {
+  const hs = [{ id: 'litter', name: 'Подстилка' }, { id: 'humus', name: 'Гумус' }, { id: 'loam', name: 'Суглинок' }];
+  const base = { biome: 'pine', horizons: hs, water: [], minerals: [], rocks: [] };
+  const ext = { x0: 0, y0: 0, x1: 1920, y1: 1080 };
+  const topY = (i) => [100, 400, 800][i];
+  const botY = (i) => [400, 800, 1100][i];
+  const free = labelLayout(base, ext, { topY, botY, unit: 1 });
+  const at = free[1];
+  // a pool right under the label's first line (the playtest's «Дёрн» under a water pocket)
+  const pool = { id: 0, x: at.x + 20, y: at.y, rx: 60, ry: 25 };
+  const w = labelLayout({ ...base, water: [pool] }, ext, { topY, botY, unit: 1 });
+  assert.ok(w[1].y > pool.y + pool.ry, `slid below the pool (${at.y} -> ${w[1].y})`);
+  assert.ok(w[1].y <= botY(1) - 12, 'and stays in its band');
+  assert.equal(w[1].x, at.x, 'the column does not move');
+  assert.deepEqual([w[0], w[2]], [free[0], free[2]], 'the other labels stay');
+  // a pocket and a rock in a row push it on past both
+  const rock = { minX: at.x, maxX: at.x + 80, minY: pool.y + pool.ry + 4, maxY: pool.y + pool.ry + 40 };
+  const w2 = labelLayout({ ...base, water: [pool], rocks: [rock] }, ext, { topY, botY, unit: 1 });
+  assert.ok(w2[1].y > rock.maxY, `past the rock too (${w2[1].y})`);
+  // no room below (a thin band): it goes above instead; no room at all: it stays where it was
+  const boxes = obstacleBoxes({ water: [{ x: 100, y: 500, rx: 50, ry: 20 }] });
+  assert.ok(freeLabelY(500, 60, 140, 9, boxes, 440, 520) < 500 - 20, 'up when the band ends below');
+  assert.equal(freeLabelY(500, 60, 140, 9, boxes, 490, 520), 500, 'nothing fits: unchanged');
+  assert.equal(freeLabelY(500, 200, 260, 9, boxes, 440, 600), 500, 'an object beside the text does not move it');
+});
+
+test('on every glade the labels clear the pools, pockets and rocks wherever the band has room', () => {
+  const unit = 1.2;
+  const ext = { x0: 0, y0: 0, x1: 1600 * unit, y1: 900 * unit };
+  let checked = 0;
+  let stuck = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const world = generateWorld(seed);
+    const { labels } = layoutOf(world, ext, unit);
+    const boxes = obstacleBoxes(world);
+    for (const l of labels) {
+      const wd = l.text.length * LABEL_FONT * 0.55 * unit;
+      const x0 = l.align === 'right' ? l.x - wd : l.x;
+      const hits = boxes.filter((b) => b.x0 < x0 + wd && b.x1 > x0 && b.y0 < l.y + 6 * unit && b.y1 > l.y - 6 * unit);
+      checked++;
+      if (hits.length) stuck++;
+    }
+  }
+  assert.ok(checked > 200);
+  assert.ok(stuck / checked < 0.02, `${stuck} of ${checked} labels still lie on an object`);
 });
 
 test('the cards of the real game stay clear of the label column (measured: 1280x720 card 372x337, 1600x900 332x302)', () => {

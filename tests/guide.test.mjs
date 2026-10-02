@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
-import { pickHint } from '../src/ui/guide-logic.js';
+import { WAIT_HINT_UNTIL, pickHint } from '../src/ui/guide-logic.js';
 
 function advance(state, seconds) {
   for (let i = 0; i < Math.round(seconds * 60); i++) {
@@ -53,6 +53,31 @@ for (const seed of [1, 7, 42]) {
     assert.equal(h.id, 'wait');
   });
 }
+
+test('«Теперь жди…» belongs to the first minutes: gone once page 1 is closed or the game is four minutes old', () => {
+  const s = createState(7);
+  s.phase = 'playing';
+  const o = s.net.nodes[s.net.originId];
+  assert.ok(sim.commandGrow(s, o.id, [{ x: o.x + 12, y: o.y + 6 }, { x: o.x + 24, y: o.y + 12 }]));
+  advance(s, 1);
+  const w = s.world.water[0];
+  s.net.links.push({ nodeId: o.id, kind: 'water', targetId: w.id, born: s.time });
+  s.net.links.push({ nodeId: o.id, kind: 'tree', targetId: s.world.trees[0].id, born: s.time });
+  s.net.links.push({ nodeId: o.id, kind: 'mineral', targetId: s.world.minerals[0].id, born: s.time });
+  s.mushrooms.push({ id: 0, nodeId: o.id, x: o.x, baseY: o.y, species: 'common', variant: 0, age: 0, growth: 0, mature: false, spores: 0 });
+  const at = (t) => {
+    s.time = t;
+    for (const l of s.net.links) l.born = t; // a fresh mineral link is never «dry» yet
+    return pickHint(s);
+  };
+  assert.equal(at(60).id, 'wait', 'a minute in, all in place: wait');
+  assert.equal(at(WAIT_HINT_UNTIL - 1).id, 'wait');
+  assert.equal(at(WAIT_HINT_UNTIL), null, 'four minutes in, nothing to add');
+  assert.equal(at(700), null, 'a fast-forwarded game after a barrier');
+  at(100);
+  s.flags.allObjectivesDone = true; // page 1 closed early
+  assert.equal(at(100), null);
+});
 
 for (const seed of [9, 26]) {
   test(`a gripped tree outranks «Это спора» and the walk steps, the other priorities stay, seed ${seed}`, () => {

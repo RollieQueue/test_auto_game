@@ -1166,6 +1166,43 @@ kbd {
   outline: 2px dashed var(--indigo);
   outline-offset: 4px;
 }
+/* «Новая поляна» on the pause page: apart from the settings, asks once before the glade is given up */
+.pause-page .new-glade {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  margin: 1em auto 0;
+  padding-top: 0.9em;
+  min-height: 5.2em; /* the question takes the button's place without moving the page */
+  max-width: 19em;
+  border-top: 1px dashed rgba(58, 42, 30, 0.35);
+}
+.pause-page .new-q {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.15em;
+  margin-bottom: 0.6em;
+  color: var(--wax);
+}
+.pause-page .new-btns {
+  display: flex;
+  justify-content: center;
+  gap: 1em;
+}
+.ink-btn.warn {
+  color: var(--wax);
+  box-shadow:
+    0 0 0 2px var(--wax),
+    0 0 0 0.2em rgba(239, 228, 204, 0.9),
+    0 0 0 calc(0.2em + 1.5px) rgba(168, 50, 45, 0.7),
+    0.08em 0.2em 0.4em 0.2em rgba(40, 24, 8, 0.28);
+}
+.ink-btn.warn:hover {
+  background: var(--wax);
+  color: var(--paper-hi);
+}
 .pause-page .settings .set-toggle {
   align-self: center;
   font-size: 1.15em;
@@ -1199,6 +1236,10 @@ kbd {
     margin-top: 0.7em;
     padding-top: 0.6em;
     gap: 0.5em;
+  }
+  .pause-page .new-glade {
+    margin-top: 0.7em;
+    padding-top: 0.6em;
   }
 }
 
