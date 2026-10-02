@@ -6,7 +6,7 @@ import { createRng, fbm1, hash32, makeNoise1D } from '../core/rng.js';
 import { clamp, dist, distToPolyline, pointInPolygon, polygonBounds } from '../core/geom.js';
 import { groundYAt, sampleProfile } from './query.js';
 import { BIOMES, BIOME_IDS, gladeName, pickWeighted } from './biomes.js';
-import { FAIR, FAIR_V2, STUMP, checkFairness, stumpSpotProblem } from './fairness.js';
+import { FAIR, FAIR_V2, FAIR_V3, STUMP, checkFairness, openingModeOf, stumpSpotProblem } from './fairness.js';
 
 /** Soil horizons, top to bottom. depth: units below the ground surface (nominal; worlds scale it per biome); cost: sugar per unit of hypha. */
 export const HORIZONS = [
@@ -65,12 +65,14 @@ function rockOutline(rng, x, y, rx, ry, rot) {
 /**
  * Generator versions. 1: the glades of every game before «старт с задачкой» (a root tip may lie right at the spore); their
  * saves rebuild with exactly these rules. 2: the nearest root tip is 160-250 u away, stumps always stand in sight (see
- * fairness.js FAIR_V2). A new game uses GEN; a save without a `gen` is a v1 save.
+ * fairness.js FAIR_V2). 3: the second step of the opening is a decision: on about half of the seeds the first tree plus the
+ * starter water or the first mineral fits the purse but not both (fairness.js FAIR_V3); the other half is roomy. A new game
+ * uses GEN; a save without a `gen` is a v1 save, and every save keeps the generator it was made with.
  */
-export const GEN = 2;
-export const GENERATIONS = [1, 2];
+export const GEN = 3;
+export const GENERATIONS = [1, 2, 3];
 
-const ATTEMPTS = { 1: 40, 2: 160 };
+const ATTEMPTS = { 1: 40, 2: 160, 3: 320 };
 
 /**
  * The whole glade for a seed: the first fair build among deterministic attempts. When none is fair, v1 plays the last build
@@ -87,7 +89,7 @@ export function generateWorld(seed, gen = GEN) {
     if (!best || fair.problems.length < best.problems.length) best = { world, problems: fair.problems };
   }
   if (gen < 2) return world;
-  // v2 fell short on every attempt: the best one plays (stumps in the whole bands when none stands in sight), with the reasons on record
+  // v2 and v3 fell short on every attempt: the best one plays (stumps in the whole bands when none stands in sight), with the reasons on record
   best.world.fallback = [...best.problems];
   if (!best.world.stumps.length) {
     best.world.stumps = placeStumps(best.world, true);
@@ -249,8 +251,11 @@ export function buildWorld(seed, attempt = 0, gen = GEN) {
 
   // Winnability: the first water pocket and the first nitrogen vein are a short reach from the spore, on opposite sides.
   const side = rng.chance(0.5) ? 1 : -1;
-  const [waterNear, waterFar] = gen >= 2 ? FAIR_V2.waterPlace : [150, 290]; // how far to the side of the spore the starter pocket is tried
-  const [mineralNear, mineralFar] = gen >= 2 ? FAIR_V2.mineralPlace : [130, 280];
+  // v3: a roomy glade keeps the starter pocket and the first mineral near the spore (the three fit the purse), a tight one lays them out like v2
+  const opening = gen >= 3 ? openingModeOf(seed) : null;
+  const roomy = opening === 'roomy';
+  const [waterNear, waterFar] = roomy ? FAIR_V3.roomyPlace : gen >= 2 ? FAIR_V2.waterPlace : [150, 290]; // how far to the side of the spore the starter pocket is tried
+  const [mineralNear, mineralFar] = roomy ? FAIR_V3.roomyPlace : gen >= 2 ? FAIR_V2.mineralPlace : [130, 280];
   const water = [];
   for (const [d0, d1] of biome.water.plan) {
     for (let tries = 0; tries < 500; tries++) {
@@ -335,6 +340,7 @@ export function buildWorld(seed, attempt = 0, gen = GEN) {
   };
   world.stumps = placeStumps(world, gen < 2);
   world.gen = gen;
+  if (opening) world.opening = opening; // v3 only: what kind of opening fairness.js judges
   return world;
 }
 

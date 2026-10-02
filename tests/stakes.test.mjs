@@ -14,7 +14,7 @@ const DT = 1 / 60;
 
 /** A game of seed 7 with the flags of the real game, in page `chapter`. */
 function game({ chapter = 2, rival = true, seed = 7 } = {}) {
-  const s = createState(seed);
+  const s = createState(seed, 2);
   Object.assign(s.flags, { seasons: true, threats: true, rival });
   if (rival) s.rival = null;
   s.chapter = chapter;
@@ -54,7 +54,7 @@ function year(s, o = {}) {
 // ---- the grade ---------------------------------------------------------------------------------------------
 
 test('grade table: what a year earns', () => {
-  const n = createState(7).world.trees.length; // 2 trees in the glade of seed 7
+  const n = createState(7, 2).world.trees.length; // 2 trees in the glade of seed 7
   const full = { stageUps: Math.ceil(B.stakes.growthFull * n) + 1, spores: B.stakes.sporesYear, pages: 1, mushrooms: B.stakes.mushroomsFull, allied: true };
   const cases = [
     ['an idle year (nothing done, the trees alive)', {}, 'poor'],
@@ -195,7 +195,7 @@ test('page 1 never closes: no stakes before chapter 2, whatever happens to the t
 });
 
 test('a normal start does not close: a new game plays three minutes in page 1 without a tremor', () => {
-  const s = createState(23);
+  const s = createState(23, 2);
   Object.assign(s.flags, { seasons: true, threats: true, rival: true });
   step(s, 180);
   assert.equal(pageClosed(s), null);

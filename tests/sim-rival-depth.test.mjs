@@ -25,7 +25,7 @@ const evs = (events, type) => events.filter((e) => e.type === type);
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
 function fresh(seed = 7, flag = true) {
-  const s = createState(seed);
+  const s = createState(seed, 2);
   s.phase = 'playing';
   s.flags.rival = flag;
   return s;
@@ -545,6 +545,7 @@ test('an old save without the raid fields (over, raidCount, the raid stats) load
 function playBar(seed, mode, seconds = 1500) {
   const c = { barriers: 0, froze: 0, grips: 0, raids: 0, closed: 0, denied: 0 };
   const { state } = playBot(seed, {
+    gen: 2,
     seasons: true,
     threats: true,
     runOn: true,

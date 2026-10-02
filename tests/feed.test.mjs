@@ -16,7 +16,7 @@ const DT = 0.1;
 
 /** Seed 13 (birch, 4 trees): every tree an ally by a fake root contact, healthy, a full pantry. */
 function game({ rival = false, sugar = 1 } = {}) {
-  const s = createState(13);
+  const s = createState(13, 2);
   s.flags.rival = rival;
   for (const t of s.world.trees) {
     s.sim.contacts[t.id] = [1000 + t.id];
@@ -276,7 +276,7 @@ test('feed texts: the sugar tooltip speaks of the fed tree instead of «проп
 });
 
 test('feed texts: the sugar tooltip hints at nothing when no tree can be fed', () => {
-  const s = createState(13);
+  const s = createState(13, 2);
   s.cap.sugar = 100;
   s.res.sugar = 100;
   assert.doesNotMatch(resourceTip(s, 'sugar').body.join(' '), /Подкорми/);

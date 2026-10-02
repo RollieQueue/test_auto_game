@@ -1,5 +1,5 @@
 // World generator versions and saves. A save made before the generator got a version (no `gen` field) is a generator-1 save: it
-// rebuilds its glade with exactly the v1 rules and loads unchanged. A new game is generator 2 and says so in its save.
+// rebuilds its glade with exactly the v1 rules and loads unchanged; a generator-2 save keeps its glade the same way. A new game is generator 3 and says so in its save.
 //
 // The fixtures in tests/fixtures/ were written by the code of commit b9fe632, i.e. BEFORE the generator version existed
 // (playBot + encodeState, see gen1-index.json for what each one is): their payloads have no `gen`, and the index pins what that
@@ -109,24 +109,26 @@ test('a generator-1 save in storage is offered by the title page and continues (
   }
 });
 
-test('a new game is generator 2 and its save says so; it comes back as the same glade', () => {
-  assert.equal(GEN, 2);
-  assert.deepEqual(GENERATIONS, [1, 2]);
+test('a new game is generator 3 and its save says so; it comes back as the same glade', () => {
+  assert.equal(GEN, 3);
+  assert.deepEqual(GENERATIONS, [1, 2, 3]);
   const { state } = playBot(42, { maxSeconds: 60, threats: true, seasons: true });
-  assert.equal(state.world.gen, 2);
+  assert.equal(state.world.gen, 3);
   const p = JSON.parse(JSON.stringify(encodeState(state)));
-  assert.equal(p.gen, 2);
+  assert.equal(p.gen, 3);
   assert.equal(p.v, SAVE_VERSION);
   const back = decodeState(p);
-  assert.equal(back.world.gen, 2);
-  assert.deepEqual(geometry(back.world), geometry(generateWorld(42, 2)));
+  assert.equal(back.world.gen, 3);
+  assert.equal(back.world.opening, state.world.opening, 'the opening kind is rebuilt from the seed');
+  assert.deepEqual(geometry(back.world), geometry(generateWorld(42, 3)));
   assert.equal(worldFingerprint(back.world), p.wf);
   assert.deepEqual(encodeState(back), encodeState(state));
-  // a fresh random seed gives another glade, again generator 2 («Новая поляна» takes createState(seed) with the default generator)
-  for (const seed of [123456789, 987654321, 31337]) assert.equal(createState(seed).world.gen, 2);
+  // a fresh random seed gives another glade, again generator 3 («Новая поляна» takes createState(seed) with the default generator)
+  for (const seed of [123456789, 987654321, 31337]) assert.equal(createState(seed).world.gen, 3);
   assert.notEqual(worldFingerprint(createState(123456789).world), worldFingerprint(createState(987654321).world));
   // the glade of the same seed differs between the generators, so the fingerprint does tell them apart
   for (const seed of [7, 13, 23, 42]) assert.notEqual(worldFingerprint(generateWorld(seed, 1)), worldFingerprint(generateWorld(seed, 2)), `seed ${seed}`);
+  for (const seed of [7, 13, 23, 42]) assert.notEqual(worldFingerprint(generateWorld(seed, 2)), worldFingerprint(generateWorld(seed, 3)), `seed ${seed}`);
 });
 
 test('the version of the save format stays 1: the new field is optional, and a glade of another generator is refused by its fingerprint', () => {
@@ -142,8 +144,44 @@ test('the version of the save format stays 1: the new field is optional, and a g
   const v1 = load(index.saves[0].file);
   assert.throws(() => decodeState({ ...v1, gen: 2 }), /world differs/);
   // a generator this build does not know, or a garbled one
-  for (const gen of [0, 3, 1.5, '2', null, true, [2]]) assert.throws(() => validatePayload({ ...v2, gen }), /save: world generator/, `gen ${JSON.stringify(gen)}`);
-  assert.throws(() => decodeState({ ...v2, gen: 3 }), /save: world generator/);
+  for (const gen of [0, 4, 1.5, '2', null, true, [2]]) assert.throws(() => validatePayload({ ...v2, gen }), /save: world generator/, `gen ${JSON.stringify(gen)}`);
+  assert.throws(() => decodeState({ ...v2, gen: 4 }), /save: world generator/);
+  // a glade is only rebuilt by the generator it was made with: the same save claiming another one is refused
+  assert.throws(() => decodeState({ ...v2, gen: 2 }), /world differs/);
   // gen 1 stated outright is the same as no gen at all
   assert.deepEqual(geometry(decodeState({ ...v1, gen: 1 }).world), geometry(decodeState(v1).world));
+});
+
+// ---- generator 2: the glades made before generator 3 keep their generator --------------------------------------------------
+
+const gen2 = JSON.parse(readFileSync(new URL('gen2-index.json', dir), 'utf8'));
+
+for (const fx of gen2.saves) {
+  test(`a generator-2 save (seed ${fx.seed}, made at ${fx.savedAt} s) keeps its glade: gen 2 stays gen 2, the same fingerprint, and it plays on`, () => {
+    const p = load(fx.file);
+    assert.equal(p.gen, 2);
+    assert.doesNotThrow(() => validatePayload(p));
+    const state = decodeState(p);
+    assert.equal(state.world.gen, 2, 'the save keeps the generator it was made with');
+    assert.equal(state.world.opening, undefined, 'a v2 glade has no kind of opening');
+    assert.equal(worldFingerprint(state.world), fx.wf);
+    assert.deepEqual(geometry(state.world), geometry(generateWorld(fx.seed, 2)));
+    // it is not the glade generator 3 builds for the seed, and a save that claims generator 3 is refused
+    assert.notEqual(worldFingerprint(generateWorld(fx.seed, 3)), fx.wf);
+    assert.throws(() => decodeState({ ...p, gen: 3 }), /world differs/);
+    // the save saves again as generator 2 and the game goes on
+    assert.equal(encodeState(state).gen, 2);
+    for (let i = 0; i < 600; i++) sim.updateSim(state, DT);
+    assert.equal(state.world.gen, 2);
+    assert.equal(encodeState(state).gen, 2);
+  });
+}
+
+test('the worlds of generators 1 and 2 never change: hashes written by the code before generator 3 (27 seeds each)', () => {
+  const entries = Object.entries(gen2.hashes);
+  assert.equal(entries.length, 54);
+  for (const [key, hash] of entries) {
+    const [gen, seed] = key.split(':').map(Number);
+    assert.equal(sha(generateWorld(seed, gen)), hash, `generator ${gen}, seed ${seed}`);
+  }
 });

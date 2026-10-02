@@ -1,5 +1,6 @@
 // Fairness of a generated glade: the opening must be winnable on every seed. Pure functions over a World.
 import { dist } from '../core/geom.js';
+import { createRng, hash32 } from '../core/rng.js';
 import { costAt, sampleProfile } from './query.js';
 import { createRouter } from './route.js';
 
@@ -48,6 +49,31 @@ export const FAIR_V2 = {
   tipLink: 14, // a route ends this near a root tip (the game links within 18)
 };
 
+/**
+ * Generator v3 («начало — выбор»): the glade of v2 with a decided second step. After the first tree the player holds the
+ * purse minus its cost, and the starter water W and the first mineral M (all costs live, like in v2) are one of two kinds of
+ * opening, fixed by the seed alone (`openingModeOf`):
+ *  - `tight` (about half of the seeds): the tree plus either one fits with a margin (`pairMax`, 63 of 70) but the tree plus
+ *    both does not (`tripleMin`, 76): the second step is water OR the mineral, the other waits for the first pay. Neither
+ *    dead-ends: the tree pays on water or on the mineral alone and the saprotrophic trickle never stops.
+ *  - `roomy`: the tree, the water and the mineral (all but) fit: at most `roomyMax` (the purse and 5 sugar, a few seconds of pay
+ *    short), with both pockets laid out near the spore (`roomyPlace`): median 72 sugar for the three against v2's 85.
+ * Everything else is judged exactly as in v2.
+ */
+export const FAIR_V3 = {
+  ...FAIR_V2,
+  tightShare: 0.5, // share of the seeds with the tight opening
+  pairMax: FAIR_V2.openShare * FAIR_V2.purse, // tight: the tree plus water, and the tree plus the mineral, stay under this
+  tripleMin: 76, // tight: the tree plus water plus the mineral cost at least this (more than the purse, with a margin for a loose drag)
+  roomyMax: FAIR_V2.purse + 5, // roomy: the tree plus water plus the mineral fit in the purse, short of at most 5 sugar (a few seconds of pay)
+  roomyPlace: [105, 150], // generate.js: roomy glades keep the starter pocket and the first mineral this near to the spore
+};
+
+/** `tight` or `roomy`: a v3 glade's opening, decided by the seed alone (its own rng: no draw of the glade depends on it). */
+export function openingModeOf(seed) {
+  return createRng(hash32(seed, 'opening')).chance(FAIR_V3.tightShare) ? 'tight' : 'roomy';
+}
+
 /** Sugar for a straight hypha from (ax, ay) to (bx, by); Infinity when rock or the surface is in the way. */
 export function straightCost(world, ax, ay, bx, by) {
   const len = dist(ax, ay, bx, by);
@@ -65,6 +91,24 @@ export function straightCost(world, ax, ay, bx, by) {
 /** Returns { ok, problems: string[], water, tip, nitrogen } (costs in sugar); `problems` is empty when fair. Judges by the limits of the world's generator version. */
 export function checkFairness(world) {
   return (world.gen ?? 1) >= 2 ? checkFairnessV2(world) : checkFairnessV1(world);
+}
+
+/**
+ * The second step of a v3 opening (see FAIR_V3), judged on the live costs of the first tree, the starter water and the first
+ * mineral: problems, an empty array when the glade's opening kind (`mode`) holds.
+ */
+export function openingProblems(mode, tree, water, mineral) {
+  const F = FAIR_V3;
+  const problems = [];
+  const all = tree + water + mineral;
+  if (mode === 'tight') {
+    if (!(tree + water <= F.pairMax)) problems.push(`the tree and the water cost ${(tree + water).toFixed(0)} together`);
+    if (!(tree + mineral <= F.pairMax)) problems.push(`the tree and the mineral cost ${(tree + mineral).toFixed(0)} together`);
+    if (!(all >= F.tripleMin)) problems.push(`the tree, the water and the mineral cost only ${all.toFixed(0)}: no choice`);
+  } else if (!(all <= F.roomyMax)) {
+    problems.push(`the tree, the water and the mineral cost ${all.toFixed(0)}: not roomy`);
+  }
+  return problems;
 }
 
 /** The rules of generator v1, kept exactly: saves of v1 worlds are rebuilt with them. */
@@ -139,7 +183,10 @@ export function openingRoutes(world) {
   return { trees, water, nitrogen };
 }
 
-/** The rules of generator v2 (FAIR_V2): a first tree 160-250 u away, an opening that costs clearly less than the purse. */
+/**
+ * The rules of generator v2 (FAIR_V2): a first tree 160-250 u away, an opening that costs clearly less than the purse. A v3
+ * world (`world.opening` is its kind) swaps the tree-plus-water share for the rules of its opening (openingProblems).
+ */
 function checkFairnessV2(world) {
   const F = FAIR_V2;
   const problems = [];
@@ -180,8 +227,9 @@ function checkFairnessV2(world) {
   else if (!(tree <= F.treeShare * F.purse)) problems.push(`the first tree costs ${tree.toFixed(0)} sugar`);
   else if (full && full.cost < first.cost / F.sameTipMargin) problems.push('the cheapest tree to link is already full-grown');
   if (!(waterLive <= F.waterShare * F.purse)) problems.push(`the starter water costs ${waterLive.toFixed(0)} sugar`);
-  else if (!(waterLive + tree <= F.openShare * F.purse)) problems.push(`the starter water and the first tree cost ${(waterLive + tree).toFixed(0)} together`);
+  else if (world.gen < 3 && !(waterLive + tree <= F.openShare * F.purse)) problems.push(`the starter water and the first tree cost ${(waterLive + tree).toFixed(0)} together`);
   if (!(nitrogenLive <= F.purse * F.treeShare)) problems.push(`first nitrogen costs ${nitrogenLive.toFixed(0)}`);
+  if (world.gen >= 3 && first) problems.push(...openingProblems(world.opening, tree, waterLive, nitrogenLive));
   return result({ nearest: nearestTip, water: waterLive, tip: tree, nitrogen: nitrogenLive, routes });
 }
 

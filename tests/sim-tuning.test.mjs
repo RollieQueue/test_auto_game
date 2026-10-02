@@ -19,7 +19,7 @@ const evs = (events, type) => events.filter((e) => e.type === type);
 const SEED = { birch: 2, oak: 1, pine: 11, mixed: 7 };
 
 function fresh(seed = 7, flags = {}) {
-  const s = createState(seed);
+  const s = createState(seed, 2);
   s.phase = 'playing';
   Object.assign(s.flags, flags);
   return s;

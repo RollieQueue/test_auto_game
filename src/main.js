@@ -32,8 +32,8 @@ function pickSeed(value) {
 // the fungus a new glade starts with: ?species=<id>, else the last pick on the title page (kept in localStorage)
 let lastSpecies = parseSpecies(params.get('species')) ?? loadChoice();
 
-// ?gen=1 builds the glade with the first world generator (a root tip may lie at the spore), for comparing; the default is the newest
-const GEN = params.get('gen') === '1' ? 1 : undefined;
+// ?gen=1 / ?gen=2 build the glade with an older world generator (1: a root tip may lie at the spore; 2: a glade whose opening is a queue), for comparing; the default is the newest
+const GEN = ['1', '2'].includes(params.get('gen')) ? Number(params.get('gen')) : undefined;
 
 function newState(seed, species) {
   const state = createState(pickSeed(seed), GEN);

@@ -10,7 +10,7 @@ import { MARKS, MARK_IDS, checkMarks, dateText, emptyMemory, lifetimeProgress, m
 import { MARKS_KEY, createMarksStore, emptyStore, gladeOf, loadStore, mergeEarned, mergeGame, sanitize, saveStore } from '../src/ui/marks-store.js';
 
 const game = (seed = 2) => {
-  const s = createState(seed);
+  const s = createState(seed, 2);
   s.phase = 'playing';
   return s;
 };

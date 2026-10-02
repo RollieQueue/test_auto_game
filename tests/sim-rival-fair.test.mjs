@@ -18,7 +18,7 @@ const DT = 1 / 60;
 const evs = (events, type) => events.filter((e) => e.type === type);
 
 function fresh(seed = 7, flag = true) {
-  const s = createState(seed);
+  const s = createState(seed, 2);
   s.phase = 'playing';
   s.flags.rival = flag;
   return s;

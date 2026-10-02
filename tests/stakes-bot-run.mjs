@@ -4,6 +4,7 @@ import { playBot } from './bot.mjs';
 export function playStakes(seed, barrier, maxSeconds = 1500) {
   const closed = [];
   const { state } = playBot(seed, {
+    gen: 2,
     seasons: true,
     threats: true,
     runOn: true,

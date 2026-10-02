@@ -128,8 +128,9 @@ World = {
   decor:    [{ id, type, x, y, rot, scale }],   // purely visual curiosities (acorn, shell, bone, potsherd, ammonite, pebble, snail, beetle, seed, leaf, twig)
   origin:   { x, y },                            // where the spore germinated
   stumps:   [{ id, x, y, r }],                   // the honey fungus' seats (see Rival)
-  gen:      1 | 2,                               // the world generator version the glade was built with (see Glades)
-  fallback?: string[],                           // only when no build of generator 2 was fair: the rules it breaks (never on seeds 1..300)
+  gen:      1 | 2 | 3,                           // the world generator version the glade was built with (see Glades)
+  opening?: 'tight' | 'roomy',                   // generator 3 only: the kind of opening fairness.js judges (a function of the seed)
+  fallback?: string[],                           // only when no build of generator 2/3 was fair: the rules it breaks (never on seeds 1..300)
 }
 Tree = {
   id, species: 'birch' | 'oak' | 'pine', name, x /* trunk base */, baseY,
@@ -288,11 +289,20 @@ first?»), and water costs about as much as the tree («water first or the tree 
 glade (x ≤ 1450, STUMP.seen): the spore leaves them a seat and a build without one is built again (80 → 160 attempts); if
 none of 160 builds is fair the best one plays with `world.fallback` naming the broken rules. Generator 2 keeps the identity
 of a seed (biome, terrain, name, ground, soil horizons); trees, rocks, spore, deposits, decor and stumps differ.
+Generator 3 (`GEN`, «Начало — выбор») is generator 2 with a decided second step: `openingModeOf(seed)` (own rng, half of the
+seeds) makes the glade `tight` or `roomy` (`world.opening`, `FAIR_V3`). Tight: the first tree plus the starter water, and the
+first tree plus the first mineral, each cost at most 63 sugar of the 70-sugar purse, but the tree plus both at least 76: the
+second step is water OR the mineral and the other waits for the first pay (tests/world-gen3.test.mjs plays both orders in
+the real sim). Roomy: the three cost at most 75 (median 72, v2: 85), with both pockets laid out near the spore
+(`FAIR_V3.roomyPlace`). Nothing before the pockets differs from generator 2, but the attempts a seed accepts do, so a glade
+of the same seed is another one; `ATTEMPTS[3]` is 320 (seeds 1..3000: no fallback, worst 1.1 s). Tests that pin a seed's
+layout pass generator 2 (`createState(seed, 2)`, `playBot(seed, { gen: 2 })`).
 **Saves**: `encodeState` writes `gen`; a payload **without** `gen` is a generator-1 save and rebuilds its glade with exactly
 the v1 rules (the v1 code path is untouched: same rng draws, same fingerprint `wf`, same trees, stumps and pockets;
 tests/fixtures/save-gen1-*.json were written by the code before the version existed); an unknown `gen` is refused
 (`save: world generator`). `SAVE_VERSION` stays 1 — the field is optional and an older build that meets a `gen: 2` save
-rebuilds the v1 glade of that seed, finds another fingerprint and refuses it. `?gen=1` in the URL builds v1 glades (debug).
+rebuilds the v1 glade of that seed, finds another fingerprint and refuses it. `?gen=1` / `?gen=2` in the URL build v1 / v2 glades (debug). A save keeps the generator it was made with (tests/fixtures/save-gen2-*.json,
+gen2-index.json: sha1 hashes of the worlds of generators 1 and 2, written before generator 3, never change).
 
 Each biome has its own soil (`look` in biomes.js, pure render data): pine a podzol (needle litter, ash-grey E horizon,
 rusty B with rust tongues, sand, quartz and flint), oak thick black humus with worm casts, krotovinas and white

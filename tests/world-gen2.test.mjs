@@ -28,7 +28,7 @@ const quantile = (sorted, p) => sorted[Math.floor((sorted.length - 1) * p)];
 
 /** A state of the real game: threats on (the pressured economy), one tick run so the sugar cap has cut the purse. */
 function liveState(seed) {
-  const state = createState(seed);
+  const state = createState(seed, 2);
   state.phase = 'playing';
   state.flags.threats = true;
   state.flags.seasons = true;
@@ -36,12 +36,12 @@ function liveState(seed) {
   return state;
 }
 
-test('a new game is built by generator 2, and a glade carries the version it was made with', () => {
-  assert.equal(GEN, 2);
-  assert.equal(createState(7).world.gen, 2);
-  assert.equal(generateWorld(7).gen, 2);
+test('a glade carries the version of the generator it was made with (a new game takes the newest: world-gen3.test.mjs)', () => {
+  assert.ok(GEN >= 2);
+  assert.equal(createState(7, 2).world.gen, 2);
+  assert.equal(generateWorld(7, 2).gen, 2);
   assert.equal(generateWorld(7, 1).gen, 1);
-  assert.throws(() => generateWorld(7, 3), /unknown world generator/);
+  assert.throws(() => generateWorld(7, GEN + 1), /unknown world generator/);
   assert.throws(() => createState(7, 0), /unknown world generator/);
 });
 
@@ -80,7 +80,7 @@ test('every seed 1..300 passes the fairness check on the first fair build, with 
   }
   // seeds far out, as a real new glade (a random seed up to 10^9) would have
   for (const seed of [31337, 99991, 123456789, 987654321, 555555555, 4242424]) {
-    const w = generateWorld(seed);
+    const w = generateWorld(seed, 2);
     assert.deepEqual(checkFairness(w).problems, [], `seed ${seed}`);
     assert.equal(w.fallback, undefined);
   }
@@ -244,7 +244,7 @@ test('the guide still makes sense: spore, then water, then the root tip, on the 
     const w = state.world;
     const r = opening(seed);
     // nothing grown yet: the spore
-    const h0 = pickHint(createState(seed), null, 'grow');
+    const h0 = pickHint(createState(seed, 2), null, 'grow');
     assert.equal(h0.id, 'spore');
     assert.ok(Math.hypot(h0.ring.x - w.origin.x, h0.ring.y - w.origin.y) < 1e-6);
     // a hypha is under way: the nearest pocket of water, which is a reach of the spore, not far across the glade
