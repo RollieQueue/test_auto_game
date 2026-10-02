@@ -77,12 +77,21 @@ game.actions = {
     game.state.ui.preview = null;
   },
   restart(seed) {
-    game.state = newState(seed);
+    const previous = game.state.world && game.state.world.biome;
+    let next = newState(seed);
+    // a random new glade that keeps the biome of the last one gets one more roll, so «Новая поляна» looks new
+    if (!Number.isFinite(Number(seed)) && previous && next.world.biome === previous) next = newState(seed);
+    game.state = next;
     game.state.phase = 'playing';
     game.audio.unlock();
   },
   hasSave() {
     return persist.hasSave();
+  },
+  /** The saved glade's seed and name for the title page («Сохранённая поляна: …»), or null. Read once per title screen. */
+  savedGlade() {
+    const saved = persist.hasSave() ? persist.loadSave() : null;
+    return saved ? { seed: saved.seed, world: { name: saved.world && saved.world.name } } : null;
   },
   continueSaved() {
     const saved = persist.loadSave();

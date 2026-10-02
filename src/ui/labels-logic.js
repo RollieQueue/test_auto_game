@@ -40,3 +40,46 @@ export function placeLabelY(lab, others, avoid, win) {
   }
   return fallback === null ? Math.max(h + 4, lab.y) : fallback;
 }
+
+const SUGAR_DENIALS = new Set(['fruit-denied', 'trap-denied', 'barrier-denied']);
+const SAME_SPOT = 60; // world units: an «insufficient» this close to a refusal belongs to the same click
+
+/** Where this frame's events refused something for lack of sugar (a mushroom, a ring or a barrier on a node). */
+export function sugarDenialSpots(events) {
+  const spots = [];
+  for (const ev of events || []) {
+    if (SUGAR_DENIALS.has(ev.type) && ev.reason === 'sugar' && typeof ev.x === 'number' && typeof ev.y === 'number') spots.push({ x: ev.x, y: ev.y });
+  }
+  return spots;
+}
+
+/** True when `ev` lies within SAME_SPOT of one of the spots. */
+export const nearAny = (spots, ev) => spots.some((p) => Math.hypot(p.x - ev.x, p.y - ev.y) < SAME_SPOT);
+
+const SHIFT_STEP = 16; // px between the spots tried for the note stack
+
+/**
+ * How far (px, + is right) to slide the stack of margin notes from its centred spot so that it covers fewer tree crowns
+ * and mushrooms. `box`: { cx, w, t, h } the centred stack (centre x, width, top, height); `span`: { l, r } where it may
+ * lie (between the cards); `things`: screen rects { l, t, r, b, w } with the weight of each (what it hides if covered).
+ * Ties keep the smaller move, so a free stack stays centred.
+ */
+export function notesShift(box, span, things) {
+  const room = span.r - span.l - box.w;
+  if (!(room > 0)) return 0;
+  const lo = Math.min(0, Math.ceil((span.l + box.w / 2 - box.cx) / SHIFT_STEP) * SHIFT_STEP);
+  const hi = Math.max(0, Math.floor((span.r - box.w / 2 - box.cx) / SHIFT_STEP) * SHIFT_STEP);
+  let best = 0;
+  let bestScore = Infinity;
+  for (let dx = lo; dx <= hi; dx += SHIFT_STEP) {
+    const l = box.cx + dx - box.w / 2;
+    let score = 0;
+    for (const r of things) if (l < r.r && l + box.w > r.l && box.t < r.b && box.t + box.h > r.t) score += r.w ?? 1;
+    score += Math.abs(dx) / 1e4; // a tie keeps the smaller move
+    if (score < bestScore) {
+      bestScore = score;
+      best = dx;
+    }
+  }
+  return best;
+}

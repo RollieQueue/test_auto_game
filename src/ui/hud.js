@@ -2,10 +2,11 @@
 // update() runs every frame, so every write below is guarded by a "changed?" check.
 import { icons, checkbox, flourish, capBar } from './icons.js';
 import { RESOURCES, resourceView, resourceTip, createSugarNudge } from './resources-logic.js';
-import { coverage, cardMode, pointerIn } from './cards-logic.js';
+import { coverage, cardMode, pointerIn, crownRect, mushroomRect } from './cards-logic.js';
 import { objectiveText } from './trees-logic.js';
 import { gladeLabel } from './glade.js';
-import { createNotes } from './notes.js';
+import { createNotes, smallWindow } from './notes.js';
+import { notesShift } from './labels-logic.js';
 import { createTooltip } from './tooltip.js';
 import { createLabels } from './labels.js';
 import { createGuide } from './guide.js';
@@ -29,6 +30,7 @@ const BAR_COLORS = { sugar: ['#e0b04a', '#b97a14'], water: ['#78b6dc', '#2f6f9f'
 const ART_URL = 'assets/art/frontispiece.webp';
 const OBJ_REVEAL_START = 8; // s the objectives card is open at the start of a game
 const OBJ_REVEAL_TICK = 6; // s it opens when an objective is ticked off
+const OBJ_QUIET_WAKE = 12; // s the objectives card stays folded after the honey fungus woke
 const OBJ_HOLD = 0.35; // s it stays open after the pointer moved away
 
 const nf = new Intl.NumberFormat('ru-RU');
@@ -113,6 +115,7 @@ export function createHud(root, actions) {
           <h1>Корни и нити</h1>
           <div class="sub">наблюдения за юной грибницей</div>
           <div class="glade-line" data-glade="title"></div>
+          <div class="glade-line fresh" data-glade="fresh"></div>
           ${flourish}
           <div class="intro">
             <p>Под лесной поляной, в тёплом перегное, проросла одна спора. Тяни нити сквозь землю к воде и минералам, заключай союз с корнями деревьев: они заплатят тебе сахаром.</p>
@@ -203,6 +206,7 @@ export function createHud(root, actions) {
     resCard: q('.res-card'),
     objGlade: q('.obj-glade'),
     gladeTitle: q('[data-glade="title"]'),
+    gladeFresh: q('[data-glade="fresh"]'),
     gladeSummary: q('[data-glade="summary"]'),
     objCard: q('.obj-card'),
     objTitle: q('[data-k="obj-title"]'),
@@ -279,10 +283,7 @@ export function createHud(root, actions) {
   const labels = createLabels(el.labels, () => {
     const out = [];
     // The cards and bars stay readable too: a label born under them (a stump at the glade's edge) floats clear.
-    for (const sel of ['.res-card', '.obj-card', '.tools', '.stamps']) {
-      const r = q(sel) && q(sel).getBoundingClientRect();
-      if (r && r.width >= 2) out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom });
-    }
+    out.push(...cardRects());
     let bottom = -Infinity;
     for (const n of el.notes.children) {
       const r = n.getBoundingClientRect();
@@ -328,6 +329,30 @@ export function createHud(root, actions) {
   art.addEventListener('error', () => art.remove());
   art.src = ART_URL;
   const speciesPicker = createSpeciesPicker(q('.species'), actions);
+
+  // The cards and bars that float labels and the cursor tooltip keep clear of. The objectives card opens and shuts over
+  // 0.3 s, so its rectangle is the one it settles at (a label born in the first frames must not see it half-open).
+  function cardRects() {
+    const out = [];
+    for (const sel of ['.res-card', '.obj-card', '.tools', '.stamps']) {
+      const node = q(sel);
+      if (!node) continue;
+      const r = node.getBoundingClientRect();
+      if (r.width < 2) continue;
+      let bottom = r.bottom;
+      if (node === el.objCard) {
+        const fs = parseFloat(getComputedStyle(root).fontSize) || 16;
+        const head = node.querySelector('.obj-head').offsetHeight;
+        bottom =
+          r.top +
+          (shown.objOpen
+            ? head + el.objGlade.offsetHeight + el.objList.scrollHeight + 1.9 * fs
+            : head + 0.6 * fs);
+      }
+      out.push({ l: r.left, t: r.top, r: r.right, b: bottom });
+    }
+    return out;
+  }
 
   // ---- screens -----------------------------------------------------------
   const screenTokens = new WeakMap();
@@ -377,10 +402,12 @@ export function createHud(root, actions) {
   let freedTrees = 0; // trees the honey fungus let go of in this game (the summary and year pages tell them)
   let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
   let objHold = 0; // s the card stays open after the pointer left it
+  let objQuiet = 0; // s the card stays folded after the honey fungus woke (the stump and its label must show)
   let seasonIntro = false; // the first season's note was shown for this game
   let cardT = 0; // s until the cards look again at what lies under them
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
   let hasSave = false;
+  let savedLine = ''; // «Сохранённая поляна: …»: the glade «Продолжить наблюдения» opens (the title's own state is the new one)
   const shown = {}; // text cache of the DOM
   const smooth = { sugar: 0, water: 0, minerals: 0, spores: 0 };
   const lastVal = {};
@@ -410,6 +437,7 @@ export function createHud(root, actions) {
     freedTrees = 0;
     objReveal = state.time < 2 ? OBJ_REVEAL_START : 0;
     objHold = 0;
+    objQuiet = 0;
     seasonIntro = false;
     cardT = 0;
     nudge.reset();
@@ -544,6 +572,8 @@ export function createHud(root, actions) {
 
   function refreshSave(state) {
     hasSave = Boolean(actions.hasSave?.());
+    const saved = hasSave ? actions.savedGlade?.() : null;
+    savedLine = saved ? gladeLabel(saved, 'Сохранённая поляна') : '';
     el.continueBtn.hidden = !hasSave;
     el.newBtn.hidden = !hasSave;
     el.startBtn.hidden = hasSave;
@@ -828,13 +858,18 @@ export function createHud(root, actions) {
     if (playing) {
       objReveal = Math.max(0, objReveal - dt);
       objHold = Math.max(0, objHold - dt);
+      objQuiet = Math.max(0, objQuiet - dt);
+      if (state.events.some((ev) => ev.type === 'rival-wake')) {
+        objQuiet = OBJ_QUIET_WAKE;
+        objReveal = 0;
+      }
     }
     const p = state.ui.pointer;
     if (playing && p && p.inside !== false && !state.ui.drag && p.sy < 360) { // the card lives in the top-right corner
       const r = el.objCard.getBoundingClientRect();
       if (p.sx >= r.left - 6 && p.sx <= r.right + 6 && p.sy >= r.top - 6 && p.sy <= r.bottom + 6) objHold = OBJ_HOLD;
     }
-    const open = playing && (objReveal > 0 || objHold > 0);
+    const open = playing && ((objReveal > 0 && objQuiet <= 0) || objHold > 0);
     if (shown.objOpen !== open) {
       shown.objOpen = open;
       el.objCard.classList.toggle('open', open);
@@ -850,6 +885,7 @@ export function createHud(root, actions) {
     cardT -= dt;
     if (cardT > 0 && live) return;
     cardT = 0.12;
+    if (live) updateNotesSpot(state, view);
     const p = state.ui.pointer;
     const pointer = Boolean(live && p && p.inside !== false);
     for (const [key, card] of [['res', el.resCard], ['obj', el.objCard]]) {
@@ -866,6 +902,26 @@ export function createHud(root, actions) {
         if (mode !== 'solid') card.classList.add(`m-${mode}`);
       }
     }
+  }
+
+  /**
+   * The margin notes stack at the top centre; while none is on screen the stack picks the spot between the cards where it
+   * covers the fewest tree crowns and mushrooms (a stack on screen stays put). The spot is the CSS variable --notes-dx.
+   */
+  function updateNotesSpot(state, view) {
+    if (el.notes.children.length) return;
+    const fs = parseFloat(getComputedStyle(root).fontSize) || 16;
+    const z = el.notesZone.getBoundingClientRect();
+    const dx0 = parseFloat(root.style.getPropertyValue('--notes-dx')) || 0;
+    const res = el.resCard.getBoundingClientRect();
+    const obj = el.objCard.getBoundingClientRect();
+    const trees = (state.world && state.world.trees) || [];
+    const things = [];
+    for (const t of trees) things.push({ ...crownRect(t, view), w: 2 });
+    for (const m of state.mushrooms || []) things.push({ ...mushroomRect(m, view, trees), w: 3 });
+    const box = { cx: z.left + z.width / 2 - dx0, w: z.width, t: z.top, h: (smallWindow() ? 6.5 : 9.5) * fs };
+    const dx = notesShift(box, { l: res.right + 8, r: obj.right - 21.5 * fs - 8 }, things);
+    if (dx !== dx0) root.style.setProperty('--notes-dx', `${dx}px`);
   }
 
   /** Sugar sits at its cap: say what to do with it (a short, rate-limited note and the «Гриб» tab lit up for a while). */
@@ -1007,7 +1063,11 @@ export function createHud(root, actions) {
       setScreen(el.title, phase === 'title');
       setScreen(el.pauseScreen, phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
 
-      if (phase === 'title') setText(el.gladeTitle, shown, 'glade.title', gladeLabel(state, hasSave ? 'Новая поляна' : 'Поляна'));
+      if (phase === 'title') {
+        // with a save the first line is the saved glade («Продолжить»), the second the new one («Новая поляна» starts it)
+        setText(el.gladeTitle, shown, 'glade.title', savedLine || gladeLabel(state));
+        setText(el.gladeFresh, shown, 'glade.fresh', savedLine ? gladeLabel(state, 'Новая поляна') : '');
+      }
       updateResources(state, dt);
       updateObjectives(state);
       updateObjCard(state, dt);
@@ -1059,7 +1119,7 @@ export function createHud(root, actions) {
 
       // the pointer tooltip keeps clear of the guide's note; when it cannot, the note steps out of its way
       const box = guide.noteBox();
-      const tipSpot = tooltip.update(state, resourceHover(state), box ? [box] : []);
+      const tipSpot = tooltip.update(state, resourceHover(state), box ? [box] : [], cardRects);
       guide.tipOver(Boolean(tipSpot && tipSpot.covers));
     },
   };

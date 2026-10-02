@@ -63,7 +63,10 @@ export function buildWorld(seed, attempt = 0) {
   const idRng = createRng(hash32(seed, 'identity'));
   const biome = BIOMES[BIOME_IDS[idRng.int(0, BIOME_IDS.length - 1)]];
   const terrain = pickWeighted(idRng, biome.ground);
-  const name = gladeName(idRng, biome, terrain);
+  // The name has its own generator; the two draws it used to take from idRng stay, so the ground and soil of every seed are unchanged.
+  idRng.next();
+  idRng.next();
+  const name = gladeName(createRng(hash32(seed, 'name')), biome, terrain);
   const shape = makeShape(idRng, terrain);
   const jitter = biome.id === 'mixed' ? 0.12 : 0.08;
   const nominal = biome.depths.map((d, i) => (i === 0 ? 0 : d * idRng.range(1 - jitter, 1 + jitter)));

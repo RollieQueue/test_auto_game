@@ -10,11 +10,18 @@ import { RIVAL_BOTH, RIVAL_EVENTS, createRivalTexts } from './rival.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 
 const MAX_NOTES = 4;
+const SMALL_H = 720; // window height (CSS px) up to which the stack is kept small: it would cover a quarter of the glade
+const MAX_NOTES_SMALL = 2;
+const LIFE_OLDER_SMALL = 2.4; // s an older note has left when a newer one arrives in a small window
 const LIFE = 5.2; // seconds a note stays fully visible after its last repeat
 const SEASON_LIFE = 9; // a new season is worth reading twice
 const FADE = 1.15; // seconds of fade-out (matches the CSS transition)
+const FADE_SMALL = 0.5; // the same in a short window (hud.css, max-height: 720px)
 
 const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
+
+/** A short window: at most two notes, and a newer note hurries the older ones off. */
+export const smallWindow = () => typeof window !== 'undefined' && window.innerHeight > 0 && window.innerHeight <= SMALL_H;
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
@@ -107,7 +114,7 @@ export function createNotes(host) {
 
   function startFade(n) {
     if (n.fade > 0) return;
-    n.fade = FADE;
+    n.fade = smallWindow() ? FADE_SMALL : FADE;
     n.el.classList.remove('in');
     n.el.classList.add('out');
   }
@@ -140,14 +147,16 @@ export function createNotes(host) {
       count: 1,
     });
 
+    const small = smallWindow();
+    if (small) for (const [key, n] of active) if (key !== d.key && n.fade <= 0) n.life = Math.min(n.life, LIFE_OLDER_SMALL);
+    const cap = small ? MAX_NOTES_SMALL : MAX_NOTES;
     let visible = 0;
     for (const n of active.values()) if (n.fade <= 0) visible++;
-    if (visible > MAX_NOTES) {
-      for (const n of active.values()) {
-        if (n.fade <= 0) {
-          startFade(n);
-          break;
-        }
+    for (const n of active.values()) {
+      if (visible <= cap) break;
+      if (n.fade <= 0) {
+        startFade(n);
+        visible--;
       }
     }
   }

@@ -3,7 +3,7 @@
 import { icons } from './icons.js';
 import { findNames } from './atlas-logic.js';
 import { THREAT_LOCAL, cutCause, threatLabel } from './threats.js';
-import { LABEL_LIFE, placeLabelY } from './labels-logic.js';
+import { LABEL_LIFE, placeLabelY, sugarDenialSpots, nearAny } from './labels-logic.js';
 import { RIVAL_EVENTS, RIVAL_LOCAL, createRivalTexts } from './rival.js';
 
 const LIFE = LABEL_LIFE; // s
@@ -132,11 +132,9 @@ export function createLabels(host, avoid = () => []) {
     process(state, view) {
       if (!view || !(view.scale > 0)) return false;
       const events = state.events;
-      let sugarDenied = false;
+      // a refusal for sugar (a mushroom, a ring, a barrier) says so with its own text; the plain «не хватает сахара» of the same click stays out
+      const denials = sugarDenialSpots(events);
       const cause = cutCause(events);
-      for (let i = 0; i < events.length; i++) {
-        if (events[i].type === 'fruit-denied' && events[i].reason === 'sugar') sugarDenied = true;
-      }
       for (let i = 0; i < events.length; i++) {
         const ev = events[i];
         if (!LOCAL_EVENTS.has(ev.type) || typeof ev.x !== 'number') continue;
@@ -144,6 +142,7 @@ export function createLabels(host, avoid = () => []) {
           if (clock - lastBite < BITE_GAP) continue;
           lastBite = clock;
         }
+        const sugarDenied = ev.type === 'insufficient' && !ev.partial && nearAny(denials, ev);
         const d = RIVAL_EVENTS.has(ev.type) ? rival.label(state, ev) : describeLabel(state, ev, sugarDenied, cause);
         if (d) spawn(d, ev.x * view.scale + view.ox, ev.y * view.scale + view.oy - 8, view);
       }

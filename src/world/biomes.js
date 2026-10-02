@@ -14,7 +14,8 @@
 export const BIOMES = {
   birch: {
     id: 'birch',
-    bases: ['Берёзовая опушка', 'Берёзовая роща', 'Берёзовый перелесок', 'Светлая берёзовая роща'],
+    bases: ['Берёзовая опушка', 'Берёзовая роща', 'Берёзовый перелесок', 'Светлая берёзовая роща', 'Берёзник', 'Берёзовая рощица', 'Белоствольная роща'],
+    landmarks: ['у старой берёзы', 'у берёзового пня', 'со сломанной берёзой', 'с берёзовым подлеском', 'с берёзовыми серёжками'],
     trees: {
       weights: { birch: 0.74, oak: 0.1, pine: 0.16 },
       dominant: 'birch',
@@ -38,7 +39,8 @@ export const BIOMES = {
   },
   oak: {
     id: 'oak',
-    bases: ['Дубрава', 'Дубовая роща', 'Старая дубрава', 'Дубовый лес'],
+    bases: ['Дубрава', 'Дубовая роща', 'Старая дубрава', 'Дубовый лес', 'Дубовая опушка', 'Тихая дубрава', 'Дубовая рощица'],
+    landmarks: ['у векового дуба', 'у дуплистого дуба', 'с желудёвым ковром', 'с дубовой порослью', 'с грибными кругами'],
     trees: {
       weights: { birch: 0.2, oak: 0.72, pine: 0.08 },
       dominant: 'oak',
@@ -62,7 +64,8 @@ export const BIOMES = {
   },
   pine: {
     id: 'pine',
-    bases: ['Сосновый бор', 'Сосняк', 'Сосновая роща', 'Светлый бор'],
+    bases: ['Сосновый бор', 'Сосняк', 'Сосновая роща', 'Светлый бор', 'Сухой бор', 'Корабельный бор', 'Сосновый перелесок'],
+    landmarks: ['у сухой сосны', 'у смолистой сосны', 'с брусничником', 'с хвойным ковром', 'с вересковой полянкой'],
     trees: {
       weights: { birch: 0.18, oak: 0.06, pine: 0.76 },
       dominant: 'pine',
@@ -86,7 +89,8 @@ export const BIOMES = {
   },
   mixed: {
     id: 'mixed',
-    bases: ['Смешанный лес', 'Смешанная роща', 'Лесная поляна', 'Тенистая поляна'],
+    bases: ['Смешанный лес', 'Смешанная роща', 'Лесная поляна', 'Тенистая поляна', 'Лиственный перелесок', 'Лесная опушка', 'Глухая поляна'],
+    landmarks: ['у орешника', 'с лесной малиной', 'у старой осины', 'с одинокой липой', 'с папоротниковым логом'],
     trees: {
       weights: { birch: 1 / 3, oak: 1 / 3, pine: 1 / 3 },
       dominant: null,
@@ -136,7 +140,28 @@ export function pickWeighted(rng, weights) {
   return entries[entries.length - 1][0];
 }
 
-/** «Сосновый бор на холме»: a base noun phrase of the biome plus a phrase for the ground shape. */
+/** Small features any glade may have; a biome adds its own (`biome.landmarks`). */
+export const LANDMARKS = [
+  'у ручья', 'у родника', 'с муравейником', 'у старой ели', 'у поваленной сосны', 'у замшелого валуна',
+  'у лисьей норы', 'с заросшей тропинкой', 'у старого пня', 'у заросшего пруда', 'с папоротником', 'с земляникой',
+  'с черничником', 'у лесной тропы', 'у каменной гряды', 'с барсучьими норами', 'у светлого ключа', 'у трухлявой колоды',
+  'с кочками мха', 'у зарослей малины', 'с поваленным стволом', 'у мшистой кочки', 'с поляной ландышей',
+];
+
+/** The longest a name may grow (the cards and the title page show it on one line). */
+export const NAME_MAX = 46;
+
+/**
+ * «Сосновый бор у ручья на холме»: a base noun phrase of the biome, usually a landmark, and a phrase for the ground
+ * shape (the name always starts with a base and ends with a phrase of the terrain). `rng` is the name's own generator
+ * (generate.js), so nothing else about a seed depends on how many draws the name takes.
+ */
 export function gladeName(rng, biome, terrain) {
-  return `${rng.pick(biome.bases)} ${rng.pick(TERRAIN_FEATURES[terrain])}`;
+  const base = rng.pick(biome.bases);
+  const feature = rng.pick(TERRAIN_FEATURES[terrain]);
+  // «у … у оврага» reads badly: a landmark with «у» does not go with a terrain phrase with «у»
+  const pool = [...LANDMARKS, ...(biome.landmarks || [])].filter((l) => !(l.startsWith('у ') && feature.startsWith('у ')));
+  const landmark = rng.next() < 0.88 ? rng.pick(pool) : '';
+  const full = landmark ? `${base} ${landmark} ${feature}` : `${base} ${feature}`;
+  return full.length > NAME_MAX ? `${base} ${feature}` : full;
 }

@@ -7,6 +7,7 @@ import * as balance from '../sim/balance.js';
 import { describeTrapPick, fruitCostOf, threatsOn, trapCost } from './threats.js';
 import { describeTree } from './trees-logic.js';
 import { barrierCostOf, barrierTabShown, describeBarrierPick } from './rival.js';
+import * as rivalUi from './rival.js'; // describeStump is reached through the namespace: a build without it only loses the stump's text
 import { placeTip } from './tip-logic.js';
 
 const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
@@ -34,8 +35,10 @@ function describeTarget(state, t) {
     case 'tree': {
       const tree = find(world.trees, t.id);
       if (!tree) return { main: 'Дерево' };
-      return describeTree(tree);
+      return describeTree(tree, state);
     }
+    case 'stump':
+      return typeof rivalUi.describeStump === 'function' ? rivalUi.describeStump(state, t) : null;
     case 'rock':
       return { main: 'Камень — нить не пройдёт' };
     case 'mushroom': {
@@ -129,8 +132,10 @@ export function createTooltip(host) {
      * `extra`: a tooltip { main, sub, body: string[], warn, at?: {x, y} } for what the HUD itself is hovered over (a resources row).
      * `avoid`: screen rects it keeps clear of when it can (the guide's note). Returns { l, t, r, b, covers } (screen px)
      * for the tooltip on screen, null when none; `covers` is true when it had to sit on an avoided rect.
+     * `keepOut`: the HUD cards (an array of screen rects or a function that returns them): a pointer tooltip never sits
+     * over them (a resources-row tooltip beside its own row does).
      */
-    update(state, extra = null, avoid = []) {
+    update(state, extra = null, avoid = [], keepOut = []) {
       const ui = state.ui;
       const p = ui.pointer;
       const live = state.phase === 'playing' || state.phase === 'paused';
@@ -176,7 +181,8 @@ export function createTooltip(host) {
       }
       // a tooltip with an anchor (a resources row) sits beside it; the others follow the pointer
       const at = info.at;
-      const spot = placeTip(at || { x: p.sx, y: p.sy }, { w, h }, { vw: window.innerWidth, vh: window.innerHeight }, avoid, Boolean(at));
+      const cards = at ? [] : typeof keepOut === 'function' ? keepOut() : keepOut;
+      const spot = placeTip(at || { x: p.sx, y: p.sy }, { w, h }, { vw: window.innerWidth, vh: window.innerHeight }, avoid, Boolean(at), cards);
       const transform = `translate(${spot.x.toFixed(0)}px, ${spot.y.toFixed(0)}px) rotate(-0.6deg)`;
       if (transform !== lastTransform) {
         lastTransform = transform;

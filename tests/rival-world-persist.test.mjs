@@ -13,27 +13,27 @@ import { playBot } from './bot.mjs';
 
 const digest = (obj) => createHash('sha1').update(JSON.stringify(obj)).digest('hex').slice(0, 16);
 
-/** Everything the generator produced before stumps existed: the world minus `stumps` and the tree fields added with them. */
+/** Everything the generator produced before stumps existed: the world minus `stumps`, the glade's name (it has its own generator and word lists, see biomes.js) and the tree fields added with them. */
 function oldWorldDigest(seed) {
-  const { stumps, ...rest } = generateWorld(seed);
+  const { stumps, name, ...rest } = generateWorld(seed);
   rest.trees = rest.trees.map(({ infection, mantle, lost, ...t }) => t);
   return digest(rest);
 }
 
-// Digests taken from the generator as it was before stumps were added (checked for seeds 1..400).
+// Digests taken from the generator as it was before stumps were added (checked for seeds 1..400); re-pinned without `name` when the names changed.
 const PINNED = {
-  1: '5b46dfe5cdae0e04',
-  2: 'af9ab91a70c239a9',
-  3: '1c2befa06b81cf5f',
-  7: 'c51abe42e9757232',
-  23: '373af7b55cc5f0ee',
-  42: '484621d35684ec9a',
-  99: 'ca69b56ab9fa8240',
-  150: '5fa4a336bcd603b2',
-  300: '4f13c71c8f3029ab',
-  400: '05efb7fa4ae50e6e',
+  1: '8eed26ea6e17aa52',
+  2: 'faa016e23967b8b1',
+  3: 'c59fcc261d4158ab',
+  7: '15c393cd214c8e16',
+  23: '66f908e3db83945d',
+  42: '82886f9391026ffe',
+  99: '12123fd5e5e93dc6',
+  150: 'bf926c610b6504db',
+  300: '44ab836108c769f5',
+  400: 'c270d04b62aff718',
 };
-const PINNED_ALL_1_400 = '1f31cffce0ddd6b3';
+const PINNED_ALL_1_400 = '1e0e197fcd5c9d88';
 
 test('adding stumps leaves trees, deposits, rocks, decor and spore of existing seeds untouched', () => {
   for (const [seed, want] of Object.entries(PINNED)) assert.equal(oldWorldDigest(Number(seed)), want, `seed ${seed}`);
