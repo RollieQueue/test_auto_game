@@ -14,7 +14,7 @@ export function fruitCostOf(state) {
 }
 
 export const DEFAULT_TRAP_COST = 30;
-export const LAST_CHAPTER = 3; // the sim has three pages of observations; `state.chapterCount` overrides it
+export const LAST_CHAPTER = balance.B?.chapterCount ?? 4; // pages of observations in the sim; `state.chapterCount` overrides it
 
 /** Russian plural: 1 узел, 2 узла, 5 узлов. */
 export function ruPlural(n, one, few, many) {

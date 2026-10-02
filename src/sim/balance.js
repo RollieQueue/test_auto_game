@@ -258,13 +258,13 @@ export const B = {
     lostCap: 'fair', // the best grade of a year in which a tree was lost
   },
   // --- Chapters (threats only): the notebook turns the page after the five first observations ---
-  chapterCount: 3,
+  chapterCount: 4, // pages of the notebook: 1 first threads, 2 the alarm, 3 the long look, 4 the harvest of spores (<= 5 observations each)
   chapter2Finds: 4, // kinds of finds
   chapter2Worms: 5, // nematodes caught
   chapter2Spores: 500,
   chapter3Mushrooms: 8, // grown mushrooms at once
   chapter3Spores: 1500,
-  // the glade's own observation on page 2 (see objectives.js): birch wet (a pool kept full), oak slow (every oak grown), pine stony (phosphorus), mixed (a mushroom under every species)
+  // the glade's own observation on page 3 (see objectives.js): birch wet (a pool kept full), oak slow (every oak grown), pine stony (phosphorus), mixed (a mushroom under every species)
   glade: { birchWater: 55, holdSeconds: 30, pinePhosphorus: 2, mixedReach: 150 },
   winterSugar: 80, // sugar in hand when the winter ends (seasons on)
   reserveSugar: 120, // the same page without seasons: a stock of sugar

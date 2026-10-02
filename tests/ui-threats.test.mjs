@@ -74,18 +74,18 @@ test('chapters: card title, defaults and the summary page', () => {
   assert.equal(objectivesTitle(s), 'Глава 1');
   s.chapter = 2;
   assert.equal(objectivesTitle(s), 'Глава 2');
-  assert.equal(chapterTotal(s), 3);
+  assert.equal(chapterTotal(s), 4);
   const mid = summaryTexts(s, 2);
   assert.equal(mid.title, 'Страница наблюдений заполнена');
   assert.equal(mid.button, 'Перевернуть страницу');
   assert.match(mid.overline, /глава 2/);
-  assert.match(mid.sub, /2 из 3/);
+  assert.match(mid.sub, /2 из 4/);
   assert.ok(mid.hasNext);
-  const last = summaryTexts(s, 3);
+  const last = summaryTexts(s, 4);
   assert.equal(last.button, 'Продолжить наблюдения');
   assert.ok(!last.hasNext);
   s.chapterCount = 5;
-  assert.ok(summaryTexts(s, 3).hasNext);
+  assert.ok(summaryTexts(s, 4).hasNext);
 });
 
 test('labels and notes for the threat events', () => {

@@ -11,10 +11,10 @@ export const OBJECTIVES = [
   { id: 'spores', text: 'Собрать 100 спор' },
 ];
 
-/** Page titles, for the HUD (chapter 3 differs with and without seasons only in its first observation). */
-export const CHAPTER_TITLES = { 1: 'Первые нити', 2: 'Тревожная почва', 3: 'Большая грибница' };
+/** Page titles, for the HUD (page 3 differs with and without seasons only in its winter observation). */
+export const CHAPTER_TITLES = { 1: 'Первые нити', 2: 'Тревожная почва', 3: 'Большая грибница', 4: 'Урожайный год' };
 
-/** The one observation of page 2 that belongs to the glade (its biome), as a function of B.glade. */
+/** The one observation of page 3 that belongs to the glade (its biome), as a function of B.glade. */
 const GLADE_OBJECTIVES = {
   birch: () => ({ id: 'gladeBirch', text: `Напоить рощу: держать ${B.glade.birchWater} воды в запасе ${B.glade.holdSeconds} с подряд` }),
   oak: () => ({ id: 'gladeOak', text: 'Довести каждый дуб поляны до зрелости' }),
@@ -28,31 +28,38 @@ const HOLDS = {
 };
 
 /**
- * The observations of a chapter (1..3); `seasons` picks the winter observation for page 3, a sugar reserve without it;
- * `biome` (world.biome) adds the glade's own observation to page 2, `rival` (state.flags.rival) one observation about the
- * honey fungus to page 2 and to page 3.
+ * The observations of a chapter (1..4), never more than five on a page and, inside a page, from the quick to the slow ones.
+ * Page 2 is the alarming soil: allies, finds, the gravel, worms and, with the honey fungus (`rival` = state.flags.rival), the
+ * answer to it. Page 3 is the long look: the glade's own observation (`biome` = world.biome), an ancient tree, eight mushrooms,
+ * a winter reserve (`seasons` picks the winter, a sugar stock without it) and the mantle of every tree against the honey
+ * fungus. Page 4 is the harvest of spores. (Until run 8 page 2 held eight observations, among them the ancient tree and 500
+ * spores: a bot got through it in 1500 s on one seed of eight.)
  */
 export function pageObjectives(chapter, seasons = false, biome = null, rival = false) {
   if (chapter === 2) {
-    const glade = GLADE_OBJECTIVES[biome]?.();
     return [
       { id: 'allies', text: 'Подружиться со всеми деревьями поляны' },
-      { id: 'ancient', text: 'Вырастить вековое дерево' },
-      { id: 'gravel', text: 'Протянуть нить до галечника' },
       { id: 'finds', text: `Записать в тетрадь ${B.chapter2Finds} вида находок` },
+      { id: 'gravel', text: 'Протянуть нить до галечника' },
       { id: 'worms', text: `Поймать ${B.chapter2Worms} нематод в ловчие кольца` },
-      ...(glade ? [glade] : []),
-      ...(rival ? [{ id: 'rivalCut', text: `Освободить ${B.rivalCutFreed} дерева от опёнка или перерезать ${B.rivalCutGoal} тяжей барьером (клавиша 4)` }] : []),
-      { id: 'spores500', text: `Собрать ${B.chapter2Spores} спор` },
+      ...(rival ? [{ id: 'rivalCut', text: `Спасти ${B.rivalCutFreed} дерева от опёнка или перерезать ${B.rivalCutGoal} тяжей (клавиша 4)` }] : []),
     ];
   }
   if (chapter === 3) {
+    const glade = GLADE_OBJECTIVES[biome]?.();
     return [
+      ...(glade ? [glade] : []),
+      { id: 'ancient', text: 'Вырастить вековое дерево' },
+      { id: 'mushrooms8', text: `Вырастить ${B.chapter3Mushrooms} грибов разом` },
       seasons
         ? { id: 'winter', text: `Дожить до весны с запасом в ${B.winterSugar} сахара` }
         : { id: 'reserve', text: `Накопить запас в ${B.reserveSugar} сахара` },
-      { id: 'mushrooms8', text: `Вырастить ${B.chapter3Mushrooms} грибов разом` },
       ...(rival ? [{ id: 'rivalGuard', text: `Укрепить защиту рощи: у каждого дерева не меньше ${Math.round(B.mantleGoal * 100)} % защиты от опёнка` }] : []),
+    ];
+  }
+  if (chapter === 4) {
+    return [
+      { id: 'spores500', text: `Собрать ${B.chapter2Spores} спор` },
       { id: 'spores1500', text: `Собрать ${B.chapter3Spores} спор` },
     ];
   }
@@ -66,6 +73,34 @@ export function createObjectives(chapter = 1, seasons = false, biome = null, riv
 /** Depth (below the surface) at which the gravel horizon begins in this world. */
 const gravelDepth = (world) => world.horizons[world.horizons.length - 1].depth;
 
+const num = (v) => (Number.isFinite(v) ? v : 0);
+
+/**
+ * What the player did since the current page opened: trees freed and rhizomorph segments cut (the honey fungus wakes in
+ * page 1, so its stats run from game start) and worms caught (rings catch them on page 1 as well). The numbers at the
+ * moment the page opened are in state.sim.pageBase = { chapter, freed, cut, caught } (it is in sim.rest, so a save keeps
+ * it); a state without one for this page (an old save, a hand-made test) counts from zero.
+ */
+export function pageCounts(state) {
+  const b = state.sim?.pageBase;
+  const base = b && b.chapter === (state.chapter ?? 1) ? b : {};
+  const st = state.rival?.stats ?? {};
+  return {
+    freed: Math.max(0, num(st.freedTrees) - num(base.freed)),
+    cut: Math.max(0, num(st.cut) - num(base.cut)),
+    caught: Math.max(0, num(state.sim?.threat?.caught) - num(base.caught)),
+  };
+}
+
+/** Opens page `n`: its observations, and the baseline of pageCounts. */
+function openPage(state, n) {
+  const st = state.rival?.stats ?? {};
+  state.sim.pageBase = { chapter: n, freed: num(st.freedTrees), cut: num(st.cut), caught: num(state.sim.threat?.caught) };
+  state.chapter = n;
+  state.objectives = createObjectives(n, Boolean(state.flags.seasons), state.world.biome, Boolean(state.flags.rival));
+  state.events.push({ type: 'chapter', chapter: n });
+}
+
 const CHECKS = {
   water: (state) => state.net.links.some((l) => l.kind === 'water'),
   tree: (state) => state.net.links.some((l) => l.kind === 'tree'),
@@ -77,7 +112,7 @@ const CHECKS = {
   ancient: (state) => state.world.trees.some((t) => t.stage >= 3),
   gravel: (state) => state.stats.maxDepth >= gravelDepth(state.world),
   finds: (state) => new Set(Object.values(state.finds ?? {}).map((f) => f.kind)).size >= B.chapter2Finds,
-  worms: (state) => state.sim.threat.caught >= B.chapter2Worms,
+  worms: (state) => pageCounts(state).caught >= B.chapter2Worms,
   spores500: (state) => state.res.spores >= B.chapter2Spores,
   gladeBirch: (state) => state.sim.holdT >= B.glade.holdSeconds,
   gladeOak: (state) => state.world.trees.filter((t) => t.species === 'oak' && !t.lost).every((t) => t.stage >= 2),
@@ -96,7 +131,7 @@ const CHECKS = {
   reserve: (state) => state.res.sugar >= B.reserveSugar,
   // the honey fungus: trees freed by barriers or segments cut by them (the player can always grow to a rhizomorph and cut it);
   // a mantle on every living tree (a lost tree is no longer the player's to keep, so it does not count)
-  rivalCut: (state) => (state.rival?.stats.freedTrees ?? 0) >= B.rivalCutFreed || (state.rival?.stats.cut ?? 0) >= B.rivalCutGoal,
+  rivalCut: (state) => pageCounts(state).freed >= B.rivalCutFreed || pageCounts(state).cut >= B.rivalCutGoal,
   rivalGuard: (state) => {
     const living = state.world.trees.filter((t) => !t.lost);
     return living.length > 0 && living.every((t) => (t.mantle ?? 0) >= B.mantleGoal);
@@ -104,6 +139,62 @@ const CHECKS = {
   mushrooms8: (state) => state.mushrooms.filter((m) => m.mature).length >= B.chapter3Mushrooms,
   spores1500: (state) => state.res.spores >= B.chapter3Spores,
 };
+
+const clampN = (v, max) => Math.max(0, Math.min(max, Math.floor(Number.isFinite(v) ? v : 0)));
+
+/**
+ * How far an observation is, as [have, need, unit?] (whole numbers, have <= need) or null where it has no count (the three first
+ * steps of page 1 are single acts). The HUD writes it behind the line: «Собрать 500 спор · 212/500». Reads the same facts as
+ * CHECKS, so a line that says need/need is the one that is ticked.
+ */
+export const COUNTS = {
+  spores: (s) => [clampN(s.res.spores, B.sporesGoal), B.sporesGoal],
+  spores500: (s) => [clampN(s.res.spores, B.chapter2Spores), B.chapter2Spores],
+  spores1500: (s) => [clampN(s.res.spores, B.chapter3Spores), B.chapter3Spores],
+  allies: (s) => [s.world.trees.filter((t) => s.sim.contacts[t.id].length > 0).length, s.world.trees.length],
+  finds: (s) => [clampN(new Set(Object.values(s.finds ?? {}).map((f) => f.kind)).size, B.chapter2Finds), B.chapter2Finds],
+  worms: (s) => [clampN(pageCounts(s).caught, B.chapter2Worms), B.chapter2Worms],
+  // the first of the two ways (trees); the line shows both: see trees-logic.js
+  rivalCut: (s) => [clampN(pageCounts(s).freed, B.rivalCutFreed), B.rivalCutFreed],
+  gravel: (s) => {
+    const need = Math.ceil(gravelDepth(s.world));
+    return [clampN(s.stats.maxDepth, need), need, ' ед.'];
+  },
+  ancient: (s) => [Math.min(3, Math.max(0, ...s.world.trees.map((t) => t.stage || 0))), 3, ' стадии'],
+  gladeBirch: (s) => [clampN(s.sim.holdT, B.glade.holdSeconds), B.glade.holdSeconds, ' с'],
+  gladeOak: (s) => {
+    const oaks = s.world.trees.filter((t) => t.species === 'oak' && !t.lost);
+    return [oaks.filter((t) => t.stage >= 2).length, oaks.length];
+  },
+  gladePine: (s) => [
+    Math.min(B.glade.pinePhosphorus, new Set(s.net.links.filter((l) => l.kind === 'mineral' && s.world.minerals[l.targetId].kind === 'phosphorus').map((l) => l.targetId)).size),
+    B.glade.pinePhosphorus,
+  ],
+  gladeMixed: (s) => {
+    const grown = s.mushrooms.filter((m) => m.mature);
+    const kinds = [...new Set(s.world.trees.map((t) => t.species))];
+    const covered = kinds.filter((sp) => s.world.trees.some((t) => t.species === sp && grown.some((m) => Math.abs(m.x - t.x) <= B.glade.mixedReach)));
+    return [covered.length, kinds.length];
+  },
+  mushrooms8: (s) => [Math.min(B.chapter3Mushrooms, s.mushrooms.filter((m) => m.mature).length), B.chapter3Mushrooms],
+  winter: (s) => [clampN(s.res.sugar, B.winterSugar), B.winterSugar],
+  reserve: (s) => [clampN(s.res.sugar, B.reserveSugar), B.reserveSugar],
+  rivalGuard: (s) => {
+    const living = s.world.trees.filter((t) => !t.lost);
+    return [living.filter((t) => (t.mantle ?? 0) >= B.mantleGoal).length, living.length];
+  },
+};
+
+/** [have, need] of observation `id` in `state`, or null (no count for it, or the state lacks what it reads). */
+export function objectiveCount(state, id) {
+  try {
+    const f = COUNTS[id];
+    const c = f ? f(state) : null;
+    return c && Number.isFinite(c[0]) && Number.isFinite(c[1]) && c[1] > 0 ? c : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Ticks the current page. When it is complete: `all-objectives { chapter }`; with threats on, the next page opens
@@ -114,6 +205,12 @@ const CHECKS = {
 export function stepObjectives(state, dt = 0) {
   const { flags, events } = state;
   const chapters = Boolean(flags.threats);
+  if (flags.bookDone && chapters && (state.chapter ?? 1) < B.chapterCount) {
+    // a save of a book that had fewer pages (three until run 8) and was closed: the page it lacks opens
+    delete flags.bookDone;
+    openPage(state, (state.chapter ?? 1) + 1);
+    return;
+  }
   if (flags.bookDone || (flags.allObjectivesDone && !chapters)) return;
   const holding = state.objectives.find((o) => !o.done && HOLDS[o.id]);
   if (holding) state.sim.holdT = HOLDS[holding.id](state) ? state.sim.holdT + dt : 0;
@@ -132,9 +229,7 @@ export function stepObjectives(state, dt = 0) {
   if (!chapters) return;
   flags.pagesDone = n;
   if (n < B.chapterCount) {
-    state.chapter = n + 1;
-    state.objectives = createObjectives(n + 1, Boolean(flags.seasons), state.world.biome, Boolean(flags.rival));
-    events.push({ type: 'chapter', chapter: n + 1 });
+    openPage(state, n + 1);
   } else {
     flags.bookDone = true;
   }

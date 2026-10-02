@@ -194,12 +194,12 @@ test('the infection line of a tree waits for the awake rival', () => {
 test('the rivalCut objective shows freed trees and cut edges', () => {
   const o = { id: 'rivalCut', text: 'Спаси деревья от опёнка', done: false };
   const s = rivalState({ stats: { freedTrees: 1, cut: 7 } });
-  assert.equal(objectiveProgress(s, o), ` · спасено 1/${B.rivalCutFreed || 2} · перерезано 7/${B.rivalCutGoal || 15}`);
-  assert.match(objectiveText(s, o), /^Спаси деревья от опёнка · спасено 1\/\d+ · перерезано 7\/\d+$/);
+  assert.equal(objectiveProgress(s, o), ` · 1/${B.rivalCutFreed || 2} дерева или 7/${B.rivalCutGoal || 15} тяжей`);
+  assert.match(objectiveText(s, o), /^Спаси деревья от опёнка · 1\/\d+ дерева или 7\/\d+ тяжей$/);
   assert.equal(objectiveProgress(s, { ...o, done: true }), '', 'a ticked line shows nothing');
   const bare = rivalState();
-  assert.match(objectiveProgress(bare, o), /спасено 0\/\d+ · перерезано 0\/\d+/, 'missing stats count as zero');
+  assert.match(objectiveProgress(bare, o), /0\/\d+ дерева или 0\/\d+ тяжей/, 'missing stats count as zero');
   delete bare.rival;
-  assert.match(objectiveProgress(bare, o), /спасено 0/);
-  assert.match(objectiveProgress(createState(3), o), /перерезано 0/);
+  assert.match(objectiveProgress(bare, o), /^ · 0\//);
+  assert.match(objectiveProgress(createState(3), o), /или 0\/\d+ тяжей/);
 });

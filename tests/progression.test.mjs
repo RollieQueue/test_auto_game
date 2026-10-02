@@ -110,7 +110,7 @@ test('with threats, completing a page opens the next one: all-objectives, then c
   assert.deepEqual(evs(seen, 'all-objectives')[0], { type: 'all-objectives', chapter: 1 });
   assert.deepEqual(evs(seen, 'chapter')[0], { type: 'chapter', chapter: 2 });
   assert.equal(s.chapter, 2);
-  assert.deepEqual(ids(s), ['allies', 'ancient', 'gravel', 'finds', 'worms', GLADE_ID[s.world.biome], 'spores500']);
+  assert.deepEqual(ids(s), ['allies', 'finds', 'gravel', 'worms']);
   assert.ok(s.objectives.every((o) => !o.done && typeof o.text === 'string' && o.text.length > 5));
   assert.equal(s.flags.allObjectivesDone, true, 'it keeps meaning «page 1 is complete»');
   assert.equal(s.flags.pagesDone, 1);
@@ -133,16 +133,6 @@ test('chapter 2: every observation can be ticked, one by one, and the page turns
   step(s);
   assert.ok(s.world.trees.every((t) => s.sim.contacts[t.id].length > 0));
   assert.deepEqual(done(), ['allies']);
-  // ancient
-  s.world.trees[1].stage = 3;
-  step(s);
-  assert.deepEqual(done(), ['allies', 'ancient']);
-  // gravel: a hypha reaches the deepest horizon
-  const o = s.net.nodes[0];
-  const depth = s.world.horizons[s.world.horizons.length - 1].depth;
-  branch(s, 0, o.x, o.y + (depth - (o.y - s.world.ground[Math.floor(o.x / s.world.step)])) + 4);
-  step(s);
-  assert.ok(done().includes('gravel'), 'maxDepth reached the gravel');
   // finds: kinds count, not items
   s.finds = { 0: { kind: 'bone', at: 1 }, 1: { kind: 'bone', at: 2 }, 2: { kind: 'shell', at: 3 }, 3: { kind: 'twig', at: 4 } };
   step(s);
@@ -150,73 +140,119 @@ test('chapter 2: every observation can be ticked, one by one, and the page turns
   s.finds[4] = { kind: 'seed', at: 5 };
   step(s);
   assert.ok(done().includes('finds'));
-  // worms
+  // gravel: a hypha reaches the deepest horizon
+  const o = s.net.nodes[0];
+  const depth = s.world.horizons[s.world.horizons.length - 1].depth;
+  branch(s, 0, o.x, o.y + (depth - (o.y - s.world.ground[Math.floor(o.x / s.world.step)])) + 4);
+  step(s);
+  assert.ok(done().includes('gravel'), 'maxDepth reached the gravel');
+  // worms: the last one closes the page
   s.sim.threat.caught = B.chapter2Worms - 1;
-  step(s);
-  assert.ok(!done().includes('worms'));
-  s.sim.threat.caught = B.chapter2Worms;
-  step(s);
-  assert.ok(done().includes('worms'));
-  // the glade's own observation
-  assert.ok(!done().includes(GLADE_ID[s.world.biome]));
-  satisfyGlade(s);
-  step(s);
-  assert.ok(done().includes(GLADE_ID[s.world.biome]), `${GLADE_ID[s.world.biome]} ticked`);
-  // spores
-  s.res.spores = B.chapter2Spores - 1;
   const before = step(s);
+  assert.ok(!done().includes('worms'));
   assert.equal(evs(before, 'all-objectives').length, 0);
-  s.res.spores = B.chapter2Spores;
+  s.sim.threat.caught = B.chapter2Worms;
   const seen = step(s);
   assert.deepEqual(evs(seen, 'all-objectives')[0], { type: 'all-objectives', chapter: 2 });
   assert.deepEqual(evs(seen, 'chapter')[0], { type: 'chapter', chapter: 3 });
   assert.equal(s.chapter, 3);
   assert.equal(s.flags.pagesDone, 2);
-  assert.deepEqual(ids(s), ['reserve', 'mushrooms8', 'spores1500'], 'without seasons the first observation is a reserve of sugar');
+  assert.deepEqual(ids(s), [GLADE_ID[s.world.biome], 'ancient', 'mushrooms8', 'reserve'], 'without seasons the winter is a reserve of sugar');
 });
 
-test('chapter 3 closes the book; with seasons it asks for a winter survived with sugar in hand', () => {
-  const plain = fresh();
-  plain.chapter = 3;
-  plain.objectives = createObjectives(3, false);
-  plain.res.sugar = B.reserveSugar + 1;
-  plain.res.spores = B.chapter3Spores;
-  const grown = () => ({ nodeId: 0, x: 0, baseY: 0, mature: true, growth: 1, variant: 0, age: 99, spores: 0, burst: 0, burstT: 0 });
-  for (let i = 0; i < B.chapter3Mushrooms - 1; i++) plain.mushrooms.push({ ...grown(), id: i });
-  roomy(plain);
-  let seen = step(plain);
-  assert.ok(plain.objectives.filter((o) => o.done).length >= 2);
-  assert.ok(!plain.flags.bookDone, 'seven mushrooms are not eight');
-  plain.mushrooms.push({ ...grown(), id: 50 });
-  plain.res.sugar = B.reserveSugar + 1;
-  seen = step(plain);
+test('chapter 3: the glade observation, an ancient tree, eight mushrooms and a reserve; the page turns to the spores', () => {
+  const s = fresh(7, { threats: true });
+  s.chapter = 3;
+  s.objectives = createObjectives(3, false, s.world.biome);
+  roomy(s);
+  s.world.trees.forEach((t) => (t.stage = 2));
+  const done = () => s.objectives.filter((o) => o.done).map((o) => o.id);
+  step(s, 1);
+  assert.ok(!done().includes('ancient'), 'a mature tree is not an ancient one');
+  s.world.trees[1].stage = 3;
+  step(s);
+  assert.ok(done().includes('ancient'));
+  assert.ok(!done().includes(GLADE_ID[s.world.biome]));
+  satisfyGlade(s);
+  step(s);
+  assert.ok(done().includes(GLADE_ID[s.world.biome]), `${GLADE_ID[s.world.biome]} ticked`);
+  const grown = (i) => ({ id: 100 + i, nodeId: 0, x: 0, baseY: 0, mature: true, growth: 1, variant: 0, age: 99, spores: 0, burst: 0, burstT: 0 });
+  const have = s.mushrooms.filter((m) => m.mature).length; // the mixed glade has grown ones already
+  for (let i = 0; i < B.chapter3Mushrooms - 1 - have; i++) s.mushrooms.push(grown(i));
+  s.res.sugar = B.reserveSugar + 1;
+  step(s);
+  assert.equal(s.chapter, 3);
+  assert.ok(!done().includes('mushrooms8'), 'seven mushrooms are not eight');
+  s.mushrooms.push(grown(50));
+  s.res.sugar = B.reserveSugar + 1;
+  const seen = step(s);
   assert.deepEqual(evs(seen, 'all-objectives')[0], { type: 'all-objectives', chapter: 3 });
-  assert.equal(evs(seen, 'chapter').length, 0, 'there is no chapter 4');
-  assert.equal(plain.flags.bookDone, true);
-  assert.equal(plain.flags.pagesDone, 3);
-  assert.equal(plain.chapter, 3);
-  assert.equal(evs(step(plain, 5), 'all-objectives').length, 0);
+  assert.deepEqual(evs(seen, 'chapter')[0], { type: 'chapter', chapter: 4 });
+  assert.equal(s.chapter, 4);
+  assert.equal(s.flags.pagesDone, 3);
+  assert.ok(!s.flags.bookDone);
+  assert.deepEqual(ids(s), ['spores500', 'spores1500']);
+});
+
+test('chapter 4 closes the book (spores 500 and 1500); with seasons page 3 asks for a winter survived with sugar in hand', () => {
+  const last = fresh();
+  last.chapter = 4;
+  last.objectives = createObjectives(4, false);
+  last.res.spores = B.chapter2Spores;
+  let seen = step(last);
+  assert.deepEqual(last.objectives.filter((o) => o.done).map((o) => o.id), ['spores500']);
+  assert.ok(!last.flags.bookDone, '500 spores are not 1500');
+  last.res.spores = B.chapter3Spores;
+  seen = step(last);
+  assert.deepEqual(evs(seen, 'all-objectives')[0], { type: 'all-objectives', chapter: 4 });
+  assert.equal(evs(seen, 'chapter').length, 0, 'there is no chapter 5');
+  assert.equal(last.flags.bookDone, true);
+  assert.equal(last.flags.pagesDone, 4);
+  assert.equal(last.chapter, 4);
+  assert.equal(evs(step(last, 5), 'all-objectives').length, 0);
 
   const s = fresh(7, { threats: true, seasons: true });
   s.chapter = 3;
   s.objectives = createObjectives(3, true);
   roomy(s);
-  assert.equal(s.objectives[0].id, 'winter');
+  const winter = () => s.objectives.find((o) => o.id === 'winter');
   s.sim.clock = 2 * B.seasonSeconds;
   restoreTime(s);
   s.res.sugar = B.winterSugar + 50;
   step(s);
-  assert.equal(s.objectives[0].done, false, 'a good stock in autumn is not a winter survived');
+  assert.equal(winter().done, false, 'a good stock in autumn is not a winter survived');
   s.sim.clock = 3 * B.seasonSeconds + 0.95 * B.seasonSeconds;
   restoreTime(s);
   s.res.sugar = B.winterSugar - 30;
   step(s);
-  assert.equal(s.objectives[0].done, false, 'the winter ended with too little');
+  assert.equal(winter().done, false, 'the winter ended with too little');
   s.res.sugar = B.winterSugar + 40;
   step(s);
-  assert.equal(s.objectives[0].done, true);
-  assert.deepEqual(pageObjectives(3, true).map((o) => o.id), ['winter', 'mushrooms8', 'spores1500']);
-  assert.ok(CHAPTER_TITLES[1] && CHAPTER_TITLES[2] && CHAPTER_TITLES[3]);
+  assert.equal(winter().done, true);
+  assert.deepEqual(pageObjectives(3, true).map((o) => o.id), ['ancient', 'mushrooms8', 'winter']);
+  assert.deepEqual(pageObjectives(4).map((o) => o.id), ['spores500', 'spores1500']);
+  assert.ok(CHAPTER_TITLES[1] && CHAPTER_TITLES[2] && CHAPTER_TITLES[3] && CHAPTER_TITLES[4]);
+  assert.equal(B.chapterCount, 4);
+});
+
+test('no page has more than five observations, in any mode; the book keeps every observation exactly once', () => {
+  for (const chapter of [1, 2, 3, 4]) {
+    for (const seasons of [false, true]) {
+      for (const biome of [null, 'birch', 'oak', 'pine', 'mixed']) {
+        for (const rival of [false, true]) {
+          const page = pageObjectives(chapter, seasons, biome, rival);
+          assert.ok(page.length >= 2 && page.length <= 5, `page ${chapter} ${seasons} ${biome} ${rival}: ${page.length}`);
+          assert.equal(new Set(page.map((o) => o.id)).size, page.length, 'no observation twice');
+        }
+      }
+    }
+  }
+  // the slow ones are not on page 2: the ancient tree, the spores and the glade's own observation
+  assert.deepEqual(pageObjectives(2, true, 'oak', true).map((o) => o.id), ['allies', 'finds', 'gravel', 'worms', 'rivalCut']);
+  assert.deepEqual(pageObjectives(3, true, 'oak', true).map((o) => o.id), ['gladeOak', 'ancient', 'mushrooms8', 'winter', 'rivalGuard']);
+  const all = [1, 2, 3, 4].flatMap((c) => pageObjectives(c, true, 'pine', true).map((o) => o.id));
+  assert.equal(new Set(all).size, all.length);
+  for (const id of ['allies', 'ancient', 'gravel', 'finds', 'worms', 'gladePine', 'rivalCut', 'spores500', 'winter', 'mushrooms8', 'rivalGuard', 'spores1500']) assert.ok(all.includes(id), id);
 });
 
 test('the page and its ticks survive save and load; a save from before chapters loads as chapter 1', () => {

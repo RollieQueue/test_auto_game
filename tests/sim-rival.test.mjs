@@ -1019,7 +1019,7 @@ test('objectives: page 2 gets rivalCut and page 3 rivalGuard only when the rival
     for (const seasons of [false, true]) {
       const on = ids(pageObjectives(2, seasons, biome, true));
       assert.equal(on.filter((id) => id === 'rivalCut').length, 1, `page 2 ${biome} ${seasons}`);
-      assert.ok(on.indexOf('rivalCut') < on.indexOf('spores500'));
+      assert.equal(on.at(-1), 'rivalCut', 'the answer to the honey fungus closes page 2');
       assert.ok(!ids(pageObjectives(2, seasons, biome)).includes('rivalCut'), 'absent without the 4th argument');
       assert.ok(!ids(pageObjectives(2, seasons, biome, false)).includes('rivalCut'));
     }
@@ -1027,7 +1027,7 @@ test('objectives: page 2 gets rivalCut and page 3 rivalGuard only when the rival
   for (const seasons of [false, true]) {
     const on = ids(pageObjectives(3, seasons, null, true));
     assert.equal(on.filter((id) => id === 'rivalGuard').length, 1);
-    assert.ok(on.indexOf('rivalGuard') < on.indexOf('spores1500'));
+    assert.equal(on.at(-1), 'rivalGuard', 'the mantle closes page 3');
     assert.ok(!ids(pageObjectives(3, seasons)).includes('rivalGuard'));
   }
   assert.ok(!ids(pageObjectives(1, true, null, true)).some((id) => /rival/.test(id)), 'page 1 stays as it was');

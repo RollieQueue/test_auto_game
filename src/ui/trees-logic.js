@@ -3,6 +3,7 @@
 import * as balance from '../sim/balance.js';
 import * as sim from '../sim/index.js'; // treeBarred is reached through the namespace: a build without it only loses that line
 import { STAGE_WORDS } from './season-logic.js';
+import { objectiveCount, pageCounts } from '../sim/objectives.js';
 import { rivalAwake, treeRisk } from './rival.js';
 import { feedLine } from './feed.js';
 
@@ -32,7 +33,9 @@ export function leadingTree(state) {
 }
 
 /**
- * Progress to append to an objective line, or '' when there is none: ` · 40 %` for «treeGrow».
+ * Progress to append to an objective line, or '' when there is none: ` · 40 %` for «treeGrow», ` · 212/500` for a count
+ * (sim/objectives.js COUNTS: spores, allies, finds, worms, the glade and page 3 observations; «вековое дерево» says
+ * ` · 2/3 стадии`). The three first acts of page 1 (water, a tree, a mushroom) have no number.
  * `o` = { id, text, done }; a ticked-off line shows no progress.
  */
 export function objectiveProgress(state, o) {
@@ -42,12 +45,22 @@ export function objectiveProgress(state, o) {
     return t ? ` · ${pctText(t.growth)}` : '';
   }
   if (o.id === 'rivalCut') {
-    const st = (state && state.rival && state.rival.stats) || {};
-    const n = (v) => (Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+    // two ways to finish it: trees freed, or segments cut (since the page opened): «1/2 дерева или 7/15 тяжей»
     const B = balance.B || {};
-    return ` · спасено ${n(st.freedTrees)}/${B.rivalCutFreed || 2} · перерезано ${n(st.cut)}/${B.rivalCutGoal || 15}`;
+    const need = B.rivalCutFreed || 2;
+    const last = need % 10;
+    const trees = need % 100 >= 11 && need % 100 <= 14 ? 'деревьев' : last === 1 ? 'дерево' : last >= 2 && last <= 4 ? 'дерева' : 'деревьев';
+    let freed = 0;
+    let cut = 0;
+    try {
+      ({ freed, cut } = pageCounts(state || {}));
+    } catch {
+      // a partial state: nothing done yet
+    }
+    return ` · ${Math.min(freed, need)}/${need} ${trees} или ${Math.min(cut, B.rivalCutGoal || 15)}/${B.rivalCutGoal || 15} тяжей`;
   }
-  return '';
+  const c = objectiveCount(state, o.id);
+  return c ? ` · ${c[0]}/${c[1]}${c[2] || ''}` : '';
 }
 
 /** The text of an objective line with its progress. */

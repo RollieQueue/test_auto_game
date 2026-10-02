@@ -224,44 +224,48 @@ test('water and minerals are drawn at the glade rate per link', () => {
   }
 });
 
-// ---- 4. the glade's own observation on page 2 -----------------------------------------------------------------------------
+// ---- 4. the glade's own observation on page 3 -----------------------------------------------------------------------------
 
 const GLADE_ID = { birch: 'gladeBirch', oak: 'gladeOak', pine: 'gladePine', mixed: 'gladeMixed' };
 
 function pageTwo(id, extra = {}) {
   const s = fresh(SEED[id], { threats: true, ...extra });
-  s.chapter = 2;
-  s.objectives = createObjectives(2, Boolean(s.flags.seasons), s.world.biome);
+  s.chapter = 3;
+  s.objectives = createObjectives(3, Boolean(s.flags.seasons), s.world.biome);
   return s;
 }
 const done = (s) => s.objectives.filter((o) => o.done).map((o) => o.id);
 
-test('page 2 has exactly one glade observation per biome, before the last one, with its own text', () => {
+test('page 3 has exactly one glade observation per biome, the first of the page, with its own text; page 2 has none', () => {
   const texts = new Set();
   for (const id of BIOME_IDS) {
-    const page = pageObjectives(2, true, id);
+    const page = pageObjectives(3, true, id);
     const glade = page.filter((o) => o.id.startsWith('glade'));
     assert.equal(glade.length, 1, id);
     assert.equal(glade[0].id, GLADE_ID[id]);
+    assert.equal(page[0].id, GLADE_ID[id]);
     assert.ok(glade[0].text.length > 15);
     texts.add(glade[0].text);
-    assert.equal(page.at(-1).id, 'spores500');
-    assert.equal(page.length, pageObjectives(2, true).length + 1);
+    assert.equal(page.length, pageObjectives(3, true).length + 1);
     assert.equal(pageObjectives(1, true, id).length, 5, 'page 1 is the same everywhere');
-    assert.equal(pageObjectives(3, true, id).length, 3);
+    assert.equal(pageObjectives(2, true, id).length, 4, 'page 2 is the same everywhere');
+    assert.ok(!pageObjectives(2, true, id).some((o) => o.id.startsWith('glade')));
     assert.equal(fresh(SEED[id], { threats: true }).world.biome, id);
   }
   assert.equal(texts.size, 4);
-  assert.equal(pageObjectives(2, false).length, 6, 'no biome, no glade line');
+  assert.equal(pageObjectives(3, false).length, 3, 'no biome, no glade line');
 });
 
-test('the page turns with the glade line in place (page 1 -> 2 in the sim, and a save keeps it)', () => {
+test('the page turns with the glade line in place (page 1 -> 2 -> 3 in the sim, and a save keeps it)', () => {
   for (const id of BIOME_IDS) {
     const s = fresh(SEED[id], { threats: true });
     for (const o of s.objectives.slice(0, 4)) o.done = true;
     s.res.spores = B.sporesGoal;
     run(s, 0.1);
     assert.equal(s.chapter, 2);
+    for (const o of s.objectives) o.done = true;
+    run(s, 0.1);
+    assert.equal(s.chapter, 3);
     assert.ok(s.objectives.some((o) => o.id === GLADE_ID[id]), id);
     s.objectives.find((o) => o.id === GLADE_ID[id]).done = true;
     const back = decodeState(encodeState(s));

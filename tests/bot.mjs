@@ -387,7 +387,7 @@ export function playBot(seed, opts = {}) {
           return void goSpecies(tree);
         }
       }
-      if (state.stats.maxDepth < gravelDepth && free() > 40) return void goGravel();
+      if (pending('gravel') && state.stats.maxDepth < gravelDepth && free() > 40) return void goGravel();
       if (barrierMode && pending('rivalCut') && free() > 45) {
         if (cutRival()) return;
         if (goRival()) return;
