@@ -236,9 +236,15 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 - The objectives card folds on `rival-wake` and stays folded 12 s (`OBJ_QUIET_WAKE`), so the stump and the wake label
   show. An open card that would cover the rival's stump (`stumpsUnder`, `openCardRect` in cards-logic.js) folds after
   2 s instead of 8 s; hovering the folded header still opens it.
-- Mushroom clumps: the seeded layout of the 1–3 caps is src/world/clump.js (`clusterOf`, `clumpCaps`, `clumpBox`, `clumpHit`;
+- Mushroom clumps: the seeded layout of the caps is src/world/clump.js (`clusterOf`, `clumpCaps`, `clumpBox`, `clumpHit`;
   render/mushroom-cluster.js re-exports it). query.js `targetAt` finds a mushroom by any of its caps (the nearest stalk wins) and
   cards-logic.js `mushroomBox` covers the whole clump.
+- Mushroom look (groups, not a fence): `lookOf(seed, id)` gives every cap its own size (0.62–1.42), height (0.86–1.18), lean and
+  mirror, keyed by the world seed and mushroom id (the world rng is untouched; cached, frozen). `clusterOf(seed, id, near)` adds
+  0–3 small caps in the open and up to 4 beside a trunk or stump (`trunkNear(world, x)` 0..1), their offsets scaled by the main
+  cap. render/mushrooms.js, fauna.js and cards-logic.js all read `lookOf`. The sim reads only `size`: sim/mushrooms.js
+  `fruitClaim(state, m)` = `B.fruitSpacing` (57) × size^`B.fruitClaimPow` (1.6), clamped to `B.fruitSpacingMin`..`Max` (34–96);
+  a node inside any standing mushroom's claim is 'crowded' (`crowdingMushroom`). No saved fields.
 
 ## Margin marks (achievements)
 
@@ -312,11 +318,15 @@ state.chapter          // 1..4 (B.chapterCount); state.objectives is always the 
 state.sim.pageBase     // { chapter, freed, cut, caught }: the rival and worm counters when the page opened (objectives.js openPage)
 ```
 
-Pages (src/sim/objectives.js `pageObjectives`): at most five a page, from quick to slow. Page 1 water, tree, mushroom, treeGrow,
-100 spores; page 2 allies, finds, gravel, worms, `rivalCut`; page 3 the glade goal, ancient, 8 mushrooms, winter or reserve,
+Pages (src/sim/objectives.js `pageObjectives`): at most five a page, from quick to slow. Page 1 water, tree, mushroom, treeGrow
+«Подрастить деревья» (the trees' growth summed since the start, `state.sim.treeGrowTotal` in stages, which economy.js and feed.js
+add up to each stage boundary; goal `B.treeGrowGoal` 0.25 shown «· 12/25 %»; persist-codec rebuilds it for an old save from
+stage-ups plus the growth under way), `B.sporesGoal` 40 spores: bots close page 1 at 218–335 s; page 2 allies, finds, gravel, worms, `rivalCut`; page 3 the glade goal, ancient, 8 mushrooms, winter or reserve,
 `rivalGuard`; page 4 «Урожайный год» 500 and 1500 spores. `COUNTS` / `objectiveCount(state, id)` give `[have, need, unit?]`
 for the HUD line (trees-logic.js `objectiveProgress`: «· 212/500»); `pageCounts(state)` counts `rivalCut` and `worms` from the
 page opening. A save keeps ticks by id; a book closed under the old three pages opens page 4.
+The folded objectives card (src/ui/obj-fold.js, pure) writes «ближе всего: рост 22/25 %»: `nearestObjective` picks the open line
+with the highest have/need (`rivalCut` by whichever of its two ways is further along), `SHORT_NAMES` names it in a word.
 
 Feeding a tree (src/sim/feed.js, tool 5 «Подкормка», `B.feed*`): `state.feed = null | { treeId, rate }` (only `treeId` is saved, as
 `payload.feed`). `stepEconomy` hands the stock before the cap clamp to `stepFeed`; only what lies above `B.feedFrom` × cap.sugar
@@ -338,6 +348,12 @@ lost, or when no living tree has had a root contact for `B.stakes.noAllySeconds`
 (`flags.noAlly` counts it). `updateSim` does nothing while `flags.pageClosed` is set; the HUD asks the state (not the event), so a
 reloaded closed game shows the closed page again (buttons `retry` = same seed and fungus, `restart` = a new glade). From chapter 2
 the honey fungus may rot the last tree through (`B.rivalLastTree` holds only in page 1).
+The running grade (seasons only): year-logic.js `runningGrade` / `gradeMissing` (at most two parts short by 2+ points, the biggest
+gap first, «живых деревьев» first after a loss; words in `MISSING`), `gradeLine` for the calendar tooltip («Отметка года пока:
+сносно · не хватает: спор», worked out only while the pointer is over the calendar) and `seasonGradeNote` for a margin note
+(«К зиме: сносно — не хватает спор»). stakes.js `stepStakes` emits `season-grade {season}` once per season in
+`GRADE_NOTE_SEASONS` (autumn, winter: summer is too early to say, spring has the year page); `flags.gradeNoteAt` keeps the season
+serial, so a reload never repeats it.
 
 Nematodes spawn as the network grows (more in summer, few in winter) and bite thin hyphae (`edge.w < 1.6`; the
 first 52 u around the spore and hyphae younger than 8 s are immune). A cut kills the whole branch beyond it:
@@ -359,7 +375,7 @@ so the warning (a red «!» over the worm, a dashed line to its target, a cue an
 Biology: honey fungus (Armillaria) spreads by black rhizomorphs from an old stump, grips the roots of trees and
 rots them. Mycorrhiza protects its partners (a mantle around the root tips), and antagonism keeps the rival away.
 The flag is on together with threats; `?rival=0` turns it off, `?rival=1` turns it on and wakes it at once (tests,
-screenshots): `state.flags.rival` is `false`, `true` (wakes at min(chapter 2 + `B.rivalWakeDelay`, `B.rivalWakeBy` = 420 s of
+screenshots): `state.flags.rival` is `false`, `true` (wakes at min(chapter 2 + `B.rivalWakeDelay` = 150 s, `B.rivalWakeBy` = 420 s of
 play); with seasons a wake that falls from `B.rivalLateAutumn` (0.6) of autumn on, or in winter, waits for spring:
 `rival.dormant`, one `rival-dormant` event) or `'now'`.
 Code: `src/sim/rival.js` (the whole rival, barriers included), `economy.js` (pay cut, mantle), `objectives.js`.
@@ -448,9 +464,14 @@ edges (up to `B.rivalRaidReach`), and each overgrown edge (`state.rival.over`) i
 kills it and heals what it overgrew (`rival-raid-end`). `raiders(state)`, `spawnRaiderAt(state, x, y, dir)` for tests and
 scenarios. `node tools/rival-balance.mjs` prints the bot table (barriers, grips, raids, losses, closes, income) in about 30 s.
 Raid drawing and texts: src/render/rival.js `drawOver` paints `state.rival.over` live after the cord cache (never in it: a change of
-`cover` or `wither` rebuilds nothing), `drawRaiders` draws the head of a running raider and the heading dashes follow `tip.raid.goal`;
+`cover` or `wither` rebuilds nothing). An overgrown hypha is not a black cord: its pale core stays, with an amber halo and a honey
+tint, and a black spiral winds round it from the entry end up to `cover` (rival-logic.js `threadPoints` = the mycelium.js meander,
+cached per edge; `spiralBands` into scratch Float32Arrays, no Path2D); as `wither` rises the pitch tightens and the core dims.
+A seeking raider's heading (`raidLead`, `leadDashes`, `leadDrop`, `leadAlpha`) is a dashed amber arrow with a honey drop at its tip,
+up to 130 u, faded by `tip.age` over the 12 s warning (`RAID_LEAD`, mirrors `B.rivalRaidLead`); `drawRaiders` draws the head of a
+running raider and the wax-red dashes still follow a tree goal;
 a standing barrier gets a frost veil (`frostSprite`, `freezeLook` in rival-logic.js) under its chalk ring. `?mode=raid` in
-gallery-rival.js shows them (`&focus=chain|seek|barrier|barrier2|all`). UI (src/ui/rival.js): `describeBarrierPick(pick, cost, sugar,
+gallery-rival.js shows them (`&focus=chain|seek|barrier|barrier2|all`, `&age=` for the seeking raider). UI (src/ui/rival.js): `describeBarrierPick(pick, cost, sugar,
 B, state)` adds the price line `sub2` from `effectsOf`; tooltip.js `describePreview` explains a ring refusal with the seconds left;
 the `grow-denied` label has a 5 s gate; one margin note per game on the first `rival-raid-seek`/`rival-raid-touch`; the guide hint
 `raidHint` shows once per player (prefs `seen.raid-hint`); threats.js gives `severed {cause: 'rival'}` its own texts.

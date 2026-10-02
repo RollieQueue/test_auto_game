@@ -1,4 +1,4 @@
-// Tree growth for the HUD: progress toward the next stage, the objective line «Помочь дереву подрасти · 40 %»
+// Tree growth for the HUD: progress toward the next stage, the objective line «Подрастить деревья · 12/25 %»
 // and the tooltip of a tree. Pure, no DOM. A tree grows only while it is linked and content (sim/economy.js).
 import * as balance from '../sim/balance.js';
 import * as sim from '../sim/index.js'; // treeBarred is reached through the namespace: a build without it only loses that line

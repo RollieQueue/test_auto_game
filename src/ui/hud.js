@@ -888,7 +888,7 @@ export function createHud(root, actions) {
       objTxtShown = list.map(() => null);
       objDone = list.map(() => null);
     }
-    // the line with its progress («Помочь дереву подрасти · 40 %»)
+    // the line with its progress («Подрастить деревья · 12/25 %»)
     const lines = list.map((o) => objectiveText(state, o));
     for (let i = 0; i < list.length; i++) {
       if (objTxtShown[i] !== lines[i]) {
