@@ -25,6 +25,7 @@ import {
 } from './ink.js';
 import { sampleProfile } from '../world/query.js';
 import { soilFeatures, soilLookOf } from './soil-look.js';
+import { LABEL_FONT, labelLayout } from './soil-labels.js';
 import { paintDetails, paintTones, paintUnder } from './soil-paint.js';
 
 const PAPER_RGB = rgb(PAL.paper);
@@ -501,7 +502,7 @@ function crack(ctx, x, y, len, seed, rng) {
 
 const SERIF = '"Old Standard TT", "Palatino Linotype", Georgia, serif';
 
-/** A naturalist's plate details: a depth ruler on the left edge and the names of the horizons on the right. */
+/** A naturalist's plate details: a depth ruler on the left edge and the names of the horizons beside it. */
 function paintMarginalia(ctx, world, ext, { topY, botY, gY, unit }) {
   const u = unit; // world units per css pixel
   ctx.save();
@@ -538,19 +539,15 @@ function paintMarginalia(ctx, world, ext, { topY, botY, gY, unit }) {
   ctx.fillStyle = rgba('#f1dfb6', 0.7);
   ctx.fillText('см', rx + 15 * u, g0 + 10 * u * 0.2 - 1);
 
-  // horizon names, right-aligned along the right edge, each under its boundary
-  ctx.font = `italic ${15 * u}px ${SERIF}`;
-  ctx.textAlign = 'right';
-  const x = ext.x1 - 16 * u;
-  world.horizons.forEach((h, i) => {
-    const ty = topY(i, x);
-    const by = Math.min(botY(i, x), ext.y1);
-    const y = Math.min(ty + Math.max(15 * u, (by - ty) * 0.18), by - 12 * u);
+  // horizon names (the biome's own, see soil-labels.js), left-aligned in the left margin where no card sits
+  ctx.font = `italic ${LABEL_FONT * u}px ${SERIF}`;
+  for (const l of labelLayout(world, ext, { topY, botY, unit: u })) {
+    ctx.textAlign = l.align;
     ctx.fillStyle = rgba('#0e0804', 0.55);
-    ctx.fillText(h.name, x + u, y + u);
+    ctx.fillText(l.text, l.x + u, l.y + u);
     ctx.fillStyle = rgba('#f1dfb6', 0.8);
-    ctx.fillText(h.name, x, y);
-  });
+    ctx.fillText(l.text, l.x, l.y);
+  }
   ctx.restore();
 }
 

@@ -5,12 +5,15 @@ import { hash32 } from '../core/rng.js';
 import { makeSprite, makeCanvas, glowSprite, granulate, smooth01 } from './ink.js';
 import { STEPS, extentOf, paintMushroom } from './mushrooms-paint.js';
 import { reducedMotion } from './motion.js';
-import { levelFor, washed, mushroomSprite, spritesReady, wiltTarget, growScale } from './sprites.js';
+import { levelFor, washed, drained, getSprite as artSprite, mushroomLook, mushroomSprite, spritesReady, wiltTarget, growScale, RIVAL_MUSHROOM_TYPES } from './sprites.js';
+import { clusterOf, companionGrowth } from './mushroom-cluster.js';
+import { groundYAt } from '../world/query.js';
 
 const MAX_P = 500;
 const MAX_RINGS = 12;
 const RENDER_BUDGET = 2; // new sprites per frame (more only if a mushroom would otherwise have nothing to show)
 const RENDER_HARD = 6;
+const WILT_LIFE = 4.2; // seconds a wilted mushroom lingers (fauna.js draws the main cap, this file the small ones)
 
 let warned = false;
 const warn = (e) => {
@@ -93,7 +96,7 @@ export function createMushrooms() {
       const b = ((h >>> 10) & 1023) / 1023;
       const c = ((h >>> 20) & 1023) / 1023;
       const g = clamp(num(m.growth), 0, 1);
-      r = { v: NaN, kind: 0, sub: 0, sg: g, size: 0.92 + 0.16 * a, mirror: b < 0.5, lean: (c - 0.5) * 0.07, phase: a * 40, nextWisp: 0, seen: 0, cx: 0, cy: 0, spr: null, sprReady: false };
+      r = { v: NaN, kind: 0, sub: 0, sg: g, size: 0.92 + 0.16 * a, mirror: b < 0.5, lean: (c - 0.5) * 0.07, phase: a * 40, nextWisp: 0, seen: 0, cx: 0, cy: 0, spr: null, sprReady: false, cl: [], clSeed: NaN, clReady: null, lx: 0, ly: 0 };
       r.nextWisp = lastT + 1 + 4 * c;
       rt.set(id, r);
     }
@@ -289,9 +292,80 @@ export function createMushrooms() {
     }
   }
 
+  /** The illustration of a companion cap: its mushroom's species, another picture of it than the main cap's where there is one. */
+  function companionSprite(m, trees, c) {
+    let type = mushroomLook(m, trees);
+    if (RIVAL_MUSHROOM_TYPES.has(type)) type = 'common';
+    const pick = hash32('mushroom-cluster-sprite', m.id === undefined ? 0 : m.id, c.salt);
+    return artSprite('mushroom', type, pick) || artSprite('mushroom', 'common', pick);
+  }
+
+  /**
+   * One fruit body standing at (x, baseY), sway = its slant, g = its growth, size = its size factor. il: an illustration
+   * (anchored at the stalk base, a hair below the ground so the stalk comes out of the soil); else sp: a procedural sprite.
+   * ghost: -1 for a living body (winter wilt applies); >= 0 for the clump of a wilted mushroom: the colour left, 0..1.
+   */
+  function paintBody(ctx, T, il, sp, x, baseY, size, mirror, sway, g, pulse, squash, ghost) {
+    if (!il && !sp) return;
+    const live = ghost < 0;
+    if (il) {
+      const k = (il.worldSize * size * growScale(g)) / il.h; // world units per image pixel
+      const sx = mirror ? -1 : 1;
+      const sy = pulse * squash;
+      const c = -sway;
+      const sink = 0.05 * il.worldSize * size;
+      ctx.setTransform(T.a * sx, T.b * sx, T.a * c + T.c * sy, T.b * c + T.d * sy, T.a * x + T.c * (baseY + sink) + T.e, T.b * x + T.d * (baseY + sink) + T.f);
+      const lv = levelFor(il, il.h * k * px);
+      const dx = -il.anchor.x * k;
+      const dy = -il.anchor.y * k;
+      const dw = il.w * k;
+      const dh = il.h * k;
+      const a0 = ctx.globalAlpha;
+      ctx.globalAlpha = a0 * 0.22;
+      ctx.fillStyle = '#2a1b13';
+      ctx.beginPath();
+      ctx.ellipse(0, -0.3, Math.max(2, dw * 0.17), Math.max(0.8, dh * 0.045), 0, 0, TAU); // seat in the soil
+      ctx.fill();
+      ctx.globalAlpha = a0;
+      if (!live) {
+        ctx.drawImage(drained(lv.src, lv.w, lv.h), dx, dy, dw, dh);
+        if (ghost > 0.01) {
+          ctx.globalAlpha = a0 * ghost;
+          ctx.drawImage(lv.src, dx, dy, dw, dh);
+          ctx.globalAlpha = a0;
+        }
+        return;
+      }
+      ctx.drawImage(lv.src, dx, dy, dw, dh);
+      if (wilt > 0.01) {
+        ctx.globalAlpha = a0 * wilt;
+        ctx.drawImage(washed(lv.src, lv.w, lv.h), dx, dy, dw, dh);
+        ctx.globalAlpha = a0;
+      }
+      return;
+    }
+    const sx = size * (mirror ? -1 : 1);
+    const sy = size * pulse * squash;
+    const c = -sway * size;
+    ctx.setTransform(T.a * sx, T.b * sx, T.a * c + T.c * sy, T.b * c + T.d * sy, T.a * x + T.c * baseY + T.e, T.b * x + T.d * baseY + T.f);
+    const a0 = ctx.globalAlpha;
+    if (!live) {
+      ctx.drawImage(washed(sp.canvas, sp.canvas.width, sp.canvas.height), -sp.ax, -sp.ay, sp.w, sp.h);
+      return;
+    }
+    ctx.drawImage(sp.canvas, -sp.ax, -sp.ay, sp.w, sp.h);
+    if (wilt > 0.01) {
+      ctx.globalAlpha = a0 * wilt;
+      ctx.drawImage(washed(sp.canvas, sp.canvas.width, sp.canvas.height), -sp.ax, -sp.ay, sp.w, sp.h);
+      ctx.globalAlpha = a0;
+    }
+  }
+
   function drawMushrooms(ctx, list, now, dt, state) {
     order.length = 0;
-    const trees = state && state.world ? state.world.trees : null;
+    const world = state && state.world ? state.world : null;
+    const trees = world ? world.trees : null;
+    const seed = world && Number.isFinite(world.seed) ? world.seed : 0;
     const ready = spritesReady();
     wilt += (wiltTarget(state && state.flags, state && state.clock) - wilt) * (1 - Math.exp(-dt * 1.2));
     if (Math.abs(wilt) < 0.003) wilt = 0;
@@ -316,6 +390,17 @@ export function createMushrooms() {
         r.spr = ready ? mushroomSprite(m, trees) : null; // illustrated look, chosen once per mushroom (stable)
       }
       curS[i] = r.spr;
+      r.lx = m.x;
+      r.ly = m.baseY;
+      if (r.clSeed !== seed) {
+        r.cl = (world ? clusterOf(seed, m.id) : []).map((c) => ({ ...c, spr: null }));
+        r.clSeed = seed;
+        r.clReady = null;
+      }
+      if (r.clReady !== ready) {
+        r.clReady = ready;
+        for (const c of r.cl) c.spr = ready ? companionSprite(m, trees, c) : null;
+      }
       const step = Math.round(clamp(r.sg, 0, 1) * STEPS);
       cur[i] = r.spr ? null : getSprite(r.kind, r.sub, step);
       if (m.mature && r.sg > 0.9 && now >= r.nextWisp && !calm) {
@@ -360,47 +445,42 @@ export function createMushrooms() {
       const r = curR[i];
       curR[i] = null;
       const ph = r.phase;
-      const droop = 0.2 * wilt * (r.lean < 0 ? -1 : 1); // winter: the stalk bows over, the cap hangs
-      const sway = r.lean + droop + (calm ? 0 : 0.011 * Math.sin(now * 0.8 + ph) + 0.004 * Math.sin(now * 1.9 + ph * 2.3));
       const pulse = calm ? 1 : 1 + 0.009 * Math.sin(now * 1.35 + ph * 1.7);
       const squash = 1 - 0.14 * wilt;
-      if (il) {
-        // an illustration: its anchor (stipe base) sits a hair below the ground line so the stalk comes out of the soil
-        const k = (il.worldSize * r.size * growScale(r.sg)) / il.h; // world units per image pixel
-        const sx = r.mirror ? -1 : 1;
-        const sy = pulse * squash;
-        const c = -sway;
-        const sink = 0.05 * il.worldSize * r.size;
-        ctx.setTransform(T.a * sx, T.b * sx, T.a * c + T.c * sy, T.b * c + T.d * sy, T.a * m.x + T.c * (m.baseY + sink) + T.e, T.b * m.x + T.d * (m.baseY + sink) + T.f);
-        const lv = levelFor(il, il.h * k * px);
-        const dx = -il.anchor.x * k;
-        const dy = -il.anchor.y * k;
-        const dw = il.w * k;
-        const dh = il.h * k;
-        const a0 = ctx.globalAlpha;
-        ctx.globalAlpha = a0 * 0.22;
-        ctx.fillStyle = '#2a1b13';
-        ctx.beginPath();
-        ctx.ellipse(0, -0.3, Math.max(2, dw * 0.17), Math.max(0.8, dh * 0.045), 0, 0, TAU); // seat in the soil
-        ctx.fill();
-        ctx.globalAlpha = a0;
-        ctx.drawImage(lv.src, dx, dy, dw, dh);
-        if (wilt > 0.01) {
-          ctx.globalAlpha = a0 * wilt;
-          ctx.drawImage(washed(lv.src, lv.w, lv.h), dx, dy, dw, dh);
-          ctx.globalAlpha = a0;
-        }
-        continue;
+      // the clump: smaller caps beside the main one, behind it (see mushroom-cluster.js; the main cap stays at the sim position)
+      for (let k = 0; k < r.cl.length; k++) {
+        const c = r.cl[k];
+        const gk = companionGrowth(r.sg, c);
+        if (gk < 0.03) continue;
+        const cx = m.x + c.dx;
+        const cy = (world ? groundYAt(world, cx) : m.baseY) + c.dy;
+        const sway = c.lean + 0.2 * wilt * (c.lean < 0 ? -1 : 1) + (calm ? 0 : 0.011 * Math.sin(now * 0.8 + ph + k * 2.1 + 1));
+        paintBody(ctx, T, c.spr, c.spr ? null : getSprite(r.kind, (r.sub + k + 1) & 1, Math.round(gk * STEPS)), cx, cy, r.size * c.scale, c.mirror, sway, gk, pulse, squash, -1);
       }
-      const sx = r.size * (r.mirror ? -1 : 1);
-      const sy = r.size * pulse * squash;
-      const c = -sway * r.size;
-      ctx.setTransform(T.a * sx, T.b * sx, T.a * c + T.c * sy, T.b * c + T.d * sy, T.a * m.x + T.c * m.baseY + T.e, T.b * m.x + T.d * m.baseY + T.f);
-      ctx.drawImage(sp.canvas, -sp.ax, -sp.ay, sp.w, sp.h);
-      if (wilt > 0.01) {
+      const droop = 0.2 * wilt * (r.lean < 0 ? -1 : 1); // winter: the stalk bows over, the cap hangs
+      const sway = r.lean + droop + (calm ? 0 : 0.011 * Math.sin(now * 0.8 + ph) + 0.004 * Math.sin(now * 1.9 + ph * 2.3));
+      paintBody(ctx, T, il, sp, m.x, m.baseY, r.size, r.mirror, sway, r.sg, pulse, squash, -1);
+    }
+    // the clumps of mushrooms that just wilted away: the small caps bow over and fade as the main one does (fauna.js 'wilt')
+    for (const r of rt.values()) {
+      const age = now - r.seen;
+      if (age <= 0 || age >= WILT_LIFE || !r.cl.length) continue;
+      const u = age / WILT_LIFE;
+      const bowT = smooth01(u / 0.8);
+      const alpha = 1 - smooth01((u - 0.3) / 0.7);
+      if (alpha <= 0.01) continue;
+      const colA = 1 - smooth01(u / 0.22);
+      const sy = 1 - 0.34 * smooth01(u / 0.9);
+      for (let k = 0; k < r.cl.length; k++) {
+        const c = r.cl[k];
+        const gk = companionGrowth(r.sg, c);
+        if (gk < 0.03) continue;
+        const cx = r.lx + c.dx;
+        const cy = (world ? groundYAt(world, cx) : r.ly) + c.dy;
+        const bow = c.lean + (c.lean < 0 ? -1 : 1) * 0.62 * bowT * bowT;
         const a0 = ctx.globalAlpha;
-        ctx.globalAlpha = a0 * wilt;
-        ctx.drawImage(washed(sp.canvas, sp.canvas.width, sp.canvas.height), -sp.ax, -sp.ay, sp.w, sp.h);
+        ctx.globalAlpha = a0 * alpha;
+        paintBody(ctx, T, c.spr, c.spr ? null : getSprite(r.kind, (r.sub + k + 1) & 1, Math.round(gk * STEPS)), cx, cy, r.size * c.scale, c.mirror, bow, gk, 1, sy, colA);
         ctx.globalAlpha = a0;
       }
     }

@@ -2,6 +2,7 @@
 // Pure data in, pure data out (tested in tests/atlas.test.mjs).
 import { FINDS } from '../content/finds.js';
 import { groundYAt, horizonAt } from '../world/query.js';
+import { horizonLabel } from '../world/biomes.js';
 import { clockAt } from '../sim/clock.js';
 import { hash32 } from '../core/rng.js';
 
@@ -132,7 +133,7 @@ function findSpot(state, id, f) {
   let depthCm = null;
   if (d && state.world.horizons) {
     const h = horizonAt(state.world, d.x, d.y);
-    horizon = h ? h.name : '';
+    horizon = h ? horizonLabel(state.world, h) : '';
     depthCm = Math.max(0, Math.round((d.y - groundYAt(state.world, d.x)) / UNITS_PER_CM));
   }
   const season = state.flags && state.flags.seasons ? SEASON_IN[clockAt(f.at || 0).season] || '' : '';

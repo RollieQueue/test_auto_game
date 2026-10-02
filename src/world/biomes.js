@@ -14,6 +14,9 @@
  *              layers   per horizon id: the colour the band shows on paper, accents for the pigment blooms, and `tones`,
  *                       darker sub-layers as fractions of the band's thickness ({from, to, color, alpha})
  *              grain    multipliers on the generic marks (sand, specks, hatch, pebbles, strata, cracks, fibres, humusFibres)
+ *              labels   the names of the horizons in this glade's soil (hand-lettered in the margin, the tooltip, the atlas):
+ *                       per horizon id, what the soil there is called by a soil scientist; a horizon it does not name keeps
+ *                       the world's own layer name (which stays as it is: the world data never reads these)
  *              stones   tones of the generic pebbles
  *              features what a horizon shows: {kind, in: horizon id, density per 10 000 u² | count: [min, max], y: band
  *                       fractions, size: [[rx min, max], [ry min, max]], ...kind options}; see soil-look.js
@@ -45,6 +48,7 @@ export const BIOMES = {
     },
     // wet brown-grey loam over bluish clay: gley mottles, rust spots along old root channels, damp patches
     look: {
+      labels: { litter: 'Берёзовый опад', humus: 'Дёрновый гумус', loam: 'Суглинок с ржавчиной', clay: 'Сизая глина', gravel: 'Галечник' },
       layers: {
         litter: { color: '#a88e62', accents: ['#b49463', '#8b7048', '#9c8458', '#7f6a4a'] },
         humus: { color: '#7c6c5e', accents: ['#5c4e46', '#78685c', '#665a52', '#54483f'], tones: [{ from: 0, to: 0.3, color: '#5a4a3e', alpha: 0.4 }] },
@@ -91,6 +95,7 @@ export const BIOMES = {
     },
     // thick near-black humus, worm casts and channels, krotovinas (old burrows filled with other soil), white carbonate nodules in the loam
     look: {
+      labels: { litter: 'Дубовый опад', humus: 'Чернозёмный гумус', loam: 'Суглинок с белоглазкой', clay: 'Бурая глина', gravel: 'Галечник' },
       layers: {
         litter: { color: '#8a6a42', accents: ['#a07040', '#6e4c2c', '#8a7440', '#7a5632'] },
         humus: { color: '#5a463a', accents: ['#4e3c32', '#665040', '#443630', '#5a4634'], tones: [{ from: 0, to: 0.55, color: '#4a3a30', alpha: 0.7 }, { from: 0, to: 0.16, color: '#3a2c24', alpha: 0.5 }] },
@@ -135,6 +140,7 @@ export const BIOMES = {
     },
     // podzol: thin needle litter, a dark thin A1, an ash-grey bleached E, a rusty-orange B with tongues, pale sand under it, flint and quartz
     look: {
+      labels: { litter: 'Хвойная подстилка', humus: 'Подзол', loam: 'Иллювий', clay: 'Светлый песок', gravel: 'Гравий и кремень' },
       layers: {
         litter: { color: '#aa9060', accents: ['#bc9c62', '#8c7248', '#a48c58', '#7e6840'] },
         humus: { color: '#9a9488', accents: ['#a8a296', '#867f74', '#a09a8c', '#8e8a82'], tones: [{ from: 0, to: 0.2, color: '#6a5a4a', alpha: 0.8 }] },
@@ -183,6 +189,7 @@ export const BIOMES = {
     },
     // brown forest soil: warm even browns, thin black charcoal lenses from old fires, a varied mix of pebbles
     look: {
+      labels: { litter: 'Лесная подстилка', humus: 'Бурый гумус', loam: 'Суглинок с углями', clay: 'Красно-бурая глина', gravel: 'Щебень и галька' },
       layers: {
         litter: { color: '#9a7248', accents: ['#b07a46', '#74502e', '#947c42', '#835a36'] },
         humus: { color: '#7a5a40', accents: ['#86603e', '#58412f', '#6c4e32', '#5e4836'] },
@@ -205,6 +212,13 @@ export const BIOMES = {
 };
 
 export const BIOME_IDS = ['birch', 'oak', 'pine', 'mixed'];
+
+/** What a horizon of this world's soil is called: the biome's own name for it (look.labels), else the world's layer name. */
+export function horizonLabel(world, horizon) {
+  if (!horizon) return '';
+  const own = ((BIOMES[world && world.biome] || BIOMES.mixed).look.labels || {})[horizon.id];
+  return own || horizon.name || '';
+}
 
 /** Ground shapes and the phrases that describe them in a glade's name. */
 export const TERRAIN_FEATURES = {

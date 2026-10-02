@@ -1,0 +1,147 @@
+// Horizon labels per biome (world/biomes.js look.labels, render/soil-labels.js) and mushrooms drawn in clumps, not a fence
+// (render/mushroom-cluster.js).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { HORIZONS, generateWorld } from '../src/world/generate.js';
+import { BIOMES, BIOME_IDS, horizonLabel } from '../src/world/biomes.js';
+import { hash32 } from '../src/core/rng.js';
+import { sampleProfile } from '../src/world/query.js';
+import { LABEL_FONT, LABEL_INSET, cardZone, labelLayout } from '../src/render/soil-labels.js';
+import { MAX_COMPANIONS, clusterOf, companionGrowth } from '../src/render/mushroom-cluster.js';
+
+const seedOf = (biome) => {
+  for (let s = 1; s < 400; s++) if (generateWorld(s).biome === biome) return s;
+  throw new Error(`no seed for ${biome}`);
+};
+const layoutOf = (world, ext, unit) => {
+  const hs = world.horizons;
+  const topY = (i, x) => sampleProfile(hs[i].top, world.step, x);
+  const botY = (i, x) => (i + 1 < hs.length ? topY(i + 1, x) : ext.y1 + 90);
+  return { labels: labelLayout(world, ext, { topY, botY, unit }), topY, botY };
+};
+
+test('every biome names every horizon it draws, in its own words', () => {
+  const names = new Set();
+  for (const id of BIOME_IDS) {
+    const labels = BIOMES[id].look.labels;
+    assert.ok(labels, `${id}: labels`);
+    assert.deepEqual(Object.keys(labels).sort(), HORIZONS.map((h) => h.id).sort(), `${id}: one label per horizon`);
+    for (const [hid, text] of Object.entries(labels)) {
+      assert.ok(typeof text === 'string' && text.length >= 4 && text.length <= 26, `${id}.${hid}: «${text}» is short enough for the margin`);
+      assert.match(text, /^[А-ЯЁ]/, `${id}.${hid}: starts with a capital`);
+    }
+    names.add(JSON.stringify(labels));
+  }
+  assert.equal(names.size, BIOME_IDS.length, 'no two biomes share one set of labels');
+  // the podzol and the chernozem keep to their pedology
+  assert.match(BIOMES.pine.look.labels.loam, /Иллювий/);
+  assert.match(BIOMES.oak.look.labels.humus, /Чернозём/);
+});
+
+test('the world keeps its generic layer names (and generation never reads the labels)', () => {
+  for (const id of BIOME_IDS) {
+    const w = generateWorld(seedOf(id));
+    assert.deepEqual(w.horizons.map((h) => h.name), HORIZONS.map((h) => h.name), `${id}: layer names are the world's`);
+    const before = hash32(JSON.stringify(w));
+    labelLayout(w, { x0: 0, y0: 0, x1: 1920, y1: 1080 }, { topY: () => 300, botY: () => 400, unit: 1 });
+    assert.equal(hash32(JSON.stringify(w)), before, `${id}: the layout does not touch the world`);
+    assert.equal(horizonLabel(w, w.horizons[1]), BIOMES[id].look.labels.humus);
+  }
+  assert.equal(horizonLabel({ biome: 'pine' }, { id: 'sky', name: 'Небо' }), 'Небо', 'an unnamed horizon keeps the layer name');
+  assert.equal(horizonLabel({}, null), '');
+});
+
+test('one label per drawn horizon, inside the page, clear of the cards, at both window sizes', () => {
+  for (const [w, h] of [[1280, 720], [1600, 900], [1920, 1080]]) {
+    const scale = Math.min(w / 1920, h / 1080);
+    const unit = 1 / scale;
+    const ext = { x0: 0, y0: 0, x1: w / scale, y1: h / scale };
+    const zone = cardZone(unit);
+    for (const id of BIOME_IDS) {
+      const world = generateWorld(seedOf(id));
+      const { labels, topY, botY } = layoutOf(world, ext, unit);
+      assert.equal(labels.length, world.horizons.length, `${id} ${w}x${h}: one label per horizon`);
+      const font = LABEL_FONT * unit;
+      labels.forEach((l, i) => {
+        assert.equal(l.text, BIOMES[id].look.labels[world.horizons[i].id], `${id}: ${l.id} is named by the biome`);
+        // the text (about 0.5 em per letter, italic serif) lies on the page
+        const width = l.text.length * font * 0.55;
+        const x0 = l.align === 'right' ? l.x - width : l.x;
+        const x1 = l.align === 'right' ? l.x : l.x + width;
+        assert.ok(x0 >= ext.x0 && x1 <= ext.x1, `${id} ${w}x${h} ${l.id}: «${l.text}» fits the width (${Math.round(x0)}..${Math.round(x1)})`);
+        // vertically inside its own band (the litter may straddle its thin band by a line)
+        const slack = i === 0 ? font : 4;
+        assert.ok(l.y >= topY(i, l.x) - slack && l.y <= Math.max(botY(i, l.x), topY(i, l.x) + font) + slack, `${id} ${w}x${h} ${l.id}: y ${Math.round(l.y)} in its horizon`);
+        // never under the resource card: a left-margin label starts past the ruler, below the card's bottom edge
+        if (l.align === 'left') {
+          assert.ok(Math.abs(l.x - (ext.x0 + LABEL_INSET * unit)) < 1e-6, `${id} ${l.id}: left column`);
+          assert.ok(l.y - 12 * unit >= ext.y0 + zone.b, `${id} ${w}x${h} ${l.id}: below the resource card`);
+        }
+      });
+      assert.ok(labels.filter((l) => l.align === 'left').length >= world.horizons.length - 1, `${id}: all but the litter in the left margin`);
+    }
+  }
+});
+
+test('the cards of the real game stay clear of the label column (measured: 1280x720 card 372x337, 1600x900 332x302)', () => {
+  assert.ok(cardZone(1.5).r >= 372 && cardZone(1.5).b >= 337);
+  assert.ok(cardZone(1.2).r >= 332 && cardZone(1.2).b >= 302);
+});
+
+test('a clump is deterministic: the same seed and mushroom always give the same caps', () => {
+  for (const seed of [1, 7, 13, 23, 42]) {
+    for (let id = 0; id < 30; id++) {
+      const a = clusterOf(seed, id);
+      assert.deepEqual(clusterOf(seed, id), a, `seed ${seed} mushroom ${id}`);
+    }
+  }
+  const sig = (seed) => JSON.stringify(Array.from({ length: 12 }, (_, id) => clusterOf(seed, id)));
+  assert.notEqual(sig(1), sig(2), 'another world, another clumps');
+  assert.notEqual(JSON.stringify(clusterOf(7, 0)), JSON.stringify(clusterOf(7, 1)), 'another mushroom, another clump');
+});
+
+test('a clump has one to three caps, smaller and slanting away, and the main cap is not part of it', () => {
+  const counts = [0, 0, 0];
+  const xs = new Set();
+  for (let seed = 1; seed <= 20; seed++) {
+    for (let id = 0; id < 40; id++) {
+      const cl = clusterOf(seed, id);
+      assert.ok(cl.length <= MAX_COMPANIONS);
+      counts[cl.length]++;
+      cl.forEach((c, k) => {
+        assert.ok(Math.abs(c.dx) >= 15 && Math.abs(c.dx) <= 46, `dx ${c.dx}`);
+        assert.ok(c.dy >= -1 && c.dy <= 2.5, `dy ${c.dy}`);
+        assert.ok(c.scale >= 0.45 && c.scale <= 0.85, `scale ${c.scale}`);
+        assert.ok(Math.abs(c.lean) <= 0.2 && Math.sign(c.lean) === Math.sign(c.dx), `lean ${c.lean} away from the main cap (dx ${c.dx})`);
+        assert.ok(c.start >= 0.12 && c.start <= 0.58, `start ${c.start}`);
+        assert.equal(typeof c.mirror, 'boolean');
+        assert.ok(Number.isInteger(c.salt));
+        xs.add(c.dx);
+        if (k === 1 && Math.sign(c.dx) === Math.sign(cl[0].dx)) assert.ok(Math.abs(c.dx) > Math.abs(cl[0].dx), 'a second cap on the same side stands further out');
+      });
+    }
+  }
+  // all three sizes of clump occur, none dominates (a fence is every mushroom alike)
+  for (const n of counts) assert.ok(n / 800 > 0.1, `clump sizes ${counts}`);
+  assert.ok(xs.size > 200, 'offsets vary');
+});
+
+test('the clump grows in after the main cap and catches up with it', () => {
+  const c = { start: 0.3 };
+  assert.equal(companionGrowth(0, c), 0);
+  assert.equal(companionGrowth(0.3, c), 0);
+  assert.ok(companionGrowth(0.65, c) > 0 && companionGrowth(0.65, c) < 1);
+  assert.equal(companionGrowth(1, c), 1);
+});
+
+test('the soil tooltip names the horizon as the margin does', async () => {
+  const { describeTarget } = await import('../src/ui/tooltip.js');
+  for (const id of BIOME_IDS) {
+    const world = generateWorld(seedOf(id));
+    for (const h of world.horizons) {
+      const d = describeTarget({ world, mushrooms: [] }, { kind: 'horizon', id: h.id });
+      assert.equal(d.main, BIOMES[id].look.labels[h.id], `${id}.${h.id}`);
+      assert.match(d.sub, /рост нити/);
+    }
+  }
+});

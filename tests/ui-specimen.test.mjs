@@ -7,6 +7,7 @@ import { KINDS, plateByKind, specimenModel, stepKind, openableKinds, atlasModel,
 import { buildSpecimen, hereWords } from '../src/ui/specimen.js';
 import { buildAtlas } from '../src/ui/atlas.js';
 import { gladeLabel } from '../src/ui/glade.js';
+import { horizonLabel } from '../src/world/biomes.js';
 import { buildYearPage } from '../src/ui/year.js';
 
 const touch = (state, d, at = 12) => {
@@ -33,7 +34,7 @@ test('specimen: where and when a find lay on this glade (horizon, depth in cm, g
   assert.equal(m.spots.length, 1);
   const spot = m.spots[0];
   assert.equal(spot.id, d.id);
-  assert.ok(state.world.horizons.some((h) => h.name === spot.horizon), spot.horizon);
+  assert.ok(state.world.horizons.some((h) => horizonLabel(state.world, h) === spot.horizon), spot.horizon);
   assert.ok(Number.isInteger(spot.depthCm) && spot.depthCm >= 0);
   assert.equal(spot.atText, '2:05');
   assert.equal(spot.season, '', 'no season word while seasons are off');

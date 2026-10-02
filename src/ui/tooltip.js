@@ -9,6 +9,7 @@ import { describeTree } from './trees-logic.js';
 import { barrierCostOf, barrierTabShown, describeBarrierPick } from './rival.js';
 import * as rivalUi from './rival.js'; // describeStump is reached through the namespace: a build without it only loses the stump's text
 import { placeTip } from './tip-logic.js';
+import { horizonLabel } from '../world/biomes.js';
 
 const MINERAL_NAMES = { phosphorus: 'Фосфор', nitrogen: 'Азот' };
 
@@ -53,7 +54,7 @@ export function describeTarget(state, t) {
       const hz = world.horizons;
       const h = find(hz, t.id) || (typeof t.id === 'number' ? hz[t.id] : undefined);
       if (!h) return null;
-      return { main: h.name, sub: `рост нити: ${fmt(h.cost)} сахара за единицу` };
+      return { main: horizonLabel(state.world, h), sub: `рост нити: ${fmt(h.cost)} сахара за единицу` };
     }
     default:
       return null;
