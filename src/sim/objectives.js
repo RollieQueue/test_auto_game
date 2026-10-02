@@ -7,8 +7,8 @@ export const OBJECTIVES = [
   { id: 'water', text: 'Дотянуться до воды' },
   { id: 'tree', text: 'Заключить союз с деревом' },
   { id: 'mushroom', text: 'Вырастить первый гриб' },
-  { id: 'treeGrow', text: 'Помочь дереву подрасти' },
-  { id: 'spores', text: 'Собрать 100 спор' },
+  { id: 'treeGrow', text: 'Подрастить деревья' },
+  { id: 'spores', text: `Собрать ${B.sporesGoal} спор` },
 ];
 
 /** Page titles, for the HUD (page 3 differs with and without seasons only in its winter observation). */
@@ -42,7 +42,7 @@ export function pageObjectives(chapter, seasons = false, biome = null, rival = f
       { id: 'finds', text: `Записать в тетрадь ${B.chapter2Finds} вида находок` },
       { id: 'gravel', text: 'Протянуть нить до галечника' },
       { id: 'worms', text: `Поймать ${B.chapter2Worms} нематод в ловчие кольца` },
-      ...(rival ? [{ id: 'rivalCut', text: `Спасти ${B.rivalCutFreed} дерева от опёнка или перерезать ${B.rivalCutGoal} тяжей (клавиша 4)` }] : []),
+      ...(rival ? [{ id: 'rivalCut', text: `Опёнок: спасти ${B.rivalCutFreed} дерева или перерезать ${B.rivalCutGoal} тяжей` }] : []),
     ];
   }
   if (chapter === 3) {
@@ -76,6 +76,14 @@ const gravelDepth = (world) => world.horizons[world.horizons.length - 1].depth;
 const num = (v) => (Number.isFinite(v) ? v : 0);
 
 /**
+ * The growth of the trees, in whole percent of one stage, summed over all trees since the game began (state.sim.treeGrowTotal;
+ * a stage-up is 100, so «+25 %» is a quarter of one tree's stage, or a little of every tree's). It is page 1's «подрасти»: a
+ * stage-up took a bot 400-1500 s, this number moves with every second of a content tree.
+ */
+const grownPercent = (state) => Math.floor(num(state.sim?.treeGrowTotal) * 100 + 1e-9);
+const growGoalPercent = () => Math.round(B.treeGrowGoal * 100);
+
+/**
  * What the player did since the current page opened: trees freed and rhizomorph segments cut (the honey fungus wakes in
  * page 1, so its stats run from game start) and worms caught (rings catch them on page 1 as well). The numbers at the
  * moment the page opened are in state.sim.pageBase = { chapter, freed, cut, caught } (it is in sim.rest, so a save keeps
@@ -105,7 +113,7 @@ const CHECKS = {
   water: (state) => state.net.links.some((l) => l.kind === 'water'),
   tree: (state) => state.net.links.some((l) => l.kind === 'tree'),
   mushroom: (state) => state.mushrooms.some((m) => m.mature),
-  treeGrow: (state) => state.sim.treeStageUps > 0,
+  treeGrow: (state) => grownPercent(state) >= growGoalPercent(),
   spores: (state) => state.res.spores >= B.sporesGoal,
   // chapter 2
   allies: (state) => state.world.trees.every((t) => state.sim.contacts[t.id].length > 0),
@@ -148,6 +156,7 @@ const clampN = (v, max) => Math.max(0, Math.min(max, Math.floor(Number.isFinite(
  * CHECKS, so a line that says need/need is the one that is ticked.
  */
 export const COUNTS = {
+  treeGrow: (s) => [clampN(grownPercent(s), growGoalPercent()), growGoalPercent(), ' %'],
   spores: (s) => [clampN(s.res.spores, B.sporesGoal), B.sporesGoal],
   spores500: (s) => [clampN(s.res.spores, B.chapter2Spores), B.chapter2Spores],
   spores1500: (s) => [clampN(s.res.spores, B.chapter3Spores), B.chapter3Spores],

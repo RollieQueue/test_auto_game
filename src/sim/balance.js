@@ -170,7 +170,7 @@ export const B = {
   // --- Rival (state.flags.rival, src/sim/rival.js): the honey fungus (Armillaria). Black rhizomorphs creep from old stumps
   // (later from lost trees) towards the trees most worth having, grip their roots and rot them; a thick cord stops a tip, a
   // barrier (key 4) withers whatever lies inside it. The player's mantle (how well a tree is fed) slows the rot.
-  rivalWakeDelay: 45, // s after the notebook opens chapter 2 (?rival=1 wakes it at once), but ...
+  rivalWakeDelay: 150, // s after the notebook opens chapter 2 (?rival=1 wakes it at once), but ... (45 until page 1 closed in 5 minutes instead of 13: the net needs this long to grow before page 2's rival)
   rivalWakeBy: 420, // ... no later than this many s of play, whatever chapter the player is in
   rivalLateAutumn: 0.6, // from this share of autumn on (and in winter) the rival does not wake: it sleeps until spring (seasons only)
   rivalSeason: { spring: 1, summer: 0.55, autumn: 1.1, winter: 0 }, // tip speed by season (seasons only)
@@ -290,7 +290,8 @@ export const B = {
   reserveSugar: 120, // the same page without seasons: a stock of sugar
 
   // --- Objectives ---
-  sporesGoal: 100,
+  sporesGoal: 40, // page 1's last line; at 100 a bot needed 360-610 s for it, at 40 about 220-340 s
+  treeGrowGoal: 0.25, // page 1: the trees' growth summed over all of them, in stages (0.25 = a quarter of one stage); see objectives.js
 
   // --- Rates ---
   rateTau: 2, // s, smoothing of state.rates

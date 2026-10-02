@@ -33,23 +33,18 @@ export function leadingTree(state) {
 }
 
 /**
- * Progress to append to an objective line, or '' when there is none: ` · 40 %` for «treeGrow», ` · 212/500` for a count
- * (sim/objectives.js COUNTS: spores, allies, finds, worms, the glade and page 3 observations; «вековое дерево» says
- * ` · 2/3 стадии`). The three first acts of page 1 (water, a tree, a mushroom) have no number.
+ * Progress to append to an objective line, or '' when there is none: ` · 212/500` for a count (sim/objectives.js COUNTS:
+ * the trees' growth ` · 12/25 %`, spores, allies, finds, worms, the glade and page 3 observations; «вековое дерево» says
+ * ` · 2/3 стадии`; «Опёнок» says ` · 1/2 · 7/15`: trees saved, cords cut). The three first acts of page 1 (water, a tree,
+ * a mushroom) have no number.
  * `o` = { id, text, done }; a ticked-off line shows no progress.
  */
 export function objectiveProgress(state, o) {
   if (!o || o.done) return '';
-  if (o.id === 'treeGrow') {
-    const t = leadingTree(state);
-    return t ? ` · ${pctText(t.growth)}` : '';
-  }
   if (o.id === 'rivalCut') {
-    // two ways to finish it: trees freed, or segments cut (since the page opened): «1/2 дерева или 7/15 тяжей»
+    // two ways to finish it: trees freed, or segments cut (since the page opened): «1/2 · 7/15»
     const B = balance.B || {};
     const need = B.rivalCutFreed || 2;
-    const last = need % 10;
-    const trees = need % 100 >= 11 && need % 100 <= 14 ? 'деревьев' : last === 1 ? 'дерево' : last >= 2 && last <= 4 ? 'дерева' : 'деревьев';
     let freed = 0;
     let cut = 0;
     try {
@@ -57,7 +52,7 @@ export function objectiveProgress(state, o) {
     } catch {
       // a partial state: nothing done yet
     }
-    return ` · ${Math.min(freed, need)}/${need} ${trees} или ${Math.min(cut, B.rivalCutGoal || 15)}/${B.rivalCutGoal || 15} тяжей`;
+    return ` · ${Math.min(freed, need)}/${need} · ${Math.min(cut, B.rivalCutGoal || 15)}/${B.rivalCutGoal || 15}`;
   }
   const c = objectiveCount(state, o.id);
   return c ? ` · ${c[0]}/${c[1]}${c[2] || ''}` : '';

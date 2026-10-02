@@ -5,6 +5,7 @@ import { RESOURCES, resourceView, resourceTip, createSugarNudge } from './resour
 import { coverage, cardMode, pointerIn, crownRect, mushroomRect, openCardRect, stumpsUnder, wantFold, foldStep } from './cards-logic.js';
 import { objectiveText } from './trees-logic.js';
 import { gladeLabel, gladeParts } from './glade.js';
+import { foldedLine } from './obj-fold.js';
 import { createNotes, smallWindow } from './notes.js';
 import { notesShift } from './labels-logic.js';
 import { createTooltip } from './tooltip.js';
@@ -905,12 +906,11 @@ export function createHud(root, actions) {
       row.classList.toggle('just', done && !first);
       if (done && !first) objReveal = OBJ_REVEAL_TICK; // show the tick being drawn
     }
-    // the compact line: «2 / 5» and the first objective still open
+    // the compact line: «2 / 5» and the open observation that is furthest along (obj-fold.js)
     const doneCount = list.filter((o) => o.done).length;
     setText(el.objTitle, shown, 'obj.title', objectivesTitle(state));
     setText(el.objCount, shown, 'obj.count', `${doneCount} / ${list.length}`);
-    const nextAt = list.findIndex((o) => !o.done);
-    setText(el.objCur, shown, 'obj.cur', nextAt >= 0 ? lines[nextAt] : list.length ? 'всё отмечено' : '');
+    setText(el.objCur, shown, 'obj.cur', foldedLine(state, list));
     setText(el.objGlade, shown, 'obj.glade', gladeLabel(state));
   }
 

@@ -59,7 +59,9 @@ function nourish(state, tree, fed) {
   if (tree.stage < 3) {
     const sp = treeFx(tree);
     const g = growthFactor(tree);
-    tree.growth += (fed * B.feedGrowSeconds * g * sp.grow * sim.fx.treeGrow * pressure(state).treeGrow * (1 - (tree.infection ?? 0))) / B.treeGrowSeconds[tree.stage];
+    const grew = (fed * B.feedGrowSeconds * g * sp.grow * sim.fx.treeGrow * pressure(state).treeGrow * (1 - (tree.infection ?? 0))) / B.treeGrowSeconds[tree.stage];
+    sim.treeGrowTotal += Math.min(grew, 1 - tree.growth);
+    tree.growth += grew;
     if (tree.growth >= 1) {
       tree.stage++;
       tree.growth = 0;

@@ -437,7 +437,7 @@ export function playBot(seed, opts = {}) {
       nextThink = state.time + 0.5;
     }
     if (opts.curve && i % (opts.curveEvery ?? 1800) === 0) {
-      stats.curve.push({ t: Math.round(state.time), sugar: Math.round(state.res.sugar), len: Math.round(state.stats.hyphaeLength), mush: state.mushrooms.length, worms: state.fauna.length, traps: state.traps.length, spores: Math.round(state.res.spores), chapter: state.chapter, rival: state.rival && { tips: state.rival.tips.length, grips: state.rival.grip.length, seg: state.rival.edges.filter((e) => e.alive).length, inf: world.trees.map((t) => +t.infection.toFixed(2)), mantle: world.trees.map((t) => +t.mantle.toFixed(2)), barriers: state.barriers.length } });
+      stats.curve.push({ t: Math.round(state.time), grow: +(state.sim.treeGrowTotal ?? 0).toFixed(2), sugar: Math.round(state.res.sugar), len: Math.round(state.stats.hyphaeLength), mush: state.mushrooms.length, worms: state.fauna.length, traps: state.traps.length, spores: Math.round(state.res.spores), chapter: state.chapter, rival: state.rival && { tips: state.rival.tips.length, grips: state.rival.grip.length, seg: state.rival.edges.filter((e) => e.alive).length, inf: world.trees.map((t) => +t.infection.toFixed(2)), mantle: world.trees.map((t) => +t.mantle.toFixed(2)), barriers: state.barriers.length } });
     }
     if (opts.untilChapter ? stats.chapterDone[opts.untilChapter] !== undefined : completed !== null && !opts.runOn) break;
   }

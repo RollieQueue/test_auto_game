@@ -95,7 +95,9 @@ function stepTrees(state, dt) {
     intake.sugar += pay;
     if (t.stage < 3) {
       const g = clamp((t.health - B.treeGrowFromHealth) / (1 - B.treeGrowFromHealth), 0, 1);
-      t.growth += (g * sp.grow * fx.treeGrow * pressure(state).treeGrow * rot * dt) / B.treeGrowSeconds[t.stage];
+      const grew = (g * sp.grow * fx.treeGrow * pressure(state).treeGrow * rot * dt) / B.treeGrowSeconds[t.stage];
+      sim.treeGrowTotal += Math.min(grew, 1 - t.growth);
+      t.growth += grew;
       if (t.growth >= 1) {
         t.stage++;
         t.growth = 0;

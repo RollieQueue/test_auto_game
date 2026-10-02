@@ -31,6 +31,7 @@ export function createSimData(state) {
     income: 0, // current sugar income per second (diagnostics)
     nextGrowId: 0,
     treeStageUps: 0,
+    treeGrowTotal: 0, // growth of all trees since the start, in stages (1 = one tree grew one whole stage): the «подрасти» observation
     holdT: 0, // seconds a hold-type glade observation (objectives.js) has been kept up
     nextMushroomId: 0,
     // threats (state.flags.threats): plain numbers only, saved with the rest of state.sim

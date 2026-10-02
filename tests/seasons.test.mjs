@@ -424,7 +424,7 @@ for (const seed of [1, 7, 42]) {
     console.log(`#   ${seasonLine}`);
     assert.notEqual(completedAt, null, 'all objectives completed');
     assert.ok(completedAt <= 3 * B.seasonSeconds, `finished at ${completedAt} s: after autumn`);
-    assert.ok(completedAt >= 200, 'not trivial');
+    assert.ok(completedAt >= 100, 'not trivial');
     assert.ok(stats.maxZeroStreak < 5, `sugar stuck at zero for ${stats.maxZeroStreak} s`);
     assert.equal(stats.rejected, 0);
     assert.ok(stats.yearEnd, 'the year ended');

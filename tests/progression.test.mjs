@@ -310,7 +310,7 @@ const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 // (seed 1 was swapped for 2 when glades got generator 2: that seed's new glade is two oaks and no tree that can grow ancient in time. Over
 // 20 seeds the bot finishes page 2 in 2400 s on 15 glades with either generator, mean 26 min.)
 for (const seed of [2, 7, 42]) {
-  test(`bot with threats, seed ${seed}: chapter 1 in 8-15 minutes, chapter 2 within 35, sugar stays a constraint without ever sticking at zero`, () => {
+  test(`bot with threats, seed ${seed}: chapter 1 in 2.5-10 minutes, chapter 2 within 35, sugar stays a constraint without ever sticking at zero`, () => {
     const { state, completedAt, stats } = playBot(seed, { maxSeconds: 2100, threats: true, untilChapter: 2, curve: true });
     const t1 = stats.chapterDone[1];
     const t2 = stats.chapterDone[2];
@@ -324,7 +324,7 @@ for (const seed of [2, 7, 42]) {
     );
     console.log(`#   sugar every 30 s: ${sugar.join(' ')}`);
     assert.equal(completedAt, t1, 'the first closing event is page 1');
-    assert.ok(t1 >= 480 && t1 <= 900, `chapter 1 took ${t1} s`);
+    assert.ok(t1 >= 150 && t1 <= 600, `chapter 1 took ${t1} s`);
     assert.notEqual(t2, undefined, 'chapter 2 completed');
     assert.ok(t2 <= 2100, `chapter 2 took ${t2} s`);
     assert.equal(state.chapter, 3);
@@ -336,7 +336,7 @@ for (const seed of [2, 7, 42]) {
 }
 
 test('a player who never lays a ring still gets through page 1 in 15 minutes: worms cost branches and mushrooms, not the game', () => {
-  const { state, stats } = playBot(7, { maxSeconds: 900, threats: true, guard: false });
+  const { state, stats } = playBot(7, { maxSeconds: 900, threats: true, guard: false, runOn: true }); // the bot plays on after page 1: it closes in about 5 minutes, worms need longer to bite
   const T = state.sim.threat;
   console.log(`# seed 7 without rings: chapter 1 at ${(stats.chapterDone[1] / 60).toFixed(1)} min; worms ${T.nextWorm}, cut ${T.severed} (${Math.round(T.lostLength)} u lost), mushrooms wilted ${stats.events['mushroom-wilted'] ?? 0}`);
   assert.ok(stats.chapterDone[1] <= 900, `${stats.chapterDone[1]}`);
@@ -345,18 +345,18 @@ test('a player who never lays a ring still gets through page 1 in 15 minutes: wo
   assert.ok(stats.maxZeroStreak < 15);
 });
 
-test('the default game (seasons and threats together): page 1 in 8-15 minutes, winter does not stick sugar at zero', () => {
+test('the default game (seasons and threats together): page 1 in 2.5-10 minutes, winter does not stick sugar at zero', () => {
   const { state, stats } = playBot(42, { maxSeconds: 900, threats: true, seasons: true, untilChapter: 1 });
   const t1 = stats.chapterDone[1];
   console.log(`# seed 42 with seasons: chapter 1 at ${(t1 / 60).toFixed(1)} min; worms ${state.sim.threat.nextWorm}, cut ${state.sim.threat.severed}, caught ${state.sim.threat.caught}`);
-  assert.ok(t1 >= 480 && t1 <= 900, `${t1}`);
+  assert.ok(t1 >= 150 && t1 <= 600, `${t1}`);
   assert.ok(stats.maxZeroStreak < 15);
   assert.equal(state.chapter, 2);
 });
 
-test('bot without threats still finishes page 1 in 4-15 minutes (the game as it was)', () => {
+test('bot without threats still finishes page 1 in 2-15 minutes (the game as it was)', () => {
   const { completedAt, state, stats } = playBot(7, { maxSeconds: 900 });
-  assert.ok(completedAt >= 240 && completedAt <= 900, `${completedAt}`);
+  assert.ok(completedAt >= 100 && completedAt <= 900, `${completedAt}`);
   assert.equal(state.chapter, 1);
   assert.deepEqual(state.fauna, []);
   assert.equal(stats.rejected, 0);

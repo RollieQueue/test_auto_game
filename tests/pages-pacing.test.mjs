@@ -8,7 +8,7 @@ import { B } from '../src/sim/balance.js';
 import { createObjectives, pageObjectives, objectiveCount } from '../src/sim/objectives.js';
 import { objectiveProgress, objectiveText } from '../src/ui/trees-logic.js';
 import { encodeState, decodeState } from '../src/persist-codec.js';
-import { DT } from './bot.mjs';
+import { DT, playBot } from './bot.mjs';
 
 function fresh(seed = 7, flags = { threats: true }) {
   const s = createState(seed);
@@ -37,9 +37,9 @@ const line = (s, id, extra = {}) => {
 
 // ---- a number on every line -------------------------------------------------------------------------------------------
 
-test('every observation of every page shows a progress number, except the three first acts and a tree not yet growing', () => {
+test('every observation of every page shows a progress number, except the three first acts', () => {
   const s = fresh(7, { threats: true, seasons: true, rival: true });
-  const bare = new Set(['water', 'tree', 'mushroom', 'treeGrow']);
+  const bare = new Set(['water', 'tree', 'mushroom']);
   for (const chapter of [1, 2, 3, 4]) {
     for (const biome of ['birch', 'oak', 'pine', 'mixed']) {
       const w = createState(biome === 'birch' ? 13 : biome === 'oak' ? 42 : biome === 'pine' ? 23 : 7);
@@ -60,8 +60,8 @@ test('every observation of every page shows a progress number, except the three 
 
 test('progress numbers: spores, allies, finds, worms, depth, ancient tree', () => {
   const s = fresh(7);
-  s.res.spores = 54.7;
-  assert.equal(line(s, 'spores'), ' · 54/100');
+  s.res.spores = B.sporesGoal - 15.3;
+  assert.equal(line(s, 'spores'), ` · ${B.sporesGoal - 16}/${B.sporesGoal}`);
   s.res.spores = 212.4;
   assert.equal(line(s, 'spores500'), ` · 212/${B.chapter2Spores}`);
   assert.equal(line(s, 'spores1500'), ` · 212/${B.chapter3Spores}`);
@@ -250,7 +250,7 @@ test('page 2 opens with the rival and the worms already at high counts: neither 
   step(s, 1);
   assert.ok(!doneIds(s).includes('rivalCut') && !doneIds(s).includes('worms'), doneIds(s).join());
   const rc = s.objectives.find((o) => o.id === 'rivalCut');
-  assert.equal(objectiveProgress(s, rc), ` · 0/${B.rivalCutFreed} дерева или 0/${B.rivalCutGoal} тяжей`);
+  assert.equal(objectiveProgress(s, rc), ` · 0/${B.rivalCutFreed} · 0/${B.rivalCutGoal}`);
   assert.equal(objectiveProgress(s, s.objectives.find((o) => o.id === 'worms')), ` · 0/${B.chapter2Worms}`);
 });
 
@@ -290,7 +290,7 @@ test('the baseline survives a save in the middle of the page; an old save withou
   const back = decodeState(payload);
   assert.deepEqual(back.sim.pageBase, { chapter: 2, freed: 2, cut: 20, caught: 7 });
   assert.equal(back.rival.stats.freedTrees, 3);
-  assert.equal(objectiveProgress(back, back.objectives.find((o) => o.id === 'rivalCut')), ` · 1/${B.rivalCutFreed} дерева или 0/${B.rivalCutGoal} тяжей`);
+  assert.equal(objectiveProgress(back, back.objectives.find((o) => o.id === 'rivalCut')), ` · 1/${B.rivalCutFreed} · 0/${B.rivalCutGoal}`);
   assert.equal(objectiveProgress(back, back.objectives.find((o) => o.id === 'worms')), ` · 3/${B.chapter2Worms}`);
   back.rival.stats.freedTrees += 1;
   back.sim.threat.caught += 2;
@@ -302,11 +302,98 @@ test('the baseline survives a save in the middle of the page; an old save withou
   const old = decodeState(payload);
   assert.equal(old.sim.pageBase, undefined);
   assert.equal(old.chapter, 2);
-  assert.equal(objectiveProgress(old, old.objectives.find((o) => o.id === 'rivalCut')), ` · ${B.rivalCutFreed}/${B.rivalCutFreed} дерева или ${B.rivalCutGoal}/${B.rivalCutGoal} тяжей`, 'the whole game counts');
+  assert.equal(objectiveProgress(old, old.objectives.find((o) => o.id === 'rivalCut')), ` · ${B.rivalCutFreed}/${B.rivalCutFreed} · ${B.rivalCutGoal}/${B.rivalCutGoal}`, 'the whole game counts');
   step(old, 0.2);
   assert.ok(doneIds(old).includes('rivalCut'), 'counted from zero, so the freed trees count');
   assert.ok(doneIds(old).includes('worms'), 'and so do the catches');
   // pages 3 and 4 have a baseline too, and a page that is not the baseline page ignores it
   old.sim.pageBase = { chapter: 3, freed: 99, cut: 99, caught: 99 };
   assert.equal(objectiveProgress(old, { id: 'worms', text: 'x', done: false }), ` · ${B.chapter2Worms}/${B.chapter2Worms}`);
+});
+
+// ---- page 1: «Подрастить деревья» is an amount of growth, not a stage-up ---------------------------------------------------
+
+test('page 1 reads «Подрастить деревья · N/25 %», and the goal is a fraction of one stage', () => {
+  const s = fresh(7, { threats: true });
+  const line = s.objectives.find((o) => o.id === 'treeGrow');
+  assert.equal(line.text, 'Подрастить деревья');
+  assert.ok(B.treeGrowGoal > 0 && B.treeGrowGoal < 1, 'less than one stage-up');
+  assert.deepEqual(objectiveCount(s, 'treeGrow'), [0, Math.round(B.treeGrowGoal * 100), ' %']);
+  assert.match(objectiveText(s, line), / · 0\/\d+ %$/);
+});
+
+test("the trees' growth is counted as the trees themselves grow: stage-ups and the growth under way, nothing twice", () => {
+  const was = createState(9).world.trees.map((t) => [t.stage, t.growth]);
+  const run = playBot(9, { seasons: true, threats: true, maxSeconds: 200, runOn: true }).state;
+  const total = run.sim.treeGrowTotal;
+  const delta = run.world.trees.reduce((a, t, i) => a + (t.stage - was[i][0]) + (t.stage < 3 ? t.growth : 0) - (was[i][0] < 3 ? was[i][1] : 0), 0);
+  assert.ok(total > 0, 'the bot grew something');
+  assert.ok(Math.abs(total - delta) < 0.06, `counted ${total.toFixed(3)} against the trees' own ${delta.toFixed(3)}`);
+});
+
+test('treeGrow ticks at the goal, not before, and it needs no stage-up and no feeding', () => {
+  const s = fresh(7, { threats: true });
+  s.sim.treeGrowTotal = B.treeGrowGoal - 0.011;
+  step(s, 0.2);
+  assert.ok(!s.objectives.find((o) => o.id === 'treeGrow').done);
+  s.sim.treeGrowTotal = B.treeGrowGoal;
+  const seen = step(s, 0.2);
+  assert.ok(s.objectives.find((o) => o.id === 'treeGrow').done);
+  assert.ok(seen.some((e) => e.type === 'objective' && e.id === 'treeGrow'));
+  assert.equal(s.sim.treeStageUps, 0, 'no stage-up needed');
+  assert.equal(s.feed ?? null, null, 'no feeding needed');
+});
+
+test('a bot closes page 1 in 150-450 s without feeding, on a spread of glades (seasons and threats on)', () => {
+  const closed = [];
+  for (const seed of [2, 5, 9, 42]) {
+    const { state, stats } = playBot(seed, { seasons: true, threats: true, rival: true, maxSeconds: 600 });
+    const t1 = stats.chapterDone[1];
+    closed.push(`${seed}:${Math.round(t1)}`);
+    assert.ok(t1 >= 150 && t1 <= 450, `seed ${seed}: page 1 closed at ${t1}`);
+    assert.equal(state.feed ?? null, null, 'the bot never fed a tree');
+    assert.ok(!stats.events['feed-start'], 'no feeding event');
+  }
+  console.log(`# page 1 closes at: ${closed.join(' ')}`);
+});
+
+test('saves: the growth total round-trips, and a save from before it is reckoned from the stages and growth it holds', () => {
+  const s = fresh(7, { threats: true });
+  s.sim.treeGrowTotal = 0.2;
+  const back = roundTrip(s);
+  assert.equal(back.sim.treeGrowTotal, 0.2);
+  assert.equal(objectiveProgress(back, back.objectives.find((o) => o.id === 'treeGrow')), ` · 20/${Math.round(B.treeGrowGoal * 100)} %`);
+
+  // an old save made on page 1: no total in the file, a stage already grown
+  const t = s.world.trees.find((x) => x.stage < 3);
+  t.growth = 0.1;
+  s.sim.treeStageUps = 1;
+  const payload = JSON.parse(JSON.stringify(encodeState(s)));
+  delete payload.sim.rest.treeGrowTotal;
+  const old = decodeState(payload);
+  assert.ok(old.sim.treeGrowTotal >= 1.1 - 1e-9, `the stage-up so far and the growth under way: ${old.sim.treeGrowTotal}`);
+  step(old, 0.2);
+  assert.ok(old.objectives.find((o) => o.id === 'treeGrow').done, 'a tree that had already grown a stage keeps the line');
+
+  // an old save from the very start: nothing grown, nothing ticked
+  const start = fresh(7, { threats: true });
+  const p0 = JSON.parse(JSON.stringify(encodeState(start)));
+  delete p0.sim.rest.treeGrowTotal;
+  const young = decodeState(p0);
+  step(young, 0.2);
+  assert.ok(!young.objectives.find((o) => o.id === 'treeGrow').done);
+
+  // an old save whose treeGrow was ticked under the old rule stays ticked
+  const ticked = JSON.parse(JSON.stringify(encodeState(start)));
+  delete ticked.sim.rest.treeGrowTotal;
+  ticked.objectives = ['water', 'tree', 'mushroom', 'treeGrow'];
+  assert.ok(decodeState(ticked).objectives.find((o) => o.id === 'treeGrow').done);
+});
+
+test('rivalCut is a short line: two ways, two numbers', () => {
+  const text = pageObjectives(2, true, 'oak', true).find((o) => o.id === 'rivalCut').text;
+  assert.equal(text, `Опёнок: спасти ${B.rivalCutFreed} дерева или перерезать ${B.rivalCutGoal} тяжей`);
+  assert.ok(text.length <= 50, `${text.length} characters`);
+  const s = fresh(7, { threats: true, rival: true });
+  assert.equal(objectiveProgress(s, { id: 'rivalCut', text, done: false }), ` · 0/${B.rivalCutFreed} · 0/${B.rivalCutGoal}`);
 });

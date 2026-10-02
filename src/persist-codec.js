@@ -364,6 +364,8 @@ export function decodeState(p) {
   state.flows = p.flows.map(([from, to, kind, rate]) => ({ from, to, kind, rate, path: pathBetween(net, from, to) }));
   sim.rng.setState(p.sim.rng);
   assignPlain(sim, decodeValue(p.sim.rest));
+  // a save from before the trees' growth was counted: the stage-ups so far and the growth under way, so a page-1 save keeps its pace
+  if (!('treeGrowTotal' in p.sim.rest)) sim.treeGrowTotal = (sim.treeStageUps || 0) + state.world.trees.reduce((a, t) => a + (t.stage < 3 ? t.growth || 0 : 0), 0);
   state.events = [];
   restoreTime(state);
   return state;

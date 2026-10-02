@@ -122,10 +122,18 @@ test('the tree tooltip says growth in percent while a linked tree can still grow
   assert.equal(pctText(NaN), '0 %');
 });
 
-test('the «Помочь дереву подрасти» line carries the progress of the leading linked tree', () => {
+test("the «Подрастить деревья» line carries the trees' growth since the start, in percent of a stage", () => {
   const s = createState(7);
-  const obj = { id: 'treeGrow', text: 'Помочь дереву подрасти', done: false };
-  assert.equal(objectiveText(s, obj), 'Помочь дереву подрасти', 'no linked tree: no number');
+  const goal = Math.round(B.treeGrowGoal * 100);
+  const obj = { id: 'treeGrow', text: 'Подрастить деревья', done: false };
+  assert.equal(objectiveText(s, obj), `${obj.text} · 0/${goal} %`, 'a number from the first second, with no linked tree');
+  s.sim.treeGrowTotal = 0.127;
+  assert.equal(objectiveText(s, obj), `${obj.text} · 12/${goal} %`);
+  s.sim.treeGrowTotal = 7;
+  assert.equal(objectiveProgress(s, obj), ` · ${goal}/${goal} %`, 'never above the goal');
+  assert.equal(objectiveProgress(s, { ...obj, done: true }), '', 'a ticked line shows nothing');
+  assert.equal(objectiveText(s, { id: 'water', text: 'Дотянуться до воды', done: false }), 'Дотянуться до воды');
+  // the tree the tooltip speaks of is still the linked tree closest to its next stage
   for (const t of s.world.trees) {
     t.stage = 1;
     t.linked = false;
@@ -136,13 +144,7 @@ test('the «Помочь дереву подрасти» line carries the progre
     s.world.trees[1].linked = true;
     s.world.trees[1].growth = 0.62;
   }
-  const lead = s.world.trees[1] ? 62 : 37;
-  assert.equal(objectiveText(s, obj), `Помочь дереву подрасти · ${lead} %`);
-  assert.equal(leadingTree(s).growth, lead / 100);
-  assert.equal(objectiveProgress(s, { ...obj, done: true }), '', 'a ticked line shows nothing');
-  assert.equal(objectiveText(s, { id: 'water', text: 'Дотянуться до воды', done: false }), 'Дотянуться до воды');
-  s.world.trees.forEach((t) => (t.stage = 3));
-  assert.equal(objectiveProgress(s, obj), '', 'full-grown trees do not grow');
+  assert.equal(leadingTree(s).growth, s.world.trees[1] ? 0.62 : 0.37);
 });
 
 // ---- 2b/3. the guide ---------------------------------------------------------------------------------------------
