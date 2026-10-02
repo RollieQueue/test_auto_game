@@ -231,7 +231,8 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 - A sugar refusal for a mushroom, ring or barrier suppresses the plain «не хватает сахара» of the same click
   (within 60 u; `sugarDenialSpots` in labels-logic.js).
 - The objectives card folds on `rival-wake` and stays folded 12 s (`OBJ_QUIET_WAKE`), so the stump and the wake label
-  show.
+  show. An open card that would cover the rival's stump (`stumpsUnder`, `openCardRect` in cards-logic.js) folds after
+  2 s instead of 8 s; hovering the folded header still opens it.
 
 ## Margin marks (achievements)
 
@@ -259,6 +260,12 @@ burns its 2 old draws, so ground and soil of every seed are unchanged (279 disti
 `actions.savedGlade()` gives the title the saved glade's seed and name («Сохранённая поляна: …»). Biomes weight tree species and set horizon depths, rocks, water and minerals; terrain
 features vary the ground line. A glade has 2–5 trees (not always three) and the spore starts anywhere across
 the width; `fairness.js` guarantees an affordable opening (water, a root tip, nitrogen) for every seed.
+
+Each biome has its own soil (`look` in biomes.js, pure render data): pine a podzol (needle litter, ash-grey E horizon,
+rusty B with rust tongues, sand, quartz and flint), oak thick black humus with worm casts, krotovinas and white
+carbonate nodules, birch gley mottles with rust rims and damp patches, mixed brown forest soil with charcoal lenses.
+`render/soil-look.js` lays the features out with its own rng from the world seed (the generated world is unchanged),
+`render/soil-paint.js` and `terrain.js` paint them into the cached world plate (no per-frame cost).
 
 Glades also differ in play: `B.biomes` (src/sim/balance.js) sets worm spawn rate and speed and the water and
 mineral draw per link (birch wet and worm-heavy, pine dry and mineral-rich, oak rich, mixed neutral), and
@@ -388,10 +395,11 @@ from the nearest node. `describeTree(tree, state)` shows «заражение ·
 like the drawing, it exists only while `state.rival` does (`?rival=0` has no stump tooltip; `describeTarget` in tooltip.js).
 
 Drawing (src/render/rival.js, rival-logic.js, trees-paint.js, infection-look.js): cords near-black with a pale highlight, one step
-thicker than roots, Chaikin-smoothed chains (`chaikin`, `smoothEdges`); bulbous dark tips that pulse (still under
+thicker than roots, Chaikin-smoothed chains (`chaikin`, `smoothEdges`) after `relaxChains` pulls sharp back-tracking
+nodes to their neighbours' midpoint (ends, tips, forks and gripped-root nodes stay; draw-only, the sim is untouched); bulbous dark tips that pulse (still under
 `reducedMotion()`); a dashed path from a tip to its target root once it is within 150 u. Infected crowns brown, blotch and thin
 by `tree.infection` (`infectionLook(bucket, species, season)`, re-painted only when the infection bucket changes); while gripped,
-a rot ring and «N %» at the trunk foot. The snag is a broken bark trunk (`snagSteps`), honey tufts spread around its foot.
+a rot ring and «N %» at the trunk foot; bare winter crowns show it as rusty twigs and tufts of dead leaves. The snag is a broken bark trunk (`snagSteps`), honey tufts spread around its foot.
 `src/render/gallery-rival.html` shows every state at 100 % and 50 % scale.
 
 Pinned details (sim, render and UI were built in parallel against them):
