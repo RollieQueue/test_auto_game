@@ -236,6 +236,9 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 - The objectives card folds on `rival-wake` and stays folded 12 s (`OBJ_QUIET_WAKE`), so the stump and the wake label
   show. An open card that would cover the rival's stump (`stumpsUnder`, `openCardRect` in cards-logic.js) folds after
   2 s instead of 8 s; hovering the folded header still opens it.
+- Mushroom clumps: the seeded layout of the 1–3 caps is src/world/clump.js (`clusterOf`, `clumpCaps`, `clumpBox`, `clumpHit`;
+  render/mushroom-cluster.js re-exports it). query.js `targetAt` finds a mushroom by any of its caps (the nearest stalk wins) and
+  cards-logic.js `mushroomBox` covers the whole clump.
 
 ## Margin marks (achievements)
 
@@ -305,8 +308,22 @@ state.fauna = Worm[]   // { id, x, y, a, len, speed, phase, age, mode: 'wander'|
                        //   bite: null | { edge, x, y, t, dur }, trapId, ...internal }
 state.traps = Trap[]   // «ловчие кольца»: { id, nodeId, x, y, r, grow 0..1, charges, cool, glow, age, prey }
 state.ui.tool          // 'grow' | 'fruit' | 'trap'; while 'trap', state.ui.trapPick = null | { nodeId, x, y, ok, reason }
-state.chapter          // 1..3; state.objectives is always the current page; flags.pagesDone, flags.bookDone
+state.chapter          // 1..4 (B.chapterCount); state.objectives is always the current page; flags.pagesDone, flags.bookDone
+state.sim.pageBase     // { chapter, freed, cut, caught }: the rival and worm counters when the page opened (objectives.js openPage)
 ```
+
+Pages (src/sim/objectives.js `pageObjectives`): at most five a page, from quick to slow. Page 1 water, tree, mushroom, treeGrow,
+100 spores; page 2 allies, finds, gravel, worms, `rivalCut`; page 3 the glade goal, ancient, 8 mushrooms, winter or reserve,
+`rivalGuard`; page 4 «Урожайный год» 500 and 1500 spores. `COUNTS` / `objectiveCount(state, id)` give `[have, need, unit?]`
+for the HUD line (trees-logic.js `objectiveProgress`: «· 212/500»); `pageCounts(state)` counts `rivalCut` and `worms` from the
+page opening. A save keeps ticks by id; a book closed under the old three pages opens page 4.
+
+Feeding a tree (src/sim/feed.js, tool 5 «Подкормка», `B.feed*`): `state.feed = null | { treeId, rate }` (only `treeId` is saved, as
+`payload.feed`). `stepEconomy` hands the stock before the cap clamp to `stepFeed`; only what lies above `B.feedFrom` × cap.sugar
+moves, at up to `B.feedRate` sugar/s, into the tree's growth (`B.feedGrowSeconds` per sugar) and, with the rival on, its mantle
+(`B.feedMantle`). A tree that needs nothing takes nothing; a frozen tree (under a barrier) waits. API `commandFeed(state, treeId)`
+('on' | 'switch' | 'off' | false), `feedDenial`, `canFeedAny`. Events `feed-start`, `feed-stop {reason: 'player'|'lost'|'unlinked'}`,
+`feed-denied`. UI: src/ui/feed.js (tab, tooltip line, notes), resources-logic.js (where the surplus goes).
 
 Stakes (src/sim/stakes.js, numbers `B.stakes`; text in src/ui/year-logic.js; all of it in `state.flags`, so a save needs no new
 field): at every `year-end` the sim stores `flags.yearGrades` (the grade of the year: parts, score 0..100, grade
@@ -414,6 +431,17 @@ API (`src/sim/index.js`): `canBarrier(state, nodeId)`, `commandBarrier(state, no
 event then), `barrierCost(state)`. Order of denials: off, dead, max, crowded, sugar. Pointer input for the tool lives in
 `src/input/pointer.js` (sim); the key `4` and the tool tab in `src/ui`. `src/sim/rival.js` also exports `spawnTipAt(state, x, y, dir,
 treeId)` (a hook for tests and scenarios) and `nearestRootTip(state, tree, x, y)`.
+
+Barrier as a choice (run 8): while a ring stands, `estimateGrowth` / `commandGrow` refuse or cut a path at it (`denied: 'barrier'`,
+`grow-denied`), a growing tip under a new ring stops, flows.js makes no flow through barred nodes (`barredNodes`) so nothing inside
+thickens, and a tree whose every root contact is inside (`treeBarred(state, tree)`) is left out of `stepTrees`: it neither drinks,
+pays nor grows, and its mantle holds. `barrierEffects(state, nodeId)` tells the tooltip what a ring would freeze.
+Raider (`tip.raid`, from chapter 2): every `B.rivalRaidEvery`-th timer tip (at most `B.rivalRaidMax` alive) goes for the network: it
+warns (`rival-raid-seek`) `B.rivalRaidLead` s, touches the nearest thin edge (`rival-raid-touch`), runs towards the spore over thin
+edges (up to `B.rivalRaidReach`), and each overgrown edge (`state.rival.over`) is cut with `cause: 'rival'` after
+`B.rivalRaidWither` s. Thick cords (`w >= B.rivalBlockW`), the immune stretch round the spore and barriers stop it; a barrier
+kills it and heals what it overgrew (`rival-raid-end`). `raiders(state)`, `spawnRaiderAt(state, x, y, dir)` for tests and
+scenarios. `node tools/rival-balance.mjs` prints the bot table (barriers, grips, raids, losses, closes, income) in about 30 s.
 
 Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-grip {treeId, x, y}`,
 `tree-infected {treeId, level}` (at 0.25 / 0.5 / 0.75; also `x, y` of the trunk base), `tree-freed {treeId, x, y}`,
