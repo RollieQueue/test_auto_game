@@ -15,6 +15,7 @@ import { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode
 export { commandGrow, estimateGrowth, canFruit, commandFruit, mushroomCost, pickFruitNode, canTrap, commandTrap, pickTrapNode, trapDenial };
 export { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode };
 export { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUseful, fedTree };
+export { barrierEffects, raiders, treeBarred } from './rival.js';
 
 export function initSim(state) {
   const { world, net } = state;

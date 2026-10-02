@@ -7,12 +7,13 @@
 //   ?events=1        fires rival-wake, rival-cut, tree-lost, tree-freed, barrier-placed and rival-fruit after 2.5 s (&at=ms)
 //   ?mode=bench      frame cost of rival.js at ?n=300 segments (window.__bench, also shown on the page)
 //   ?mode=zoom       the scene at 2.2x around the stump and the web (&zx=, &zy= centre in world units)
+//   ?mode=raid       the raider on the player's hyphae and the frost inside barriers at 2.4x (&focus=chain|seek|barrier|barrier2|all, &z=, &zx=, &zy=; &fresh=1.1 age of the second barrier)
 //   ?mode=cords      the cords alone on a soil board at 100 % (left) and 50 % (right): right-angle turns smoothed, a fork, tips, a heading path
 //   ?inf=0,0.4,0.8,1 the four trees' infection left to right (default 0, 0.3, 0.7, lost = 1); grips and rot rings follow
 //   ?seed=7 &dpr=1 &edges=300 &stumpart=1 (use decor.stump.1 / mushroom.honey.N from the manifest when it has them)
 import { createState } from '../state.js';
 import { createRenderer } from './index.js';
-import { applyFixture, applyRivalFixture } from './fixture.js';
+import { applyFixture, applyRivalFixture, applyRaidFixture } from './fixture.js';
 import { createRival } from './rival.js';
 import { loadSprites } from './sprites.js';
 import { WORLD_W, WORLD_H } from '../config.js';
@@ -21,10 +22,11 @@ const q = new URLSearchParams(location.search);
 const seed = Number(q.get('seed')) || 7;
 const mode = q.get('mode') || 'scene';
 const dpr = Number(q.get('dpr')) || 1;
-const edgesN = Number(q.get('n') || q.get('edges')) || 300;
+const edgesN = Number(q.get('n') || q.get('edges')) || (mode === 'raid' ? 60 : 300);
 const frozen = q.get('freeze') === '1';
 
 const canvas = document.getElementById('c');
+let raidInfo = null; // world points of the raid fixture to look at
 
 function makeState(pick) {
   const state = createState(seed);
@@ -34,7 +36,8 @@ function makeState(pick) {
   if (q.get('tool')) state.ui.tool = q.get('tool');
   if (q.get('nolink') === '1') for (const t of state.world.trees) t.linked = false;
   if (q.get('inf')) applyInfection(state, q.get('inf').split(',').map(Number));
-  addHeadingTip(state);
+  if (mode === 'raid') raidInfo = applyRaidFixture(state, { fresh: q.get('fresh') ? Number(q.get('fresh')) : undefined });
+  else addHeadingTip(state);
   return state;
 }
 
@@ -149,6 +152,17 @@ async function bench() {
   out.results.push(run('ver bumped every frame', 150, (i) => (state.rival.ver++, (state.time = 100 + i / 60)), frame));
   // 4. the camera changes every frame (a window resize): the cache is cleared and every edge is painted again
   out.results.push(run('camera moves every frame (full repaint)', 150, (i) => ctx.setTransform(dpr, 0, 0, dpr, (i % 2) * 0.5, 0), frame));
+  // 5. the raider's layer: nothing overgrown and no barrier (the early return), then the raid fixture (5 + 1 overgrown edges, a
+  // running and a seeking raider, 2 barriers with frost) on top of the same web
+  state.barriers = [];
+  state.rival.over = [];
+  out.results.push(run('raid layer idle (no over, no barriers)', 300, (i) => (state.time = 100 + i / 60), frame));
+  applyRaidFixture(state);
+  out.results.push(run('raid: ' + state.rival.over.length + ' over + 2 frost barriers', 300, (i) => (state.time = 100 + i / 60), frame));
+  const rebuilds = rival.stats.rebuilds;
+  state.rival.over.forEach((o) => (o.wither = 0.5));
+  rival.drawSoil(ctx, state, 9, 1 / 60);
+  out.raidRebuildsWhenOnlyWitherChanges = rival.stats.rebuilds - rebuilds;
   out.stats = { ...rival.stats };
   window.__bench = out;
   document.title = 'bench done';
@@ -260,7 +274,7 @@ async function scene() {
   if (q.get('stumpart') !== '0') await loadSprites();
   const state = makeState();
   const renderer = createRenderer(canvas);
-  const zoom = mode === 'zoom' ? Number(q.get('z')) || 2.2 : 1;
+  const zoom = mode === 'zoom' ? Number(q.get('z')) || 2.2 : mode === 'raid' && q.get('focus') !== 'all' ? Number(q.get('z')) || 2.4 : 1;
   const view = { scale: 1, ox: 0, oy: 0, cssW: 1, cssH: 1, dpr };
   function resize() {
     const cssW = window.innerWidth;
@@ -270,8 +284,9 @@ async function scene() {
     let ox = (cssW - WORLD_W * scale) / 2;
     let oy = (cssH - WORLD_H * scale) / 2;
     if (zoom !== 1) {
-      const zx = Number(q.get('zx')) || state.world.stumps[0].x + 280;
-      const zy = Number(q.get('zy')) || state.world.stumps[0].y + 40;
+      const pt = mode === 'raid' ? raidInfo[q.get('focus') || 'chain'] || raidInfo.chain : null;
+      const zx = Number(q.get('zx')) || (pt ? pt.x : state.world.stumps[0].x + 280);
+      const zy = Number(q.get('zy')) || (pt ? pt.y : state.world.stumps[0].y + 40);
       ox = cssW / 2 - zx * scale;
       oy = cssH / 2 - zy * scale;
     }

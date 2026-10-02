@@ -4,7 +4,7 @@
 import { groundYAt, rockAt } from '../world/query.js';
 import * as balance from '../sim/balance.js';
 import { fruitCostOf, wormHint } from './threats.js';
-import { rivalHint } from './rival.js';
+import { raidHint, rivalHint } from './rival.js';
 
 const FRUIT_DEPTH = () => balance.B?.fruitMaxDepth ?? 45;
 
@@ -116,6 +116,7 @@ const hint = (id, title, text, extra = {}) => ({ id, title, text, ring: null, ..
  * `prevKey` is the key of the target chosen last time (for stickiness).
  * `extras.wormHint`: the one-time arrow at the first worm ever may interrupt the normal steps.
  * `extras.rivalHint`: the same for the first grip of the honey fungus (it goes before the worm's arrow, and before the spore).
+ * `extras.raidHint`: the same for the first raider of the honey fungus (right after the grip's arrow; the caller says it is still unseen).
  * Returns { id, title, text, ring: {x, y, rx, ry} | null, key, duration? }.
  */
 export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool, extras = {}) {
@@ -129,6 +130,10 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
   if (extras.rivalHint) {
     const rh = rivalHint(state);
     if (rh) return rh;
+  }
+  if (extras.raidHint) {
+    const ah = raidHint(state);
+    if (ah) return ah;
   }
   if (started && extras.wormHint) {
     const wh = wormHint(state);

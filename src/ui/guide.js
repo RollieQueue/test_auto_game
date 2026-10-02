@@ -2,8 +2,8 @@
 // Which hint to show comes from guide-logic.js; this file is the drawing, placement and timing.
 // The overlay never takes pointer events, except for the small "×" that hides the guide for good.
 import { pickHint } from './guide-logic.js';
-import { guideEnabled, setGuideEnabled, wormHintSeen, markWormHint } from './prefs.js';
-import { RIVAL_HINT_TIME, markRivalHint, rivalHint, rivalHintSeen } from './rival.js';
+import { guideEnabled, setGuideEnabled, wormHintSeen, markWormHint, raidHintSeen, markRaidHint } from './prefs.js';
+import { RIVAL_HINT_TIME, markRivalHint, raidHint, rivalHint, rivalHintSeen } from './rival.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const MARGIN = 12; // keep the note this far from the viewport edge
@@ -13,7 +13,7 @@ const STEP_GAP = 0.55; // s between two hints
 const OUT_TIME = 0.35; // fade-out, matches the CSS transition
 const RECHECK = 0.25; // s between hint recomputations
 const WORM_HINT_TIME = 11; // s the arrow at the first worm stays
-// (the arrow at the first honey-fungus grip stays RIVAL_HINT_TIME s, see rival.js)
+// (the arrow at the first honey-fungus grip, and the one at its first raider, stay RIVAL_HINT_TIME s, see rival.js)
 
 // ---- small deterministic helpers (the "hand" must wobble the same way on every redraw) -----------------
 
@@ -223,6 +223,7 @@ export function createGuide(host, obstacles) {
     ev.stopPropagation();
     setGuideEnabled(false);
     markRivalHint(); // the player turned the hints off by hand: no arrow at the honey fungus either
+    markRaidHint();
   });
 
   let cur = null; // the state object the guide currently follows
@@ -246,6 +247,8 @@ export function createGuide(host, obstacles) {
   let wormT = 0;
   let rivalLive = false; // the first-grip arrow is on screen (it was marked seen when it appeared)
   let rivalT = 0;
+  let raidLive = false; // the first-raider arrow is on screen (marked seen when it appeared)
+  let raidT = 0;
   let tipOver = false; // the pointer tooltip sits on the note: the note is hidden
 
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => (layoutDirty = true)) : null;
@@ -275,6 +278,8 @@ export function createGuide(host, obstacles) {
     wormT = 0;
     rivalLive = false;
     rivalT = 0;
+    raidLive = false;
+    raidT = 0;
     doneAtStart = Boolean(cur && cur.flags && cur.flags.allObjectivesDone);
     hideDom();
   }
@@ -401,6 +406,11 @@ export function createGuide(host, obstacles) {
       rivalT = 0;
       markRivalHint(); // once per player; the arrow stays until the grip ends, the barrier tool is taken or the time is up
     }
+    if (h.id === 'raid') {
+      raidLive = true;
+      raidT = 0;
+      markRaidHint(); // once per player; the arrow stays until the raider is gone, the barrier tool is taken or the time is up
+    }
   }
 
   function startOut() {
@@ -453,6 +463,7 @@ export function createGuide(host, obstacles) {
       const want = onScene && guideEnabled() && !allDone && !finished;
       // the first-grip arrow is a new rule of the game: it outlives the guide's own end (all hints told, the page done)
       const wantRival = onScene && Boolean(state.flags && state.flags.rival) && (rivalLive || !rivalHintSeen());
+      const wantRaid = onScene && Boolean(state.flags && state.flags.rival) && (raidLive || !raidHintSeen()); // the same for the first raider
 
       if (mode === 'out') {
         outT -= dt;
@@ -469,9 +480,9 @@ export function createGuide(host, obstacles) {
       recheck -= dt;
       if (recheck <= 0) {
         recheck = RECHECK;
-        const extras = { wormHint: Boolean(state.flags && state.flags.threats) && (wormLive || !wormHintSeen()), rivalHint: wantRival };
-        desired = want ? pickHint(state, prevKey, state.ui.tool, extras) : wantRival ? rivalHint(state) : null;
-      } else if (!want && !(wantRival && desired && desired.id === 'rival')) {
+        const extras = { wormHint: Boolean(state.flags && state.flags.threats) && (wormLive || !wormHintSeen()), rivalHint: wantRival, raidHint: wantRaid };
+        desired = want ? pickHint(state, prevKey, state.ui.tool, extras) : (wantRival && rivalHint(state)) || (wantRaid && raidHint(state)) || null;
+      } else if (!want && !(desired && ((wantRival && desired.id === 'rival') || (wantRaid && desired.id === 'raid')))) {
         desired = null;
       }
 
@@ -484,9 +495,14 @@ export function createGuide(host, obstacles) {
           rivalT += dt;
           if (rivalT > RIVAL_HINT_TIME || state.ui.tool === 'barrier') desired = null; // done: the player took the barrier tool
         }
+        if (shown.id === 'raid') {
+          raidT += dt;
+          if (raidT > RIVAL_HINT_TIME || state.ui.tool === 'barrier') desired = null; // done: the player took the barrier tool
+        }
         if (!desired || desired.id !== shown.id) {
           if (shown.id === 'worm') wormLive = false;
           if (shown.id === 'rival') rivalLive = false;
+          if (shown.id === 'raid') raidLive = false;
           startOut();
           return;
         }
@@ -522,10 +538,10 @@ export function createGuide(host, obstacles) {
           dimmed = over;
           host.classList.toggle('dim', over);
         }
-      } else if (desired && (want || wantRival)) {
+      } else if (desired && (want || wantRival || wantRaid)) {
         gap -= dt;
         if (gap <= 0) show(desired);
-      } else if (want || wantRival) {
+      } else if (want || wantRival || wantRaid) {
         gap = Math.max(gap - dt, 0);
       }
     },

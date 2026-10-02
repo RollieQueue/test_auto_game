@@ -3,6 +3,7 @@
 //   await import('/src/render/fixture.js').then(m => m.applyFixture(__game.state))
 import { createRng } from '../core/rng.js';
 import { isPassable, groundYAt } from '../world/query.js';
+import { hyphaCurve, overPoints } from './rival-logic.js';
 
 export function applyFixture(state, opts = {}) {
   const { nodes: targetNodes = 2400, seed = state.world.seed + 99 } = opts;
@@ -319,4 +320,116 @@ export function applyRivalFixture(state, opts = {}) {
   const at = nodes[Math.floor(nodes.length * 0.3)];
   state.ui.barrierPick = { nodeId: at.id, x: at.x + 30, y: at.y - 6, r: 70, ok: pick === 'ok', reason: pick === 'ok' ? null : 'sugar', cost: 30 };
   return state;
+}
+
+/**
+ * The raider and the frost for galleries (the real sim builds state.rival.over, a raid tip and state.barriers): on a branch of
+ * the player's network, five overgrown edges in a row running towards the spore (the oldest nearly cut, the newest still
+ * creeping) with the raider's head at the front, a short stretch entered from the parent end, a seeking raider on its way to
+ * another branch, and two barriers over the densest parts of the network (one settled, one freshly put). Needs applyFixture;
+ * makes a bare state.rival when there is none. Returns { chain: {x, y}, seek: {x, y}, barrier: {x, y} } (world points to look at).
+ */
+export function applyRaidFixture(state, opts = {}) {
+  const net = state.net;
+  const time = state.time ?? 100;
+  const rival = (state.rival ||= { awake: true, nodes: [], edges: [], tips: [], grip: [], clusters: [], spores: 0, ver: 1, rs: 1 });
+  rival.over = [];
+  const childEdge = new Map(net.edges.map((e) => [e.b, e]));
+  const depth = (id) => {
+    let d = 0;
+    for (let n = id; net.nodes[n].parent >= 0; n = net.nodes[n].parent) d++;
+    return d;
+  };
+  // a hand-made branch of the player's network in free soil (a bent hypha of ten nodes and a side fork), so the black can be told
+  // from the neighbours: the raider runs up it from the tip towards the spore
+  const free = (x, y) => isPassable(state.world, x, y) && y > groundYAt(state.world, x) + 40;
+  const crowd = (x, y, r, skip = -1) => net.nodes.reduce((c, m) => c + (m.alive && m.id !== skip && (m.x - x) ** 2 + (m.y - y) ** 2 < r * r ? 1 : 0), 0);
+  const roots = net.nodes.filter((n) => n.alive && n.y > 400 && n.y < 600 && n.x > 260 && n.x < 1640 && depth(n.id) > 6);
+  let plan = null;
+  for (const r of roots.slice().sort((p, q) => crowd(p.x, p.y, 60) - crowd(q.x, q.y, 60) || p.id - q.id)) {
+    for (const dir of [1, -1]) {
+      for (const a0 of [0.9, 0.2, 1.4, -0.4]) {
+        const pts = [];
+        let x = r.x;
+        let y = r.y;
+        let ang = dir > 0 ? a0 : Math.PI - a0;
+        let ok = true;
+        for (let i = 0; i < 10 && ok; i++) {
+          ang += 0.16 * dir * Math.sin(i * 0.9);
+          x += Math.cos(ang) * 17;
+          y += Math.sin(ang) * 17;
+          ok = free(x, y) && crowd(x, y, 26, r.id) === 0;
+          pts.push({ x, y });
+        }
+        if (ok && !plan) plan = { root: r, pts, dir, a0 };
+      }
+    }
+    if (plan) break;
+  }
+  if (!plan) plan = { root: net.nodes[net.nodes.length - 1], pts: Array.from({ length: 10 }, (_, i) => ({ x: net.nodes[net.nodes.length - 1].x + 17 * (i + 1), y: net.nodes[net.nodes.length - 1].y })), dir: 1, a0: 0 };
+  const grow = (from, pts, w) => {
+    let parent = from;
+    return pts.map((p) => {
+      const id = net.nodes.length;
+      const par = net.nodes[parent];
+      net.nodes.push({ id, x: p.x, y: p.y, born: 0, alive: true, parent, dist: par.dist + Math.hypot(p.x - par.x, p.y - par.y) });
+      net.edges.push({ id: net.edges.length, a: parent, b: id, len: Math.hypot(p.x - par.x, p.y - par.y), born: 0, alive: true, w });
+      childEdge.set(id, net.edges[net.edges.length - 1]);
+      parent = id;
+      return id;
+    });
+  };
+  const ids = grow(plan.root.id, plan.pts, 2.4);
+  const forkAng = Math.atan2(plan.pts[5].y - plan.pts[4].y, plan.pts[5].x - plan.pts[4].x) + 0.9 * plan.dir;
+  const fork = grow(ids[3], [1, 2, 3].map((k) => ({ x: plan.pts[3].x + Math.cos(forkAng + 0.1 * k * plan.dir) * 15 * k, y: plan.pts[3].y + Math.sin(forkAng + 0.1 * k * plan.dir) * 15 * k })), 1.6);
+  net.version = (net.version || 0) + 1;
+  const start = net.nodes[ids[ids.length - 1]];
+  const chain = [];
+  for (let n = start.id; chain.length < 5; n = net.nodes[n].parent) chain.push(childEdge.get(n));
+  const withers = [0.92, 0.7, 0.46, 0.22, 0];
+  chain.forEach((e, i) => rival.over.push({ edge: e.id, from: e.b, cover: i === chain.length - 1 ? 0.55 : 1, wither: withers[i], born: time - 8 * (1 - withers[i]) }));
+  const front = chain[chain.length - 1];
+  const curve = hyphaCurve(net.nodes, front);
+  const pts = overPoints(curve, front.b, 0.55);
+  const head = { x: pts[pts.length - 2], y: pts[pts.length - 1] };
+  rival.tips = rival.tips.filter((t) => !t.raid);
+  rival.tips.push({ id: 61, node: 0, x: head.x, y: head.y, dir: 0, target: null, speed: 20, raid: { phase: 'run', n: chain.length, edge: front.id, at: 0.55, s: 0, goal: null } });
+  // a short stretch entered from the parent end of the side fork
+  const other = childEdge.get(fork[1]);
+  rival.over.push({ edge: other.id, from: other.a, cover: 0.62, wither: 0.12, born: time - 1 });
+  // a seeking raider: a black cord with a pale head, a fair way off a hypha, heading for it
+  const goalNode = net.nodes.find((n) => n.alive && n.y > 460 && n.x < start.x - 140 && depth(n.id) > 8) || net.nodes[net.nodes.length >> 1];
+  const nodes = rival.nodes;
+  let seekAt = { x: goalNode.x - 100, y: goalNode.y - 30 };
+  if (nodes.length) {
+    // a short cord of its own, coming in from the left of the goal
+    const ang = 0.35;
+    seekAt = { x: goalNode.x - Math.cos(ang) * 90, y: goalNode.y - Math.sin(ang) * 90 };
+    let prev = nodes.length;
+    nodes.push({ id: prev, x: seekAt.x - 120, y: seekAt.y - 20, alive: true, born: time - 300 });
+    for (let i = 1; i <= 5; i++) {
+      const id = nodes.length;
+      const k = i / 5;
+      nodes.push({ id, x: seekAt.x - 120 + 120 * k, y: seekAt.y - 20 + 20 * k + 5 * Math.sin(k * 5), alive: true, born: time - 300 });
+      rival.edges.push({ id: rival.edges.length, a: prev, b: id, w: 1.2, alive: true, born: time - 300, wither: 0 });
+      prev = id;
+    }
+    rival.tips.push({ id: 62, node: prev, x: seekAt.x, y: seekAt.y, dir: ang, target: null, speed: 14, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: goalNode.x, y: goalNode.y } } });
+    rival.ver++;
+  } else {
+    rival.tips.push({ id: 62, node: 0, x: seekAt.x, y: seekAt.y, dir: 0.3, target: null, speed: 14, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: goalNode.x, y: goalNode.y } } });
+  }
+  // barriers over the densest bits of the network, away from the chain
+  const R = 85;
+  const alive = net.nodes.filter((n) => n.alive);
+  const dense = (n) => alive.reduce((s, m) => s + ((m.x - n.x) ** 2 + (m.y - n.y) ** 2 < R * R ? 1 : 0), 0);
+  const cands = alive.filter((n, i) => i % 6 === 0 && n.y > 330 && Math.hypot(n.x - start.x, n.y - start.y) > 220 && Math.hypot(n.x - goalNode.x, n.y - goalNode.y) > 220).map((n) => ({ n, c: dense(n) })).sort((a, b) => b.c - a.c);
+  const first = cands[0] ? cands[0].n : alive[0];
+  const second = (cands.find((q) => Math.hypot(q.n.x - first.x, q.n.y - first.y) > 2.4 * R) || cands[1] || cands[0] || { n: alive[0] }).n;
+  state.barriers = [
+    { id: 11, nodeId: first.id, x: first.x, y: first.y, r: R, t: 12, dur: 40 },
+    { id: 12, nodeId: second.id, x: second.x, y: second.y, r: R, t: opts.fresh ?? 1.1, dur: 40 },
+  ];
+  state.ui.tool = 'grow';
+  return { chain: { x: (start.x + net.nodes[front.a].x) / 2, y: (start.y + net.nodes[front.a].y) / 2 }, seek: seekAt, barrier: { x: first.x, y: first.y }, barrier2: { x: second.x, y: second.y } };
 }

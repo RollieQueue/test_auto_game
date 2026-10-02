@@ -3,6 +3,7 @@ import { clamp } from '../core/geom.js';
 import { B, biomeFx, pressure, treeFx } from './balance.js';
 import { stepFeed } from './feed.js';
 import { recheckTips } from './network.js';
+import { treeBarred } from './rival.js';
 import { fungusFx, partnerPay } from './species.js';
 
 function updateCaps(state) {
@@ -51,15 +52,17 @@ function extract(state, dt) {
 /**
  * Exchange with linked trees; returns the sugar they paid this step. A tree the rival has rotted pays less (B.rivalPayCut) and
  * grows slower, a lost one does nothing at all. With the rival on, every tree's mantle follows how well the player feeds it
- * (the fed share times the root contacts) and fades once it is unlinked.
+ * (the fed share times the root contacts) and fades once it is unlinked. A tree whose every root contact lies inside a barrier
+ * (rival.js treeBarred) is frozen while the ring stands: it neither drinks nor pays nor grows, and its mantle holds.
  */
 function stepTrees(state, dt) {
   const { world, res, sim, events } = state;
   const fx = sim.fx;
-  const linked = world.trees.filter((t) => sim.contacts[t.id].length > 0 && !t.lost);
+  const frozen = state.barriers && state.barriers.length ? new Set(world.trees.filter((t) => !t.lost && treeBarred(state, t))) : null;
+  const linked = world.trees.filter((t) => sim.contacts[t.id].length > 0 && !t.lost && !(frozen && frozen.has(t)));
   const mantle = Boolean(state.flags.rival);
   const mk = Math.min(1, dt / B.mantleTau);
-  if (mantle) for (const t of world.trees) if (!linked.includes(t)) t.mantle = (t.mantle ?? 0) * (1 - mk);
+  if (mantle) for (const t of world.trees) if (!linked.includes(t) && !(frozen && frozen.has(t))) t.mantle = (t.mantle ?? 0) * (1 - mk);
   if (linked.length === 0) return 0;
   const fac = (t) => B.treeContactFactor[Math.min(sim.contacts[t.id].length, B.treeContactFactor.length) - 1];
   let wantW = 0;

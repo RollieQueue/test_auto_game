@@ -216,6 +216,22 @@ export const B = {
   barrierDur: 40, // s
   barrierMax: 3,
   barrierWither: 3, // s a rhizomorph edge inside a barrier takes to wither
+  // A barrier is a choice (rival.js barredNodes / treeBarred): inside its ring, while it stands, the player's hyphae do not grow
+  // (growth.js), carry no flow and do not thicken (flows.js), and a tree whose EVERY root contact lies inside pays nothing.
+  // Raider (rival.js stepRaid; state.rival.over, tip.raid): from the waking, one new tip in B.rivalRaidEvery goes for the player's NETWORK
+  // instead of a tree. A black cord creeps to the nearest thin hypha, overgrows it (it blackens and withers for B.rivalRaidWither s,
+  // then it is cut like a worm bite) and runs on along thin edges towards the spore; a thick cord (w >= rivalBlockW), a barrier, the
+  // hyphae round the spore (biteImmuneDist) or its reach stop it. A barrier kills it and heals what it has overgrown inside.
+  rivalRaidEvery: 3, // every this-th new tip (not the starting ones, not side branches) is a raider
+  rivalRaidMax: 1, // raiders alive at once
+  rivalRaidMinDist: 60, // u: a raider starts only from a source at least this far from the nearest thin hypha, else the tip is a plain one
+  rivalRaidLead: 12, // s a new raider stands at its source before it creeps (rival-raid-seek is sent at once): the player is warned
+  rivalRaidSpeed: 14, // u/s along the player's hyphae once it has touched them
+  rivalRaidReach: 8, // edges one raider overgrows after the first touch
+  rivalRaidWither: 8, // s from the touch to the cut of an overgrown edge
+  rivalRaidTouch: 14, // u: a raider this near a thin hypha has touched it
+  rivalRaidSense: 520, // u: how far from the tip a thin hypha draws it
+  rivalRaidWarn: 220, // u: a raider this near its hypha is announced (rival-raid-seek, once per raider)
 
   // --- Pressure (threats only): the economy tightens so that sugar is a constraint all game long. Multipliers on the
   // numbers above; the saprotrophic floor stays, so a starved network can always recover.

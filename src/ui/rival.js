@@ -3,6 +3,7 @@
 // and the text must still make sense. The sim is reached through a namespace import and every call is guarded.
 import * as sim from '../sim/index.js';
 import * as balance from '../sim/balance.js';
+import { barrierEffects, raiders } from '../sim/rival.js'; // straight from rival.js: sim/index.js does not re-export them
 import { createSenseGate, ruPlural, threatsOn } from './threats.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -37,26 +38,61 @@ export function barrierCostOf(state, B = balance.B) {
   return isNum(base) && base > 0 ? Math.round(base) : DEFAULT_BARRIER_COST;
 }
 
-/** Title (tooltip) of the tool tab. */
-export function barrierTabTitle(cost) {
-  return `Барьер (4): цена ${sugarWord(cost)}. Растворяет ризоморфы опёнка рядом с нитью, пока держится`;
+const secondsOf = (B) => Math.round(pos(B && B.barrierDur, 0));
+const onSeconds = (B) => (secondsOf(B) ? ` на ${secondsOf(B)} с` : '');
+
+/** Title (tooltip) of the tool tab: the price, what it does, and what it costs (the ring freezes the threads inside). */
+export function barrierTabTitle(cost, B = balance.B) {
+  return `Барьер (4): цена ${sugarWord(cost)}. Растворяет ризоморфы опёнка рядом${onSeconds(B)}. Внутри кольца нити замирают: не растут и не носят соки, а дерево, все корни которого внутри, не платит`;
+}
+
+/** «1,2» for a rate of sugar per second (one decimal, never below 0,1). */
+const rateText = (v) => Math.max(0.1, Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
+
+/** What a barrier on node `nodeId` would freeze (sim barrierEffects), or null when the state cannot say. */
+export function effectsOf(state, nodeId) {
+  try {
+    return typeof barrierEffects === 'function' && state && isNum(nodeId) ? barrierEffects(state, nodeId) : null;
+  } catch {
+    return null; // a partial state
+  }
 }
 
 /**
- * The pointer tooltip of the barrier tool, from `state.ui.barrierPick` = null | { ok, reason, cost }.
- * Returns { main, sub, warn } (never null: in barrier mode the tooltip always says something).
+ * What the barrier on a node would freeze, as one short line (the cost of the choice): `effects` is sim.barrierEffects =
+ * { frozen, trees: [{ id, pay }] }. «замрёт дуб: −1,2 сахара/с на 40 с», «замрут нити: 7 узлов на 40 с»; without effects the
+ * plain rule. `state` only gives the trees' names.
  */
-export function describeBarrierPick(pick, cost, sugarHave, B = balance.B) {
+export function barrierCostLine(effects, B = balance.B, state = null) {
+  const when = onSeconds(B);
+  if (!effects) return 'внутри нити не растут и не носят соки';
+  const trees = Array.isArray(effects.trees) ? effects.trees : [];
+  if (trees.length) {
+    const pay = trees.reduce((sum, t) => sum + (isNum(t.pay) ? t.pay : 0), 0);
+    const who = trees.length === 1 ? `замрёт ${treeNom(findTree(state, trees[0].id))}` : `замрут ${trees.length} ${ruPlural(trees.length, 'дерево', 'дерева', 'деревьев')}`;
+    return pay > 0 ? `${who}: −${rateText(pay)} сахара/с${when}` : `${who}${when}`;
+  }
+  const n = Math.round(isNum(effects.frozen) ? effects.frozen : 0);
+  if (n > 0) return `замрут нити: ${n} ${ruPlural(n, 'узел', 'узла', 'узлов')}${when}`;
+  return 'внутри нити не растут и не носят соки';
+}
+
+/**
+ * The pointer tooltip of the barrier tool, from `state.ui.barrierPick` = null | { ok, reason, cost, effects? }.
+ * Returns { main, sub, sub2?, warn } (never null: in barrier mode the tooltip always says something). `sub2` is what the
+ * barrier costs: the threads inside it freeze, and a tree whose roots all lie inside stops paying (pick.effects names them).
+ */
+export function describeBarrierPick(pick, cost, sugarHave, B = balance.B, state = null) {
   const have = Math.floor(sugarHave || 0);
   const price = pick && isNum(pick.cost) && pick.cost > 0 ? Math.round(pick.cost) : cost;
   if (!pick) {
-    return { main: 'Барьер', sub: `цена ${sugarWord(price)} · поставь на нить`, warn: false };
+    return { main: 'Барьер', sub: `цена ${sugarWord(price)} · поставь на нить`, sub2: barrierCostLine(null, B), warn: false };
   }
   if (pick.ok && have < price) {
     return { main: `Не хватает сахара (нужно ${price})`, sub: `есть ${have}`, warn: true };
   }
   if (pick.ok) {
-    return { main: `Барьер: −${sugarWord(price)}`, sub: 'растворяет ризоморфы рядом · щёлкни', warn: false };
+    return { main: `Барьер: −${sugarWord(price)}`, sub: 'растворяет ризоморфы рядом · щёлкни', sub2: barrierCostLine(pick.effects, B, state), warn: false };
   }
   switch (pick.reason) {
     case 'sugar':
@@ -132,16 +168,21 @@ export const RIVAL_LOCAL = new Set([
   'rival-turn',
   'barrier-placed',
   'barrier-denied',
+  'grow-denied', // a thread refused by a barrier's ring (the label says it; other reasons have none)
+  'rival-raid-touch',
+  'rival-raid-end',
 ]);
 
 /** Rival events that also leave a margin note (the news matters beyond the spot). */
-export const RIVAL_BOTH = new Set(['rival-wake', 'rival-grip', 'tree-freed', 'tree-lost', 'rival-fruit', 'rival-retreat', 'rival-turn']);
+export const RIVAL_BOTH = new Set(['rival-wake', 'rival-grip', 'tree-freed', 'tree-lost', 'rival-fruit', 'rival-retreat', 'rival-turn', 'rival-raid-touch']);
 
 /** Every event type of the rival that notes.js or labels.js may turn into text. */
-export const RIVAL_EVENTS = new Set([...RIVAL_LOCAL, 'tree-infected', 'rival-dormant']);
+export const RIVAL_EVENTS = new Set([...RIVAL_LOCAL, 'tree-infected', 'rival-dormant', 'rival-raid-seek']);
 
 export const RIVAL_DORMANT_NOTE = 'Опёнок дремлет до весны: под пнём затаилось что-то тёмное';
 export const RIVAL_TURN_NOTE = 'Толстая нить не пускает ризоморф: прочные шнуры к дереву — тоже защита';
+/** The first raider ever of a game: it goes for the threads, not for a tree. Told once (see GATE_OF). */
+export const RIVAL_RAID_NOTE = 'Ризоморф опёнка ползёт по тонким нитям сети: толстый тяж его не пустит, а барьер (4) остановит';
 
 export const RIVAL_WAKE_NOTE = 'Под старым пнём проснулся опёнок: чёрные шнуры-ризоморфы потянутся к корням. Против них — барьер (4)';
 
@@ -165,6 +206,9 @@ export function rivalNote(state, ev) {
       return { key: `rival:retreat:${ev.treeId}`, text: `Барьер растворился, ризоморфы отступили от корней ${treeGen(tree)}`, tone: 'good', icon: 'barrier', life: 8 };
     case 'rival-turn':
       return { key: 'rival:turn', text: RIVAL_TURN_NOTE, tone: 'good', icon: 'thread', life: 10 };
+    case 'rival-raid-seek':
+    case 'rival-raid-touch': // whichever comes first tells it: the seek (the raider is near) leaves the player time to answer
+      return { key: 'rival:raid', text: RIVAL_RAID_NOTE, tone: 'warn', icon: 'honey', life: 12 };
     case 'rival-grip':
       return { key: `rival:grip:${ev.treeId}`, text: `Опёнок вцепился в корни ${treeGen(tree)}`, tone: 'warn', icon: 'honey', life: 8 };
     case 'tree-infected': {
@@ -226,6 +270,14 @@ export function rivalLabel(state, ev) {
                 : 'барьер ставят на нить';
       return { key: `barrier:denied:${ev.reason}`, text, tone: 'warn', icon: ev.reason === 'sugar' ? 'sugar' : 'barrier' };
     }
+    case 'grow-denied':
+      return ev.reason === 'barrier' ? { key: 'grow:barrier', text: 'барьер держит нити', tone: 'warn', icon: 'barrier' } : null;
+    case 'rival-raid-touch':
+      return { key: 'rival:raid-touch', text: 'ризоморф на нити', tone: 'warn', icon: 'honey' };
+    case 'rival-raid-end': {
+      const text = ev.reason === 'barrier' ? 'налёт остановлен' : ev.reason === 'cord' ? 'тяж не пустил ризоморф' : null;
+      return text ? { key: `rival:raid-end:${ev.reason}`, text, tone: 'good', icon: ev.reason === 'barrier' ? 'barrier' : 'thread' } : null;
+    }
     default:
       return null;
   }
@@ -241,29 +293,33 @@ const GATES = {
   'rival-fruit': [4, 20],
   'rival-cut': [Infinity, 3],
   'rival-retreat': [4, 20],
+  'grow-denied': [Infinity, 5], // a drag into a ring is refused again and again: one label every 5 s
+  'rival-raid-touch': [Infinity, 3],
+  'rival-raid-end': [Infinity, 3],
 };
 // Where the notes and the labels of one event differ: the dormant news is a note only, once; the turn note is told
-// once per game and its label twice, 30 s apart.
-const NOTE_GATES = { ...GATES, 'rival-dormant': [1, 0], 'rival-turn': [1, 0] };
+// once per game and its label twice, 30 s apart; the raider's note is told once per game, by its first event of either kind.
+const NOTE_GATES = { ...GATES, 'rival-dormant': [1, 0], 'rival-turn': [1, 0], 'rival-raid-seek': [1, 0] };
 const LABEL_GATES = { ...GATES, 'rival-turn': [2, 30] };
+const GATE_OF = { 'rival-raid-touch': 'rival-raid-seek' }; // the touch note shares the seek's gate (the note is told once)
 
 /** Text maker with the rate limits: `note(state, ev)` / `label(state, ev)` return null when the news is held back. */
 export function createRivalTexts() {
   const make = (table) => Object.fromEntries(Object.entries(table).map(([k, [max, gap]]) => [k, createSenseGate(max, gap)]));
   let noteGates = make(NOTE_GATES);
   let labelGates = make(LABEL_GATES);
-  const pass = (gates, state, ev) => {
-    const g = gates[ev.type];
+  const pass = (gates, state, type) => {
+    const g = gates[type];
     return !g || g.take(isNum(state.time) ? state.time : 0);
   };
   return {
     note(state, ev) {
       const d = rivalNote(state, ev);
-      return d && pass(noteGates, state, ev) ? d : null;
+      return d && pass(noteGates, state, GATE_OF[ev.type] || ev.type) ? d : null;
     },
     label(state, ev) {
       const d = rivalLabel(state, ev);
-      return d && pass(labelGates, state, ev) ? d : null;
+      return d && pass(labelGates, state, ev.type) ? d : null;
     },
     reset() {
       noteGates = make(NOTE_GATES);
@@ -327,6 +383,37 @@ export function rivalHint(state, B = balance.B) {
   };
   if (!reached && near) hint.from = { x: near.x, y: near.y };
   return hint;
+}
+
+/** The raiders now alive ({ x, y, raid } tips): rival.js raiders, else the same filter. */
+export function raidersOf(state) {
+  try {
+    if (typeof raiders === 'function' && rivalOn(state)) return raiders(state).filter((t) => t && isNum(t.x) && isNum(t.y));
+  } catch {
+    // a partial state: no raiders
+  }
+  const tips = rivalOn(state) && Array.isArray(state.rival.tips) ? state.rival.tips : [];
+  return tips.filter((t) => t && t.raid && isNum(t.x) && isNum(t.y));
+}
+
+const RAID_KEY_STEP = 80; // world units: the hint is re-placed only when the raider moved this far
+
+/**
+ * The guide's hint at a raider ({ id: 'raid', title, text, ring, key }) or null: shown while one exists (the barrier tab must
+ * exist too: the text names key 4). The two answers: a thick cord (w >= B.rivalBlockW) stops it, a barrier ahead of it
+ * kills it, and the barrier freezes the threads inside. Once per player: the caller's flag (prefs.js raidHintSeen).
+ */
+export function raidHint(state) {
+  if (!barrierTabShown(state)) return null;
+  const tip = raidersOf(state)[0];
+  if (!tip) return null;
+  return {
+    id: 'raid',
+    title: 'Ризоморф-налётчик',
+    text: 'Он идёт не к дереву, а по тонким нитям. Дай нужной нити потолстеть: толстый тяж ему не пройти. Или поставь барьер {4} перед ним: нити внутри замрут.',
+    ring: { x: tip.x, y: tip.y, rx: 52, ry: 40 },
+    key: `raid:${Math.round(tip.x / RAID_KEY_STEP)}:${Math.round(tip.y / RAID_KEY_STEP)}`,
+  };
 }
 
 // «Once per player» flags of the hint, kept like prefs.js keeps the worm ones (guarded: storage may be blocked).

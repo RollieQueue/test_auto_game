@@ -1,6 +1,7 @@
 // What moves through the network: flows (for visuals and sound) and the thickening of busy cords.
 import { B } from './balance.js';
 import { pathBetween } from './network.js';
+import { barredNodes } from './rival.js';
 
 function bestNode(net, ids) {
   let best = ids[0];
@@ -13,9 +14,12 @@ export function recomputeFlows(state, dt) {
   const { net, world, sim, mushrooms } = state;
   const flows = [];
   const origin = net.originId;
+  const barred = barredNodes(state); // hyphae inside a barrier carry nothing (and so do not thicken): no flow may cross it
   const push = (from, to, kind, rate) => {
     if (rate < B.flowMinRate || flows.length >= B.maxFlows || from === to) return;
-    flows.push({ from, to, kind, rate, path: pathBetween(net, from, to) });
+    const path = pathBetween(net, from, to);
+    if (barred && path.some((id) => barred.has(id))) return;
+    flows.push({ from, to, kind, rate, path });
   };
 
   // Water and minerals: deposit link -> trees that took them, the surplus goes to the origin store.

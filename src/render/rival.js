@@ -13,7 +13,7 @@ import { PAL, blobPoly, glowSprite, granulate, inkStroke, makeCanvas, makeSprite
 import { hash32 } from '../core/rng.js';
 import { honeySprite, levelFor, stumpSprite } from './sprites.js';
 import { STAGE_H } from './trees-model.js';
-import { GROW_TIME, barrierLook, clamp, clusterLook, growFrac, hasRival, num, cameraKey, rivalParts, stumpsOf, witherAlpha, smoothEdges, curveAt, rootGoal, headingAlpha, tipPulse, tuftLayout, infectionLabel, ringStrength, isLost } from './rival-logic.js';
+import { GROW_TIME, barrierLook, clamp, clusterLook, growFrac, hasRival, num, cameraKey, rivalParts, stumpsOf, witherAlpha, smoothEdges, curveAt, rootGoal, headingAlpha, tipPulse, tuftLayout, infectionLabel, ringStrength, isLost, overList, hyphaCurve, overPoints, pointAlong, overLook, raidPhase, raidGoal, freezeLook } from './rival-logic.js';
 import { reducedMotion } from './motion.js';
 
 const TAU = Math.PI * 2;
@@ -24,6 +24,7 @@ const LACE_BODY = '#0a0605'; // rhizomorph: near-black, glossy
 const LACE_RIM = 'rgba(236,214,170,0.36)'; // a pale outline so the black cord reads on dark soil and in small sheets
 const LACE_GLOSS = 'rgba(124,138,160,0.42)'; // the cool sheen of a wet cord
 const LACE_SHINE = 'rgba(255,247,226,0.9)'; // the thin highlight along the light side
+const ASH = '#6f6456'; // what the black cord on a hypha greys to as it withers
 const BASE_W = 7; // world units: a step thicker than tree roots (1.5 – 4) and the player's hyphae (1.75 – 4.3)
 
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -302,10 +303,14 @@ export function createRival() {
    * and a «!» on the root, like the worm's warning. The goal comes from rival-logic rootGoal (the sim's own choice).
    */
   function drawHeading(ctx, state, rival, tip, t, startR) {
-    const list = state.world && state.world.trees;
-    if (!tip.target || !Array.isArray(list)) return;
-    const tree = list.find((q) => q && q.id === tip.target.id);
-    const goal = rootGoal(tip, tree, { grips: rival.grip, claimed: state.sim && state.sim.tipClaimed });
+    let goal = null;
+    if (tip.raid) goal = raidGoal(tip); // a raider heads for a point on the player's hypha
+    else {
+      const list = state.world && state.world.trees;
+      if (!tip.target || !Array.isArray(list)) return;
+      const tree = list.find((q) => q && q.id === tip.target.id);
+      goal = rootGoal(tip, tree, { grips: rival.grip, claimed: state.sim && state.sim.tipClaimed });
+    }
     if (!goal) return;
     const a = headingAlpha(goal.d);
     if (a <= 0.01 || goal.d < 9) return;
@@ -357,6 +362,7 @@ export function createRival() {
     ctx.lineCap = 'round';
     for (const tip of tips) {
       if (!tip || !Number.isFinite(tip.x) || !Number.isFinite(tip.y)) continue;
+      if (raidPhase(tip) === 'run') continue; // running along a hypha: drawRaiders, after the black cord it leaves
       const n = nodeOf(rival, tip.node);
       const hx = tip.x;
       const hy = tip.y;
@@ -395,6 +401,117 @@ export function createRival() {
       drawHeading(ctx, state, rival, tip, t, r);
     }
     ctx.restore();
+  }
+
+  /* ------------------------------------------------------------------ the raider on the player's hyphae */
+
+  /**
+   * The stretches of the player's hyphae the raider has overgrown (state.rival.over): the rhizomorph's glossy black cord laid over
+   * the hypha from the end it entered at, as far as `cover`. As `wither` rises towards the cut the pale rim thins, the sheen and
+   * the highlight die, the black greys and breaks into dashes and specks fall off. These rows change every frame, so they are
+   * drawn live here and never into the cord cache; with nothing overgrown this returns before it allocates anything.
+   */
+  function drawOver(ctx, state, t) {
+    const list = overList(state);
+    if (!list.length) return;
+    const nodes = state.net.nodes;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const { o, e } of list) {
+      const look = overLook(o);
+      if (look.cover < 0.01) continue;
+      const pts = overPoints(hyphaCurve(nodes, e, noise1), o.from, look.cover);
+      const path = new Path2D();
+      path.moveTo(pts[0], pts[1]);
+      for (let i = 2; i < pts.length; i += 2) path.lineTo(pts[i], pts[i + 1]);
+      const w = look.width + 0.45 * clamp(num(e.w, 1) - 1, 0, 3.2);
+      const dashed = look.gap > 0;
+      ctx.lineCap = 'round';
+      if (dashed) {
+        // round caps add half a width to each end of a dash: shorten the dashes and lengthen the gaps to match
+        ctx.setLineDash([Math.max(0.1, lerp(13, 5, look.gap) - w), lerp(0.5, 3.4, look.gap) + w]);
+        ctx.lineDashOffset = -(hash32(num(o.edge), 5) % 20);
+      }
+      if (look.rimAlpha > 0.02) {
+        ctx.strokeStyle = rgba('#ecd6aa', 0.45 * look.rimAlpha);
+        ctx.lineWidth = w + 2.6;
+        ctx.stroke(path);
+      }
+      ctx.strokeStyle = rgba(mix(LACE_BODY, ASH, look.ash), look.bodyAlpha);
+      ctx.lineWidth = w;
+      ctx.stroke(path);
+      if (dashed) ctx.setLineDash([]);
+      ctx.lineCap = 'round';
+      if (look.glossAlpha > 0.02) {
+        ctx.save();
+        ctx.translate(-w * 0.1, -w * 0.14);
+        ctx.strokeStyle = rgba('#7c8aa0', 0.42 * look.glossAlpha);
+        ctx.lineWidth = w * 0.34;
+        ctx.stroke(path);
+        if (look.shineAlpha > 0.02) {
+          ctx.translate(-w * 0.12, -w * 0.12);
+          ctx.strokeStyle = rgba('#fff7e2', 0.9 * look.shineAlpha);
+          ctx.lineWidth = Math.max(0.7, w * 0.12);
+          ctx.stroke(path);
+        }
+        ctx.restore();
+      }
+      if (look.crumbs > 0.02) {
+        // specks coming off the dying cord and falling
+        const rr = mulberry(hash32(num(o.edge), 11));
+        const n = Math.round(look.crumbs * (3 + pts.length / 2));
+        for (let i = 0; i < n; i++) {
+          const p = pointAlong(pts, rr());
+          const fall = look.wither * (3 + 11 * rr()) + Math.sin(t * 2 + i) * 0.3;
+          ctx.fillStyle = rgba(i % 3 ? '#2a1a10' : '#8d7d68', (1 - 0.5 * look.wither) * (0.5 + 0.4 * rr()));
+          ctx.beginPath();
+          ctx.arc(p.x + (rr() - 0.5) * 5 * look.wither, p.y + fall, (0.5 + rr() * 1.1) * (1 - 0.4 * look.wither), 0, TAU);
+          ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  /** A raider running along a hypha: a small dark-brown glossy head with a faint pale rim, over the black it leaves behind. */
+  function drawRaiders(ctx, state, t) {
+    const tips = state.rival && Array.isArray(state.rival.tips) ? state.rival.tips : null;
+    if (!tips || !tips.length) return;
+    const reduced = reducedMotion();
+    for (const tip of tips) {
+      if (raidPhase(tip) !== 'run' || !Number.isFinite(tip.x + tip.y)) continue;
+      const hx = tip.x;
+      const hy = tip.y;
+      const r = 4.6 * (0.9 + 0.2 * tipPulse(t, tip.id, reduced));
+      const ph = reduced ? 0.4 : (t * 0.55 + num(tip.id) * 0.37) % 1;
+      ctx.save();
+      ctx.fillStyle = 'rgba(10,5,2,0.32)';
+      ctx.beginPath();
+      ctx.arc(hx, hy + 1, r + 3.4, 0, TAU);
+      ctx.fill();
+      ctx.lineWidth = 1.1;
+      ctx.strokeStyle = rgba('#eed6aa', (reduced ? 0.3 : 0.42) * (1 - ph));
+      ctx.beginPath();
+      ctx.arc(hx, hy, r + 2.5 + ph * 7, 0, TAU);
+      ctx.stroke();
+      ctx.fillStyle = rgba('#ecd6aa', 0.5);
+      ctx.beginPath();
+      ctx.arc(hx, hy, r + 1.5, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#1d0f08';
+      ctx.beginPath();
+      ctx.arc(hx, hy, r, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = LACE_GLOSS;
+      ctx.beginPath();
+      ctx.ellipse(hx - r * 0.28, hy - r * 0.32, r * 0.42, r * 0.3, -0.6, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = LACE_SHINE;
+      ctx.beginPath();
+      ctx.arc(hx - r * 0.38, hy - r * 0.42, Math.max(0.7, r * 0.15), 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   /* ------------------------------------------------------------------ rot stains at grips */
@@ -812,6 +929,82 @@ export function createRival() {
     });
   }
 
+  /**
+   * The frost over the threads inside a barrier: a pale cold veil with fine slanted hatching and a scatter of ice crystals,
+   * edged by a jagged white fringe and a dashed blue-grey line (the chalk ring is warm and hatched radially). One sprite per
+   * radius, so a barrier costs one drawImage; the veil is light enough that the frozen hyphae still read through it.
+   */
+  function frostSprite(r) {
+    const rr = Math.max(8, Math.round(r / 2) * 2);
+    return sprite(`frost|${rr}|${px.toFixed(2)}`, () => {
+      const pad = 12;
+      const sp = makeSprite(rr * 2 + pad * 2, rr * 2 + pad * 2, px, rr + pad, rr + pad);
+      const g = sp.ctx;
+      const rng = mulberry(7300 + rr);
+      g.save();
+      g.beginPath();
+      g.arc(0, 0, rr, 0, TAU);
+      g.clip();
+      const vg = g.createRadialGradient(0, 0, rr * 0.1, 0, 0, rr);
+      vg.addColorStop(0, 'rgba(204,224,238,0.18)');
+      vg.addColorStop(0.75, 'rgba(204,224,238,0.25)');
+      vg.addColorStop(1, 'rgba(216,232,242,0.36)');
+      g.fillStyle = vg;
+      g.fillRect(-rr, -rr, rr * 2, rr * 2);
+      g.lineCap = 'round';
+      for (let k = -rr; k < rr; k += 4.4) {
+        g.strokeStyle = `rgba(244,250,253,${(0.2 + 0.2 * rng()).toFixed(2)})`;
+        g.lineWidth = 0.45 + 0.4 * rng();
+        g.beginPath();
+        g.moveTo(k - rr, rr + rng() * 3);
+        g.lineTo(k + rr, -rr - rng() * 3);
+        g.stroke();
+      }
+      const crystals = Math.round(rr * rr * 0.0065);
+      g.lineWidth = 0.7;
+      for (let i = 0; i < crystals; i++) {
+        const a = rng() * TAU;
+        const d = Math.sqrt(rng()) * rr * 0.96;
+        const x = Math.cos(a) * d;
+        const y = Math.sin(a) * d;
+        const len = 2 + 3.2 * rng();
+        const rot = rng() * Math.PI;
+        g.strokeStyle = `rgba(250,253,255,${(0.5 + 0.4 * rng()).toFixed(2)})`;
+        g.beginPath();
+        for (let k = 0; k < 3; k++) {
+          const ang = rot + (k * Math.PI) / 3;
+          g.moveTo(x - Math.cos(ang) * len, y - Math.sin(ang) * len);
+          g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+        }
+        g.stroke();
+      }
+      g.restore();
+      // the fringe: a jagged white line just inside the edge, a dashed cold line on it
+      const n = Math.round(rr * 0.85);
+      g.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const a = (i / n) * TAU;
+        const rad = rr - 0.8 - (i % 2 ? 2 + 4.5 * rng() : 0.6 * rng());
+        if (i) g.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+        else g.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+      }
+      g.closePath();
+      g.lineJoin = 'round';
+      g.lineWidth = 1;
+      g.strokeStyle = 'rgba(238,247,252,0.8)';
+      g.stroke();
+      g.setLineDash([9, 3.5]);
+      g.lineWidth = 1.4;
+      g.strokeStyle = 'rgba(112,146,166,0.7)';
+      g.beginPath();
+      g.arc(0, 0, rr + 0.5, 0, TAU);
+      g.stroke();
+      g.setLineDash([]);
+      granulate(g, sp.cw, sp.ch, 0.06, 0.5);
+      return sp;
+    });
+  }
+
   function drawBarriers(ctx, state, t) {
     const list = Array.isArray(state.barriers) ? state.barriers : [];
     for (const b of list) {
@@ -821,6 +1014,12 @@ export function createRival() {
       const r = clamp(num(b.r, 60), 10, 400);
       const sp = ringSprite(r);
       ctx.save();
+      const frost = freezeLook(b);
+      if (frost > 0.01) {
+        const fs = frostSprite(r);
+        ctx.globalAlpha = frost * (reducedMotion() ? 1 : 0.94 + 0.06 * Math.sin(t * 1.3 + num(b.id)));
+        ctx.drawImage(fs.canvas, b.x - fs.ax, b.y - fs.ay, fs.w, fs.h);
+      }
       if (look.draw < 1) {
         // the ring is drawn on, sweeping round from the top
         ctx.beginPath();
@@ -851,6 +1050,9 @@ export function createRival() {
     ctx.strokeStyle = 'rgba(14,8,4,0.4)';
     ctx.stroke();
     if (ok) {
+      const fs = frostSprite(r); // what the ring would freeze
+      ctx.globalAlpha = 0.34;
+      ctx.drawImage(fs.canvas, p.x - fs.ax, p.y - fs.ay, fs.w, fs.h);
       ctx.globalAlpha = 0.78 + 0.12 * Math.sin(t * 3.4);
       const sp = ringSprite(r, true);
       ctx.drawImage(sp.canvas, p.x - sp.ax, p.y - sp.ay, sp.w, sp.h);
@@ -944,6 +1146,27 @@ export function createRival() {
         for (let i = 0; i < 26; i++) push({ k: 'spore', x: x + (rr() - 0.5) * 26, y: y - rr() * 10, vx: (rr() - 0.3) * 18, vy: -14 - rr() * 24, life: 2.2 + rr() * 1.6, size: 1 + rr() * 1.4, ph: rr() * 6.28, delay: rr() * 0.35 });
         push({ k: 'glow', x, y: y - 8, life: 1.6, r1: 32, color: '#e8c870' });
         break;
+      case 'rival-raid-seek':
+        // a raider has caught the scent of a thread: two faint ink ripples through the soil
+        for (let i = 0; i < 2; i++) push({ k: 'ripple', x, y, life: 1.8, delay: i * 0.35, r1: 34 + i * 16 });
+        break;
+      case 'rival-raid-touch':
+        // the first black laid on a hypha: a pale puff and a few dark flecks
+        for (let i = 0; i < 6; i++) push({ k: 'dust', x: x + (rr() - 0.5) * 8, y: y + (rr() - 0.5) * 4, vx: (rr() - 0.5) * 14, vy: -3 - rr() * 8, life: 1 + rr() * 0.8, r: 2.5 + rr() * 3.5, delay: rr() * 0.15 });
+        for (let i = 0; i < 7; i++) push({ k: 'fleck', x: x + (rr() - 0.5) * 8, y: y + (rr() - 0.5) * 6, vx: (rr() - 0.5) * 18, vy: -4 + rr() * 8, life: 0.8 + rr() * 0.7, size: 0.8 + rr() * 1.4, dark: true, rot: rr() * 6 });
+        break;
+      case 'rival-raid-end':
+        if (ev.reason === 'barrier') for (let i = 0; i < 9; i++) push({ k: 'frost', x: x + (rr() - 0.5) * 22, y: y + (rr() - 0.5) * 14, vy: -3 - rr() * 5, life: 1.2 + rr() * 0.9, size: 2 + rr() * 2.4, delay: rr() * 0.3 });
+        else for (let i = 0; i < 5; i++) push({ k: 'dust', x: x + (rr() - 0.5) * 12, y, vx: (rr() - 0.5) * 12, vy: -3 - rr() * 7, life: 0.9 + rr() * 0.8, r: 2 + rr() * 3, delay: rr() * 0.2 });
+        break;
+      case 'severed':
+        // the raider's black has cut a branch: ink flecks fall from the cut
+        if (ev.cause === 'rival') for (let i = 0; i < 14; i++) push({ k: 'fleck', x: x + (rr() - 0.5) * 16, y: y + (rr() - 0.5) * 10, vx: (rr() - 0.5) * 14, vy: 3 + rr() * 12, life: 1 + rr() * 0.9, size: 0.9 + rr() * 1.7, dark: rr() < 0.7, rot: rr() * 6 });
+        break;
+      case 'grow-denied':
+        // a drag into a barrier ring stopped at the frost
+        if (ev.reason === 'barrier') for (let i = 0; i < 7; i++) push({ k: 'frost', x: x + (rr() - 0.5) * 18, y: y + (rr() - 0.5) * 12, vy: -2 - rr() * 4, life: 1 + rr() * 0.8, size: 2 + rr() * 2.2, delay: rr() * 0.2 });
+        break;
       default:
     }
   }
@@ -1029,6 +1252,23 @@ export function createRival() {
         ctx.fill();
         break;
       }
+      case 'frost': {
+        // a small six-armed ice star that drifts up and fades
+        const x = e.x;
+        const y = e.y + e.vy * age;
+        const s = e.size * (1 - 0.35 * u);
+        ctx.globalAlpha = 0.9 * (1 - u) * Math.min(1, age * 6);
+        ctx.strokeStyle = 'rgba(232,244,251,1)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        for (let k = 0; k < 3; k++) {
+          const a = age * 0.8 + (k * Math.PI) / 3;
+          ctx.moveTo(x - Math.cos(a) * s, y - Math.sin(a) * s);
+          ctx.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s);
+        }
+        ctx.stroke();
+        break;
+      }
       case 'spore': {
         const x = e.x + e.vx * age + Math.sin(age * 2.4 + e.ph) * 5;
         const y = e.y + e.vy * age;
@@ -1095,7 +1335,9 @@ export function createRival() {
       const parts = rivalParts(state);
       drawGrips(ctx, state, t, parts.grip);
       drawWeb(ctx, state, state.rival, t);
-      drawBarriers(ctx, state, t);
+      drawOver(ctx, state, t); // the raider's black on the player's hyphae, then the raider's head over it
+      drawRaiders(ctx, state, t);
+      drawBarriers(ctx, state, t); // the frost lies over everything of the player's inside a ring
     },
     /** On the ground line, over the trees: stumps and honey-mushroom tufts. */
     drawSurface(ctx, state, t = 0) {

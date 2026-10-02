@@ -6,6 +6,7 @@
 import { clamp } from '../core/geom.js';
 import { B, pressure, treeFx } from './balance.js';
 import { recheckTips } from './network.js';
+import { treeBarred } from './rival.js';
 
 const RATE_TAU = 2; // s: smoothing of the shown rate
 const MANTLE_FULL = 0.99; // a mantle this thick needs no more
@@ -98,7 +99,9 @@ export function stepFeed(state, raw, dt) {
     return 0;
   }
   const tree = state.world.trees[f.treeId];
-  const moved = feedUseful(state, tree) ? Math.min(B.feedRate * dt, Math.max(0, raw - feedThreshold(state))) : 0;
+  // a tree frozen under a barrier (every root contact inside the ring) takes nothing until the ring is gone
+  const frozen = state.barriers && state.barriers.length > 0 && treeBarred(state, tree);
+  const moved = feedUseful(state, tree) && !frozen ? Math.min(B.feedRate * dt, Math.max(0, raw - feedThreshold(state))) : 0;
   if (moved > 0) nourish(state, tree, moved);
   f.rate += (moved / dt - f.rate) * Math.min(1, dt / RATE_TAU);
   return moved;

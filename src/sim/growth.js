@@ -3,6 +3,7 @@ import { resample } from '../core/geom.js';
 import { costAt } from '../world/query.js';
 import { B, pressure } from './balance.js';
 import { addNode } from './network.js';
+import { inBarrier } from './rival.js';
 
 /** Sugar already promised to hyphae that are still growing. */
 export function committedSugar(net) {
@@ -16,19 +17,30 @@ export function committedSugar(net) {
   return sum;
 }
 
-/** Preview of a drag from node `fromId` along `points`: cut at the first impassable point. */
+/**
+ * Preview of a drag from node `fromId` along `points`: cut at the first impassable point. `denied` is 'barrier' when a standing
+ * barrier is what stops it (hyphae inside its ring do not grow): the path then ends at the ring (`blocked` is the first point
+ * inside), or is empty when the node itself lies inside.
+ */
 export function estimateGrowth(state, fromId, points) {
   const from = state.net.nodes[fromId];
-  const none = { from: fromId, points: [], blocked: null, length: 0, cost: 0, affordable: false };
+  const none = { from: fromId, points: [], blocked: null, length: 0, cost: 0, affordable: false, denied: null };
   if (!from || !from.alive) return none;
+  if (inBarrier(state, from.x, from.y)) return { ...none, blocked: { x: from.x, y: from.y }, denied: 'barrier' };
   const path = resample([{ x: from.x, y: from.y }, ...points], B.pathStep);
   const hard = pressure(state).growCost;
   const reachable = [path[0]];
   const segCost = [];
   let blocked = null;
+  let denied = null;
   let length = 0;
   let cost = 0;
   for (let i = 1; i < path.length; i++) {
+    if (state.barriers.length > 0 && inBarrier(state, path[i].x, path[i].y)) {
+      blocked = path[i];
+      denied = 'barrier';
+      break;
+    }
     const c0 = costAt(state.world, path[i].x, path[i].y);
     if (!Number.isFinite(c0)) {
       blocked = path[i];
@@ -42,7 +54,7 @@ export function estimateGrowth(state, fromId, points) {
     reachable.push(path[i]);
   }
   const free = state.res.sugar - committedSugar(state.net);
-  const plan = { from: fromId, points: reachable, blocked, length, cost, affordable: cost <= free + 1e-9, segCost };
+  const plan = { from: fromId, points: reachable, blocked, length, cost, affordable: cost <= free + 1e-9, segCost, denied };
   // the part of the path the purse pays for (what commandGrow grows when the whole is out of reach)
   plan.affordableLength = plan.affordable ? length : affordablePrefix(plan, free).length;
   return plan;
@@ -81,12 +93,17 @@ function affordablePrefix(plan, budget) {
 /**
  * Queues a growing hypha. When the whole path is out of reach of the purse the affordable first part is grown instead
  * (`insufficient { partial: true, got, want }` at the new tip, lengths in u); when not even a minimal step is affordable
- * the command is refused with a plain `insufficient` at the start node. Returns false for refusals and zero-length commands.
+ * the command is refused with a plain `insufficient` at the start node. A barrier in the way (see estimateGrowth) sends
+ * `grow-denied { reason: 'barrier' }` at the ring (with `partial: true` when the part before it is grown). Returns false for
+ * refusals and zero-length commands.
  */
 export function commandGrow(state, fromId, points) {
   const plan = estimateGrowth(state, fromId, points);
-  if (plan.points.length < 2 || plan.length < B.minGrowLength) return false;
   const from = state.net.nodes[fromId];
+  if (plan.points.length < 2 || plan.length < B.minGrowLength) {
+    if (plan.denied && from) state.events.push({ type: 'grow-denied', reason: plan.denied, x: plan.blocked ? plan.blocked.x : from.x, y: plan.blocked ? plan.blocked.y : from.y });
+    return false;
+  }
   let p = plan;
   if (!plan.affordable) {
     const part = affordablePrefix(plan, state.res.sugar - committedSugar(state.net) - 1e-6);
@@ -104,6 +121,7 @@ export function commandGrow(state, fromId, points) {
     const b = p.points[i];
     cum.push(cum[i - 1] + Math.hypot(b.x - a.x, b.y - a.y));
   }
+  if (plan.denied) state.events.push({ type: 'grow-denied', reason: plan.denied, partial: true, x: plan.blocked.x, y: plan.blocked.y });
   state.net.growing.push({
     id: state.sim.nextGrowId++,
     from: fromId,
@@ -139,6 +157,13 @@ export function stepGrowth(state, dt) {
   if (net.growing.length === 0) return;
   const finished = [];
   for (const h of net.growing) {
+    if (state.barriers.length > 0 && inBarrier(state, h.tip.x, h.tip.y)) {
+      // a barrier went up over the tip: the hypha freezes where it is (what is grown stays, nothing more is paid)
+      if (h.grown - h.nodeS > 3) h.lastNode = addNode(state, h.tip.x, h.tip.y, h.lastNode).id;
+      events.push({ type: 'grow-denied', reason: 'barrier', x: h.tip.x, y: h.tip.y }, { type: 'grow-end', x: h.tip.x, y: h.tip.y });
+      finished.push(h);
+      continue;
+    }
     const adv = Math.min(B.growSpeed * dt, h.total - h.grown);
     let moved = 0;
     let spent = 0;

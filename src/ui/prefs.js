@@ -92,3 +92,6 @@ export const wormNoteSeen = () => seen('worm-note');
 export const markWormNote = () => markSeen('worm-note');
 export const wormHintSeen = () => seen('worm-hint');
 export const markWormHint = () => markSeen('worm-hint');
+// the guide's arrow at the first raider of the honey fungus (rival.js raidHint), once per player
+export const raidHintSeen = () => seen('raid-hint');
+export const markRaidHint = () => markSeen('raid-hint');

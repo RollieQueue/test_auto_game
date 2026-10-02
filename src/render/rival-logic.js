@@ -391,3 +391,146 @@ export function infectionLabel(inf) {
 export function ringStrength(age, inf) {
   return clamp(smooth(num(age) / 6) * (0.55 + 0.45 * clamp(num(inf), 0, 1)) + 0.1, 0, 1);
 }
+
+/* ------------------------------------------------------------------ the raider and the frozen threads */
+
+export const OVER_W = 5.4; // u: the black cord on a hypha (the rhizomorph itself is 7, the hypha core 1.75 – 4)
+export const FREEZE_DRAW = 1.6; // s the frost takes to settle over a new barrier's threads
+
+/**
+ * The overgrown stretches of the player's hyphae that can be drawn: state.rival.over entries whose edge still lives in state.net
+ * (bad rows, dead edges and missing nodes are skipped). Each row is { o, e, A, B } (the entry, the edge, its parent and child).
+ */
+export function overList(state) {
+  const r = hasRival(state) ? state.rival : null;
+  const net = state && state.net;
+  if (!r || !Array.isArray(r.over) || !r.over.length || !net || !Array.isArray(net.edges) || !Array.isArray(net.nodes)) return [];
+  const out = [];
+  for (const o of r.over) {
+    if (!o || !Number.isInteger(o.edge) || o.edge < 0) continue;
+    const e = net.edges[o.edge];
+    if (!e || e.alive === false) continue;
+    const A = net.nodes[e.a];
+    const B = net.nodes[e.b];
+    if (!A || !B || !Number.isFinite(A.x + A.y + B.x + B.y) || A === B) continue;
+    out.push({ o, e, A, B });
+  }
+  return out;
+}
+
+/**
+ * The curve of a player's hypha the way mycelium.js shapes it (one quadratic from parent to child, tangent-continuous with the
+ * parent edge) without the fine meander: { x0, y0, qx, qy, x1, y1, len, parentId, childId } from the parent end to the child end.
+ * `noise` (ink.js noise1) adds the same sideways bow; leave it out for a plain curve.
+ */
+export function hyphaCurve(nodes, e, noise = null) {
+  const A = nodes[e.a];
+  const B = nodes[e.b];
+  let from = A;
+  let to = B;
+  if (B.parent !== e.a && A.parent === e.b) {
+    from = B;
+    to = A;
+  }
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  let tx = ux;
+  let ty = uy;
+  const par = from.parent;
+  const pn = Number.isInteger(par) && par >= 0 && par !== to.id ? nodes[par] : null;
+  if (pn) {
+    let ix = from.x - pn.x;
+    let iy = from.y - pn.y;
+    const il = Math.hypot(ix, iy) || 1;
+    ix /= il;
+    iy /= il;
+    if (ix * ux + iy * uy > 0.15) {
+      tx = ix + ux;
+      ty = iy + uy;
+      const tl = Math.hypot(tx, ty) || 1;
+      tx /= tl;
+      ty /= tl;
+    }
+  }
+  const wob = noise ? noise(num(e.id) * 0.73 + 3) * 0.1 * len : 0;
+  const flip = from !== A; // the child end is e.a only for a curve stored the other way round
+  return { x0: from.x, y0: from.y, qx: from.x + tx * len * 0.5 - uy * wob, qy: from.y + ty * len * 0.5 + ux * wob, x1: to.x, y1: to.y, len, parentId: flip ? e.b : e.a, childId: flip ? e.a : e.b };
+}
+
+/**
+ * Points [x0, y0, x1, y1, ...] along `curve` from the end named by `fromId` (the entry's `from`: the child end is where a raider
+ * running towards the spore enters; an id that is neither end reads as the child end) for the share `cover` 0..1 of its length;
+ * about one point per `step` units.
+ */
+export function overPoints(curve, fromId, cover, step = 5) {
+  const fromChild = fromId !== curve.parentId;
+  const k = clamp(num(cover), 0, 1);
+  const n = Math.max(2, Math.ceil((curve.len * k) / step));
+  const out = new Array((n + 1) * 2);
+  for (let i = 0; i <= n; i++) {
+    const u = (k * i) / n;
+    const s = fromChild ? 1 - u : u;
+    const v = 1 - s;
+    out[i * 2] = v * v * curve.x0 + 2 * s * v * curve.qx + s * s * curve.x1;
+    out[i * 2 + 1] = v * v * curve.y0 + 2 * s * v * curve.qy + s * s * curve.y1;
+  }
+  return out;
+}
+
+/** The point at share k 0..1 along a flat point list ([x, y, ...]) by index (the points are evenly spaced). */
+export function pointAlong(pts, k) {
+  const n = pts.length / 2 - 1;
+  if (n < 1) return { x: pts[0], y: pts[1] };
+  const f = clamp(num(k), 0, 1) * n;
+  const i = Math.min(n - 1, Math.floor(f));
+  const u = f - i;
+  return { x: pts[i * 2] + (pts[i * 2 + 2] - pts[i * 2]) * u, y: pts[i * 2 + 1] + (pts[i * 2 + 3] - pts[i * 2 + 1]) * u };
+}
+
+/**
+ * The look of one overgrown stretch from its `cover` and `wither` (0 at the touch, 1 when it is cut 8 s later): the black glossy
+ * cord shrinks, greys and frays as wither rises. width is in units; every *Alpha is 0..1; `ash` mixes the body to ash grey;
+ * `gap` is the share of the cord broken into dashes; `crumbs` how many specks fall off it.
+ */
+export function overLook(o) {
+  const cover = clamp(num(o && o.cover), 0, 1);
+  const w = clamp(num(o && o.wither), 0, 1);
+  return {
+    cover,
+    wither: w,
+    width: OVER_W * (1 - 0.34 * smooth(w)),
+    ash: smooth(w * 1.15),
+    bodyAlpha: 1 - 0.5 * smooth((w - 0.3) / 0.7),
+    rimAlpha: 1 - smooth(w / 0.7),
+    glossAlpha: 1 - smooth(w / 0.55),
+    shineAlpha: 1 - smooth(w / 0.35),
+    gap: w < 0.45 ? 0 : (w - 0.45) / 0.55,
+    crumbs: smooth(w),
+  };
+}
+
+/** 'seek' | 'run' for a rhizomorph tip that is a raider (tip.raid), else null. */
+export function raidPhase(tip) {
+  const r = tip && tip.raid;
+  if (!r || typeof r !== 'object') return null;
+  return r.phase === 'run' ? 'run' : 'seek';
+}
+
+/** Where a seeking raider is heading (tip.raid.goal on the player's hypha): { x, y, d } or null. */
+export function raidGoal(tip) {
+  const g = tip && tip.raid && tip.raid.goal;
+  if (!g || !Number.isFinite(g.x) || !Number.isFinite(g.y) || !Number.isFinite(num(tip.x, NaN) + num(tip.y, NaN))) return null;
+  return { x: g.x, y: g.y, d: Math.hypot(g.x - tip.x, g.y - tip.y) };
+}
+
+/**
+ * How strongly the frost lies on the threads inside a standing barrier, 0..1: it settles over FREEZE_DRAW seconds and goes
+ * together with the ring in the barrier's last seconds. 0 for a missing or finished barrier.
+ */
+export function freezeLook(b) {
+  if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return 0;
+  return clamp(smooth(Math.max(0, num(b.t)) / FREEZE_DRAW) * barrierLook(b).alpha, 0, 1);
+}

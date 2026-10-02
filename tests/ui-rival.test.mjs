@@ -166,7 +166,7 @@ test('notes and labels of the rival events use the pinned fields and name the tr
   assert.equal(rivalNote(s, { type: 'barrier-denied', reason: 'sugar' }), null, 'a denial is a label, not a note');
 
   // every local event has a label, every «both» event a note too
-  for (const type of RIVAL_LOCAL) assert.ok(rivalLabel(s, { type, treeId: 0, reason: 'off' }), `a label for ${type}`);
+  for (const type of RIVAL_LOCAL) assert.ok(rivalLabel(s, { type, treeId: 0, reason: type === 'grow-denied' || type === 'rival-raid-end' ? 'barrier' : 'off' }), `a label for ${type}`);
   for (const type of RIVAL_BOTH) assert.ok(rivalNote(s, { type, treeId: 0 }), `a note for ${type}`);
   assert.ok(RIVAL_EVENTS.has('tree-infected') && !RIVAL_LOCAL.has('tree-infected'), 'infection has no place: a note only');
   assert.equal(rivalNote(s, { type: 'link' }), null);

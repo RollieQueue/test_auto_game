@@ -9,6 +9,7 @@ import { hash32 } from '../core/rng.js';
 import { costAt, groundYAt } from '../world/query.js';
 import { B, treeFx } from './balance.js';
 import { eachNodeNear, nearestNode } from './network.js';
+import { cutEdge } from './threats.js';
 import { fungusFx } from './species.js';
 import { stakesOn } from './stakes.js';
 
@@ -55,14 +56,19 @@ export function createRival(state) {
     hot: false, // some edge has wither > 0
     src: [], // { key, node }: the rhizomorph root node of every stump and lost tree
     levels: state.world.trees.map(() => 0), // announced infection level per tree, 0..3 (tree-infected)
-    stats: { grips: 0, freed: 0, lost: 0, cut: 0, killed: 0, freedTrees: 0 },
+    stats: { grips: 0, freed: 0, lost: 0, cut: 0, killed: 0, freedTrees: 0, raiders: 0, raids: 0, overgrown: 0, raidCut: 0, raidHealed: 0, raidStopped: 0 },
     dormant: false, // the wake fell in late autumn or winter: it sleeps until spring (rival-dormant was sent)
     grace: {}, // treeId -> state.time until which no rhizomorph goes for that tree (after a barrier freed it)
     retreats: [], // { treeId, at, x, y }: rival-retreat to send when the barrier that freed the tree ends
     freedIds: [], // distinct trees freed from the rival (stats.freedTrees = their number)
     turnT: 0, // s until the next rival-turn event may be sent
+    // the raider (see stepRaid): tips with a `raid` field go for the player's network, `over` lists the player's edges it has overgrown
+    over: [], // { edge (state.net edge id), from (node id it entered at), cover 0..1 (how far along it the black has crept), wither 0..1, born }
+    raidCount: 0, // tips made by the spawn timer so far (every B.rivalRaidEvery-th is a raider)
   };
 }
+
+const RAID_STATS = ['raiders', 'raids', 'overgrown', 'raidCut', 'raidHealed', 'raidStopped'];
 
 /** Fields added after the first saves: a rival loaded from an older save gets their defaults. */
 function upgrade(rival) {
@@ -72,6 +78,9 @@ function upgrade(rival) {
   rival.freedIds ??= [];
   rival.turnT ??= 0;
   rival.stats.freedTrees ??= rival.freedIds.length;
+  rival.over ??= [];
+  rival.raidCount ??= 0;
+  for (const k of RAID_STATS) rival.stats[k] ??= 0;
 }
 
 // ---- derived lookups ------------------------------------------------------------------------------------------------
@@ -169,7 +178,48 @@ function segDist2(px, py, ax, ay, bx, by) {
   return ex * ex + ey * ey;
 }
 
-const inBarrier = (state, x, y) => state.barriers.some((b) => (b.x - x) ** 2 + (b.y - y) ** 2 < b.r * b.r);
+/** True when (x, y) lies inside a standing barrier. */
+export const inBarrier = (state, x, y) => state.barriers.some((b) => (b.x - x) ** 2 + (b.y - y) ** 2 < b.r * b.r);
+
+/** Ids of the player's alive nodes inside a standing barrier (their hyphae are frozen), or null when no barrier stands. */
+export function barredNodes(state) {
+  if (state.barriers.length === 0) return null;
+  const out = new Set();
+  for (const n of state.net.nodes) if (n.alive && inBarrier(state, n.x, n.y)) out.add(n.id);
+  return out;
+}
+
+/** A linked tree all of whose root contacts lie inside barriers: it pays nothing while they stand (economy.js stepTrees). */
+export function treeBarred(state, tree) {
+  if (state.barriers.length === 0) return false;
+  const ids = state.sim.contacts[tree.id];
+  if (!ids || ids.length === 0) return false;
+  const nodes = state.net.nodes;
+  return ids.every((id) => nodes[id] && inBarrier(state, nodes[id].x, nodes[id].y)); // a contact with no node is not inside
+}
+
+/**
+ * What a barrier on node `nodeId` would freeze, for the tooltip: { frozen: alive nodes of the player inside its ring, trees: the
+ * living trees that would stop paying ({ id, pay: their nominal sugar per second }; those already barred are left out) }.
+ */
+export function barrierEffects(state, nodeId) {
+  const out = { frozen: 0, trees: [] };
+  const node = state.net.nodes[nodeId];
+  if (!node || !node.alive) return out;
+  const r2 = B.barrierRadius * B.barrierRadius;
+  const inside = (x, y) => (node.x - x) ** 2 + (node.y - y) ** 2 < r2 || inBarrier(state, x, y);
+  for (const n of state.net.nodes) if (n.alive && (node.x - n.x) ** 2 + (node.y - n.y) ** 2 < r2) out.frozen++;
+  for (const t of state.world.trees) {
+    if (t.lost || treeBarred(state, t)) continue;
+    const ids = state.sim.contacts[t.id];
+    if (!ids || ids.length === 0 || !ids.every((id) => state.net.nodes[id] && inside(state.net.nodes[id].x, state.net.nodes[id].y))) continue;
+    out.trees.push({ id: t.id, pay: B.treePay[t.stage] * treeFx(t).pay * (1 - B.rivalPayCut * (t.infection ?? 0)) });
+  }
+  return out;
+}
+
+/** The raiders: rhizomorph tips that go for the player's hyphae (tip.raid is { phase: 'seek' | 'run', ... }). */
+export const raiders = (state) => (state.rival ? state.rival.tips.filter((t) => t.raid) : []);
 
 // ---- seasons -----------------------------------------------------------------------------------------------------------
 
@@ -324,15 +374,31 @@ export function spawnTipAt(state, x, y, dir, treeId = null) {
   return tip;
 }
 
-/** A new tip from source `src`; the heading points into the glade and down. Returns it, or null when it may not start. */
-function spawnTip(state, rival, src) {
+/** A new tip from source `src`; the heading points into the glade and down. Returns it, or null when it may not start. `raid`: a raider. */
+function spawnTip(state, rival, src, raid = false) {
   if (rival.tips.length >= B.rivalMaxTips || spent(rival)) return null;
   if (inBarrier(state, src.x, src.y)) return null;
   const node = rootNode(state, rival, src);
   const down = 0.3 + rand(rival) * 0.6;
   const inward = src.x < state.world.width / 2 ? 1 : -1;
   const dir = src.stump ? (inward > 0 ? down : Math.PI - down) : 0.3 + rand(rival) * (Math.PI - 0.6);
-  return newTip(rival, node, dir, between(rival, B.rivalSpeed));
+  const tip = newTip(rival, node, dir, between(rival, B.rivalSpeed));
+  if (raid) makeRaider(rival, tip);
+  return tip;
+}
+
+/** Turns `tip` into a raider (tip.raid; its target stays null: it goes for the player's network, not for a tree). */
+function makeRaider(rival, tip) {
+  tip.raid = { phase: 'seek', n: 0, edge: -1, at: -1, s: 0, goal: null, warned: false };
+  rival.stats.raiders++;
+}
+
+/** Hook for tests and scenarios: a raider at (x, y) heading `dir` on a root node of its own (it stands B.rivalRaidLead s, then seeks). Does not wake the rival. */
+export function spawnRaiderAt(state, x, y, dir = 0) {
+  const rival = (state.rival ??= createRival(state));
+  const tip = newTip(rival, addRoot(state, rival, x, y), dir, between(rival, B.rivalSpeed));
+  makeRaider(rival, tip);
+  return tip;
 }
 
 function spawnTips(state, rival, dt, f) {
@@ -354,7 +420,22 @@ function spawnTips(state, rival, dt, f) {
   if (!src.length) return;
   rival.spawnT = B.rivalTipEvery * (0.8 + 0.4 * rand(rival));
   if (rival.tips.length >= B.rivalMaxTips) return;
-  spawnTip(state, rival, src[Math.floor(rand(rival) * src.length)]);
+  let at = src[Math.floor(rand(rival) * src.length)];
+  rival.raidCount++;
+  let raid = false;
+  if (rival.raidCount % B.rivalRaidEvery === 0 && raiders(state).length < B.rivalRaidMax) {
+    // a raider starts where the player can see it coming: from a source at least B.rivalRaidMinDist from the nearest thin hypha
+    const first = src.indexOf(at);
+    for (let k = 0; k < src.length && !raid; k++) {
+      const from = src[(first + k) % src.length];
+      const goal = raidGoal(state, rival, from.x, from.y);
+      if (goal && goal.d >= B.rivalRaidMinDist) {
+        at = from;
+        raid = true;
+      }
+    }
+  }
+  spawnTip(state, rival, at, raid);
 }
 
 /** The tip has reached the root tip it was after: it holds the tree there. */
@@ -367,6 +448,7 @@ function makeGrip(state, rival, tip, tree, goal) {
 
 /** One steering decision of a tip. Returns 'ok', 'gripped' or 'dead' (the caller removes the tip in the last two cases). */
 function thinkTip(state, rival, tip, f) {
+  if (tip.raid) return thinkRaider(state, rival, tip, f);
   const { world } = state;
   tip.retarget -= THINK;
   const tree = tip.target ? world.trees[tip.target.id] : null;
@@ -393,6 +475,11 @@ function thinkTip(state, rival, tip, f) {
     tip.lost = 0;
     return 'ok';
   }
+  return steerTip(state, rival, tip, f, goal);
+}
+
+/** The steering of a tip towards `goal` ({ x, y, d } or null: no goal, it goes straight on): a heading that is open soil and free of thick cords. */
+function steerTip(state, rival, tip, f, goal) {
   let want = tip.dir;
   let near = 1;
   if (goal) {
@@ -463,6 +550,7 @@ function stepTips(state, rival, dt, f) {
     const into = c.into[tip.node];
     const e = into >= 0 ? rival.edges[into] : null;
     if (!rival.nodes[tip.node].alive || (e && (!e.alive || e.orphan))) {
+      if (tip.raid) endRaid(state, rival, tip, 'gone');
       rival.tips.splice(i, 1); // cut off from its source
       continue;
     }
@@ -471,11 +559,20 @@ function stepTips(state, rival, dt, f) {
       continue;
     }
     tip.age += dt;
+    if (tip.raid && tip.raid.phase === 'run') {
+      const end = runRaider(state, rival, tip, dt * f);
+      if (end) {
+        endRaid(state, rival, tip, end);
+        rival.tips.splice(i, 1);
+      }
+      continue;
+    }
     tip.think -= dt;
     if (tip.think <= 0) {
       tip.think += THINK;
       const verdict = thinkTip(state, rival, tip, f);
       if (verdict !== 'ok') {
+        if (tip.raid) endRaid(state, rival, tip, 'gone');
         rival.tips.splice(i, 1);
         continue;
       }
@@ -495,6 +592,169 @@ function stepTips(state, rival, dt, f) {
     if (tip.acc < tip.nextLen) continue;
     if (spent(rival)) tip.speed = 0; // another tip took the last segment: wait
     else growNode(state, rival, tip);
+  }
+}
+
+// ---- the raider --------------------------------------------------------------------------------------------------------
+// A raider is a tip with tip.raid. In phase 'seek' it creeps like any tip, but towards the player's nearest thin hypha; on touching
+// it (phase 'run') it overgrows that edge and runs on over thin edges towards the spore at B.rivalRaidSpeed, at most B.rivalRaidReach
+// edges. An overgrown edge (rival.over) withers for B.rivalRaidWither s and is then cut like a worm bite (threats.js cutEdge), the
+// branch beyond it dying with it. A thick cord, the hyphae round the spore, a barrier or the reach stop it; a barrier also kills it
+// and heals what it has overgrown inside the ring.
+
+const overgrown = (rival, edgeId) => rival.over.some((o) => o.edge === edgeId);
+
+/** The edge from `node` towards the spore a raider may overgrow: alive, thin (w < B.rivalBlockW), not round the spore, not overgrown yet; else null. */
+function raidEdge(state, rival, node) {
+  const ei = state.sim.parentEdge[node.id];
+  if (ei < 0 || !node.alive || node.dist < B.biteImmuneDist) return null;
+  const e = state.net.edges[ei];
+  return e.alive && e.w < B.rivalBlockW && !overgrown(rival, ei) ? e : null;
+}
+
+/** The thin hypha a raider at (x, y) goes for: the nearest node (outside barriers) whose edge it may overgrow. { x, y, d, node } or null. */
+function raidGoal(state, rival, x, y) {
+  const id = nearestNode(state, x, y, B.rivalRaidSense, (n) => raidEdge(state, rival, n) !== null && !inBarrier(state, n.x, n.y));
+  if (id === null) return null;
+  const n = state.net.nodes[id];
+  return { x: n.x, y: n.y, d: Math.hypot(n.x - x, n.y - y), node: id };
+}
+
+/** The raid is over (the caller removes the tip): `reason` is 'cord' | 'barrier' | 'reach' | 'spore' | 'gone'. */
+function endRaid(state, rival, tip, reason) {
+  if (tip.raid.phase === 'run' && reason !== 'gone') rival.stats.raidStopped++;
+  state.events.push({ type: 'rival-raid-end', x: tip.x, y: tip.y, reason });
+}
+
+/** Overgrows edge `e` from its child end: it blackens and withers, then is cut (stepOver). */
+function overgrow(state, rival, e) {
+  rival.over.push({ edge: e.id, from: e.b, cover: 0, wither: 0, born: state.time });
+  rival.stats.overgrown++;
+}
+
+/** One think of a raider in phase 'seek': find its hypha, touch it (and start the run), or steer on. */
+function thinkRaider(state, rival, tip, f) {
+  const { net } = state;
+  const raid = tip.raid;
+  tip.retarget -= THINK;
+  let goal = raid.goal;
+  const stale = !goal || !net.nodes[goal.node].alive || raidEdge(state, rival, net.nodes[goal.node]) === null || inBarrier(state, goal.x, goal.y);
+  if (stale || tip.retarget <= 0) {
+    const next = raidGoal(state, rival, tip.x, tip.y);
+    if (next && (!goal || next.node !== goal.node)) {
+      tip.best = 1e9; // a new goal: progress is measured afresh
+      tip.noProg = 0;
+    }
+    goal = raid.goal = next;
+    tip.retarget = 1.5 + rand(rival) * 1.5;
+  }
+  if (spent(rival)) {
+    tip.speed = 0; // no more segments to spend: the tip waits until some wither
+    return 'ok';
+  }
+  if (goal) {
+    goal.d = Math.hypot(goal.x - tip.x, goal.y - tip.y);
+    if (!raid.warned && goal.d <= B.rivalRaidWarn) {
+      raid.warned = true;
+      state.events.push({ type: 'rival-raid-seek', x: tip.x, y: tip.y });
+    }
+  }
+  if (tip.age < B.rivalRaidLead) {
+    tip.speed = 0; // it has just appeared: it stands still for a while (the warning), it does not touch anything yet
+    return 'ok';
+  }
+  // touch: a thin hypha within B.rivalRaidTouch of the tip
+  let hit = null;
+  let hitD = B.rivalRaidTouch * B.rivalRaidTouch;
+  eachNodeNear(state, tip.x, tip.y, B.rivalRaidTouch + 20, (n) => {
+    const e = raidEdge(state, rival, n);
+    if (!e || inBarrier(state, n.x, n.y)) return;
+    const p = net.nodes[e.a];
+    const d = segDist2(tip.x, tip.y, p.x, p.y, n.x, n.y);
+    if (d <= hitD) {
+      hitD = d;
+      hit = e;
+    }
+  });
+  if (hit) {
+    const start = net.nodes[hit.b];
+    raid.phase = 'run';
+    raid.edge = hit.id;
+    raid.at = hit.b;
+    raid.s = 0;
+    raid.n = 1;
+    raid.goal = null;
+    tip.x = start.x;
+    tip.y = start.y;
+    tip.speed = 0;
+    overgrow(state, rival, hit);
+    rival.stats.raids++;
+    state.events.push({ type: 'rival-raid-touch', x: start.x, y: start.y, edge: hit.id });
+    return 'ok';
+  }
+  return steerTip(state, rival, tip, f, goal);
+}
+
+/** Moves a raider in phase 'run' by `dt` (already scaled by the season) along the player's hypha; null, or the reason it ends. */
+function runRaider(state, rival, tip, dt) {
+  const { net, sim } = state;
+  const raid = tip.raid;
+  raid.s += B.rivalRaidSpeed * dt;
+  for (;;) {
+    const e = net.edges[raid.edge];
+    if (!e.alive) return 'gone';
+    const from = net.nodes[raid.at];
+    const to = net.nodes[e.a];
+    const len = e.len > 0 ? e.len : 1;
+    const o = rival.over.find((q) => q.edge === e.id);
+    if (raid.s < len) {
+      tip.x = from.x + (to.x - from.x) * (raid.s / len);
+      tip.y = from.y + (to.y - from.y) * (raid.s / len);
+      if (o) o.cover = raid.s / len;
+      return null;
+    }
+    // arrived at the parent end: the next edge towards the spore, if it may be overgrown
+    raid.s -= len;
+    if (o) o.cover = 1;
+    tip.x = to.x;
+    tip.y = to.y;
+    const ni = sim.parentEdge[to.id];
+    if (ni < 0 || to.dist < B.biteImmuneDist) return 'spore';
+    const next = net.edges[ni];
+    if (!next.alive) return 'gone';
+    if (next.w >= B.rivalBlockW) return 'cord';
+    if (inBarrier(state, to.x, to.y) || inBarrier(state, net.nodes[next.a].x, net.nodes[next.a].y)) return 'barrier';
+    if (raid.n >= B.rivalRaidReach) return 'reach';
+    if (overgrown(rival, ni)) return 'gone'; // black lies there already
+    overgrow(state, rival, next);
+    raid.n++;
+    raid.edge = ni;
+    raid.at = to.id;
+  }
+}
+
+/** Overgrown hyphae wither; one a barrier covers is healed, one that has withered through is cut (the branch beyond it dies). */
+function stepOver(state, rival, dt) {
+  const { net, barriers } = state;
+  for (let i = rival.over.length - 1; i >= 0; i--) {
+    const o = rival.over[i];
+    const e = net.edges[o.edge];
+    if (!e.alive) {
+      rival.over.splice(i, 1);
+      continue;
+    }
+    const a = net.nodes[e.a];
+    const b = net.nodes[e.b];
+    if (barriers.some((br) => segDist2(br.x, br.y, a.x, a.y, b.x, b.y) <= br.r * br.r)) {
+      rival.over.splice(i, 1); // the barrier dissolves the rhizomorph that grew over the hypha
+      rival.stats.raidHealed++;
+      continue;
+    }
+    o.wither = Math.min(1, o.wither + dt / B.rivalRaidWither);
+    if (o.wither < 1) continue;
+    rival.over.splice(i, 1);
+    rival.stats.raidCut++;
+    cutEdge(state, e.id, null, 'rival');
   }
 }
 
@@ -548,6 +808,7 @@ function stepBarriers(state, rival, dt) {
   if (barriers.length) {
     for (let i = rival.tips.length - 1; i >= 0; i--) {
       if (!inBarrier(state, rival.tips[i].x, rival.tips[i].y)) continue;
+      if (rival.tips[i].raid) endRaid(state, rival, rival.tips[i], 'barrier');
       rival.tips.splice(i, 1);
       rival.stats.killed++;
     }
@@ -782,6 +1043,7 @@ export function stepRival(state, dt) {
   rival.tipEvT = Math.max(0, rival.tipEvT - dt);
   const f = growthFactor(state);
   stepBarriers(state, rival, dt);
+  stepOver(state, rival, dt);
   sweepTwigs(state, rival, dt);
   stepTips(state, rival, dt, f);
   spawnTips(state, rival, dt, f);

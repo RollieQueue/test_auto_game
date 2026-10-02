@@ -13,10 +13,12 @@ for (const seed of [7, 13, 23, 42]) {
   });
 }
 
-test('stakes bot: the passive bot (no barriers) loses the grove and the page closes, the glade then stands still', () => {
+test('stakes bot: the passive bot (no barriers) loses the grove, or the raiders cut it off from the last ally, and the page closes', () => {
   const r = playStakes(23, false);
   assert.equal(r.closed.length, 1);
-  assert.equal(r.closed[0].cause, 'grove');
+  assert.ok(['grove', 'allies'].includes(r.closed[0].cause), r.closed[0].cause);
   assert.ok(r.closed[0].at >= 600, 'not in the first ten minutes');
-  assert.equal(r.state.world.trees.every((t) => t.lost), true);
+  const lost = r.state.world.trees.filter((t) => t.lost).length;
+  if (r.closed[0].cause === 'grove') assert.equal(lost, r.state.world.trees.length);
+  else assert.ok(lost >= 2, `the rival took ${lost} trees before the net lost its last ally`);
 });

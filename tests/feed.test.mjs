@@ -308,7 +308,9 @@ test('feed texts: a tree with every root inside a barrier says so (when the sim 
   const s = game();
   assert.doesNotMatch(describeTree(s.world.trees[0], s).sub, /барьер/);
   if (typeof sim.treeBarred === 'function') {
-    s.barriers = [{ id: 1, nodeId: 0, x: s.world.trees[0].x, y: s.world.trees[0].baseY, r: 9999, t: 0, dur: 40 }];
+    const o = s.net.nodes[s.net.originId]; // a real node as the root contact (the fixture's contacts are made-up ids)
+    s.sim.contacts[s.world.trees[0].id] = [o.id];
+    s.barriers = [{ id: 1, nodeId: o.id, x: o.x, y: o.y, r: 9999, t: 0, dur: 40 }];
     assert.match(describeTree(s.world.trees[0], s).sub, /все корни в барьере/);
   }
 });

@@ -6,7 +6,7 @@ import * as mushrooms from '../sim/mushrooms.js';
 import * as balance from '../sim/balance.js';
 import { describeTrapPick, fruitCostOf, threatsOn, trapCost } from './threats.js';
 import { describeTree } from './trees-logic.js';
-import { barrierCostOf, barrierTabShown, describeBarrierPick } from './rival.js';
+import { barrierCostOf, barrierTabShown, describeBarrierPick, effectsOf } from './rival.js';
 import { describeFeedPick } from './feed.js';
 import * as rivalUi from './rival.js'; // describeStump is reached through the namespace: a build without it only loses the stump's text
 import { placeTip } from './tip-logic.js';
@@ -62,7 +62,24 @@ export function describeTarget(state, t) {
   }
 }
 
-function describePreview(state, p) {
+/** Seconds the ring that holds (x, y) still stands (the longest of the barriers over it), or 0 when none does. */
+function barrierSecondsLeft(state, at) {
+  let left = 0;
+  for (const b of state.barriers || []) {
+    if (at && (b.x - at.x) ** 2 + (b.y - at.y) ** 2 < b.r * b.r) left = Math.max(left, b.dur - b.t);
+  }
+  return Number.isFinite(left) ? Math.ceil(left) : 0;
+}
+
+/** The tooltip of the hypha being dragged: its price, or why it stops (a rock, a barrier's ring, no sugar). null: nothing to say. */
+export function describePreview(state, p) {
+  if (p && p.denied === 'barrier') {
+    // a barrier's ring is what stops the thread (before the rock case; the path may be empty: the start itself lies inside)
+    const left = barrierSecondsLeft(state, p.blocked);
+    const sub = left > 0 ? `ещё ${left} с` : '';
+    if (p.points && p.points.length >= 2) return { main: 'Нить упрётся в барьер', sub: [p.cost > 0 ? `до кольца: ${sugar(p.cost)}` : '', sub].filter(Boolean).join(' · '), warn: true };
+    return { main: 'Здесь нити не растут', sub: sub ? `барьер держит кольцо · ${sub}` : 'барьер держит кольцо', warn: true };
+  }
   if (!p || !p.points || p.points.length < 2) return null;
   const have = Math.floor(state.res.sugar);
   if (p.blocked) {
@@ -152,7 +169,7 @@ export function createTooltip(host) {
         else {
           if (ui.tool === 'fruit') info = describeFruit(state);
           else if (ui.tool === 'trap' && threatsOn(state)) info = describeTrapPick(ui.trapPick, trapCost(balance.B), state.res.sugar);
-          else if (ui.tool === 'barrier' && barrierTabShown(state)) info = describeBarrierPick(ui.barrierPick, barrierCostOf(state), state.res.sugar);
+          else if (ui.tool === 'barrier' && barrierTabShown(state)) info = describeBarrierPick(ui.barrierPick && ui.barrierPick.ok ? { ...ui.barrierPick, effects: effectsOf(state, ui.barrierPick.nodeId) } : ui.barrierPick, barrierCostOf(state), state.res.sugar, balance.B, state);
           else if (ui.tool === 'feed') info = describeFeedPick(state, ui.hoverTarget, describeTree);
           if (!info && ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
         }

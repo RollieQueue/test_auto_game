@@ -144,7 +144,7 @@ const mineralsOf = (ev) => (isNum(ev.minerals) ? Math.max(0, Math.round(ev.miner
  * 'mushroom-wilted' events of the same cut do not carry it, and a mushroom lost to starvation did not meet a worm.
  */
 export function cutCause(events) {
-  for (const e of events || []) if (e && e.type === 'severed') return e.cause === 'starved' ? 'starved' : 'worm';
+  for (const e of events || []) if (e && e.type === 'severed') return e.cause === 'starved' || e.cause === 'rival' ? e.cause : 'worm';
   return 'worm';
 }
 
@@ -156,6 +156,7 @@ export function threatLabel(ev, cause = 'worm') {
     case 'severed': {
       const n = nodesLost(ev);
       if (ev.cause === 'starved') return { key: 'severed:starved', text: n ? `отмерло: −${n}` : 'нить отмерла', tone: 'warn', icon: 'snip' };
+      if (ev.cause === 'rival') return { key: 'severed:rival', text: n ? `съедено ризоморфом: −${n}` : 'нить съедена ризоморфом', tone: 'warn', icon: 'snip' };
       return { key: 'severed', text: n ? `перекушено: −${n}` : 'перекушено', tone: 'warn', icon: 'snip' };
     }
     case 'worm-caught': {
@@ -180,7 +181,7 @@ export function threatLabel(ev, cause = 'worm') {
       return { key: `trap:denied:${ev.reason}`, text, tone: 'warn', icon: ev.reason === 'sugar' ? 'sugar' : 'ring' };
     }
     case 'mushroom-wilted':
-      return { key: 'wilted', text: cause === 'starved' ? 'гриб погиб: нить отмерла' : 'гриб погиб: нить перекушена', tone: 'warn', icon: 'mushroom' };
+      return { key: 'wilted', text: cause === 'starved' ? 'гриб погиб: нить отмерла' : cause === 'rival' ? 'гриб погиб: нить съедена' : 'гриб погиб: нить перекушена', tone: 'warn', icon: 'mushroom' };
     default:
       return null;
   }
@@ -194,6 +195,10 @@ export function threatNote(ev, cause = 'worm') {
       if (ev.cause === 'starved') {
         const text = n ? `Нить отмерла без сахара: отмерло ${count(n, 'узел', 'узла', 'узлов')}` : 'Нить отмерла без сахара: часть сети погибла';
         return { key: 'threat:starved', text, tone: 'warn', icon: 'snip' };
+      }
+      if (ev.cause === 'rival') {
+        const text = n ? `Ризоморф съел нить: отмерло ${count(n, 'узел', 'узла', 'узлов')}` : 'Ризоморф съел нить: часть сети отмерла';
+        return { key: 'threat:rival-cut', text, tone: 'warn', icon: 'snip' };
       }
       const text = n ? `Нить перекушена: отмерло ${count(n, 'узел', 'узла', 'узлов')}` : 'Нить перекушена: часть сети отмерла';
       return { key: 'threat:severed', text, tone: 'warn', icon: 'snip' };
@@ -212,7 +217,7 @@ export function threatNote(ev, cause = 'worm') {
     case 'mushroom-wilted':
       return {
         key: 'threat:wilted',
-        text: cause === 'starved' ? 'Гриб погиб: нить отмерла без сахара' : 'Гриб погиб: нить перекушена',
+        text: cause === 'starved' ? 'Гриб погиб: нить отмерла без сахара' : cause === 'rival' ? 'Гриб погиб: нить съедена ризоморфом' : 'Гриб погиб: нить перекушена',
         tone: 'warn',
         icon: 'mushroom',
       };
