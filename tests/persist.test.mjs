@@ -533,3 +533,51 @@ test('saveNow ignores the title screen but saves a paused game', () => {
     assert.equal(st.calls.set, 1);
   });
 });
+
+test('savedGladeInfo names the saved glade from the JSON alone, like the decoded world does', () => {
+  withStorage(shim(), () => {
+    assert.equal(persist.savedGladeInfo(), null, 'no save, no glade');
+    const s = createState(7);
+    s.phase = 'paused';
+    persist.saveNow(s);
+    const info = persist.savedGladeInfo();
+    assert.deepEqual(info, { seed: 7, name: s.world.name });
+    assert.equal(persist.loadSave().world.name, info.name);
+  });
+  withStorage(shim(), (st) => {
+    st.data.set(persist.SAVE_KEY, '{"v":-1}');
+    assert.equal(persist.savedGladeInfo(), null, 'a damaged save names nothing');
+  });
+});
+
+test('the autosave waits for an idle moment when the page offers one, and drops it for another game', () => {
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'requestIdleCallback');
+  const queued = [];
+  globalThis.requestIdleCallback = (fn, opts) => void queued.push({ fn, opts });
+  try {
+    withStorage(shim(), (st) => {
+      const s = createState(3);
+      s.phase = 'playing';
+      for (let i = 0; i < 20; i++) persist.tick(s, 0.5);
+      assert.equal(st.calls.set, 0, 'nothing is written inside the frame');
+      assert.equal(queued.length, 1);
+      assert.ok(queued[0].opts.timeout > 0, 'with a timeout, so a busy page still saves');
+      for (let i = 0; i < 40; i++) persist.tick(s, 0.5);
+      assert.equal(queued.length, 1, 'one write is queued at a time');
+      queued[0].fn();
+      assert.equal(st.calls.set, 1);
+      assert.equal(persist.loadSave().seed, 3);
+
+      for (let i = 0; i < 20; i++) persist.tick(s, 0.5);
+      assert.equal(queued.length, 2);
+      const next = createState(4);
+      next.phase = 'playing';
+      persist.tick(next, 0.5); // another game: the queued write of the old one is dropped
+      queued[1].fn();
+      assert.equal(st.calls.set, 1);
+    });
+  } finally {
+    if (had) Object.defineProperty(globalThis, 'requestIdleCallback', had);
+    else delete globalThis.requestIdleCallback;
+  }
+});

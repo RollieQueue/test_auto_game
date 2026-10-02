@@ -94,8 +94,8 @@ game.actions = {
   },
   /** The saved glade's seed and name for the title page («Сохранённая поляна: …»), or null. Read once per title screen. */
   savedGlade() {
-    const saved = persist.hasSave() ? persist.loadSave() : null;
-    return saved ? { seed: saved.seed, world: { name: saved.world && saved.world.name } } : null;
+    const saved = persist.savedGladeInfo(); // from the saved JSON: no world is generated for a label
+    return saved ? { seed: saved.seed, world: { name: saved.name } } : null;
   },
   continueSaved() {
     const saved = persist.loadSave();
@@ -157,6 +157,13 @@ window.addEventListener('pagehide', saveOnLeave);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') saveOnLeave();
 });
+
+// Build the audio graph while the title page idles, so the click on «Начать» does not pay for it (the context stays suspended until then).
+setTimeout(() => {
+  const prepare = () => game.audio.prepare?.();
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(prepare, { timeout: 5000 });
+  else prepare();
+}, 2500);
 
 if (params.get('autostart') === '1') game.actions.start();
 

@@ -98,12 +98,8 @@ export function generateWorld(seed, gen = GEN) {
   return best.world;
 }
 
-/** One attempt: the glade's identity (biome, ground, soil, name) depends on the seed alone, the layout also on `attempt` (and, from v2 on, on the generator version). */
-export function buildWorld(seed, attempt = 0, gen = GEN) {
-  const rng = createRng(attempt === 0 ? seed : hash32(seed, 'attempt', attempt));
-  const cols = Math.ceil(WORLD_W / PROFILE_STEP) + 1;
-
-  // --- Identity: biome, ground shape, soil depths, name.
+/** Biome, ground kind and name of a seed (cheap: no layout), with the identity generator advanced past the name's two draws. */
+function gladeIdentity(seed) {
   const idRng = createRng(hash32(seed, 'identity'));
   const biome = BIOMES[BIOME_IDS[idRng.int(0, BIOME_IDS.length - 1)]];
   const terrain = pickWeighted(idRng, biome.ground);
@@ -111,6 +107,21 @@ export function buildWorld(seed, attempt = 0, gen = GEN) {
   idRng.next();
   idRng.next();
   const name = gladeName(createRng(hash32(seed, 'name')), biome, terrain);
+  return { idRng, biome, terrain, name };
+}
+
+/** The name of the glade of `seed`, without generating it (the title page names a saved glade with it). */
+export function gladeNameOf(seed) {
+  return gladeIdentity(seed).name;
+}
+
+/** One attempt: the glade's identity (biome, ground, soil, name) depends on the seed alone, the layout also on `attempt` (and, from v2 on, on the generator version). */
+export function buildWorld(seed, attempt = 0, gen = GEN) {
+  const rng = createRng(attempt === 0 ? seed : hash32(seed, 'attempt', attempt));
+  const cols = Math.ceil(WORLD_W / PROFILE_STEP) + 1;
+
+  // --- Identity: biome, ground shape, soil depths, name.
+  const { idRng, biome, terrain, name } = gladeIdentity(seed);
   const shape = makeShape(idRng, terrain);
   const jitter = biome.id === 'mixed' ? 0.12 : 0.08;
   const nominal = biome.depths.map((d, i) => (i === 0 ? 0 : d * idRng.range(1 - jitter, 1 + jitter)));

@@ -614,8 +614,9 @@ export function createAudio(options = {}) {
 
   // ------------------------------------------------------------ public API
   let wantUnlock = false;
+  let hooked = false; // the persistent gesture and visibility hooks are installed
   const resumeOnGesture = () => {
-    if (!ctx && wantUnlock) api.unlock();
+    if (wantUnlock && !hooked) api.unlock();
     else if (ctx && ctx.state === 'suspended' && !muted && !document.hidden) ctx.resume();
   };
   const running = () => ctx.state === 'running' || Boolean(options.context); // an injected offline context only runs while rendering
@@ -660,14 +661,15 @@ export function createAudio(options = {}) {
           build();
           return;
         }
-        if (!ctx) {
+        if (!hooked) {
           const active = !navigator.userActivation || navigator.userActivation.hasBeenActive;
           if (!active) {
-            // autoplay policy: no gesture yet (e.g. ?autostart=1), so build on the first click or key
+            // autoplay policy: no gesture yet (e.g. ?autostart=1), so build (or resume) on the first click or key
             for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, resumeOnGesture, { once: true, passive: true });
             return;
           }
-          if (!build()) return;
+          if (!ctx && !build()) return;
+          hooked = true;
           for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, resumeOnGesture, { passive: true });
           document.addEventListener('visibilitychange', () => {
             if (!ctx) return;
@@ -682,8 +684,23 @@ export function createAudio(options = {}) {
       }
     },
 
+    /**
+     * Builds the context and the graph ahead of the first gesture (it stays suspended until unlock() resumes it), so
+     * the click on «Начать» does not pay for it: creating the context and synthesizing the noise takes a long while.
+     * Call it when the page is idle; unlock() without it builds on the spot as before.
+     */
+    prepare() {
+      if (ctx || options.context) return;
+      try {
+        build();
+      } catch (err) {
+        if (typeof console !== 'undefined') console.warn('[audio] prepare failed', err);
+        ctx = null;
+      }
+    },
+
     update(state, dt) {
-      if (!ctx || muted || !running()) return;
+      if (!ctx || muted || !wantUnlock || !running()) return;
       const now = ctx.currentTime;
       const phaseGain = state.phase === 'playing' ? 1 : state.phase === 'paused' ? 0.08 : 0.35;
       if (phaseGain !== ambTarget) {
