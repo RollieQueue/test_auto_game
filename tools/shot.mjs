@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createGuard, killByProfile, killTree, sweepStale } from './proc-guard.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const BROWSERS = [
@@ -84,8 +85,14 @@ async function launchBrowser(exe, [w, h]) {
   ], { stdio: 'ignore' });
   child.exited = new Promise((r) => child.once('exit', r));
   const portFile = join(profile, 'DevToolsActivePort');
-  for (let i = 0; i < 100 && !existsSync(portFile); i++) await sleep(100);
-  if (!existsSync(portFile)) throw new Error('browser did not open a DevTools port');
+  // up to 30 s: a loaded machine starts Edge slowly. If no port ever appears, the browser must not be left running.
+  for (let i = 0; i < 300 && !existsSync(portFile); i++) await sleep(100);
+  if (!existsSync(portFile)) {
+    killTree(child.pid);
+    child.kill();
+    killByProfile(profile);
+    throw new Error('browser did not open a DevTools port');
+  }
   const [port, path] = readFileSync(portFile, 'utf8').trim().split(/\r?\n/);
   return { child, profile, wsUrl: `ws://127.0.0.1:${port}${path}` };
 }
@@ -121,15 +128,20 @@ function connect(wsUrl) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  const swept = sweepStale(root); // browsers and servers that earlier runs left behind
+  if (swept) console.log(`[sweep] ${swept}`);
+  const guard = createGuard(); // kills browser and server on every exit path, incl. a kill from outside (watchdog)
   const exe = opts.browser || BROWSERS.find((p) => existsSync(p));
   if (!exe) throw new Error('no Edge/Chrome found; pass --browser PATH');
   let server = null;
   let url = opts.url;
   if (url.startsWith('/')) {
     server = await startServer();
+    guard.set({ server: server.child });
     url = server.base + url;
   }
   const browser = await launchBrowser(exe, opts.size);
+  guard.set({ browser: browser.child, profile: browser.profile });
   const cdp = connect(browser.wsUrl);
   let problems = 0;
   try {
@@ -217,10 +229,15 @@ async function main() {
       }
     }
   } finally {
-    await Promise.race([cdp.send('Browser.close').catch(() => {}), sleep(2000)]);
-    await Promise.race([browser.child.exited, sleep(3000)]);
+    await Promise.race([cdp.send('Browser.close').catch(() => {}), sleep(1500)]);
+    // the whole tree goes while the main process is still alive (taskkill /T cannot find orphans), then any stragglers
+    killTree(browser.child.pid);
     browser.child.kill();
-    if (server) server.child.kill();
+    killByProfile(browser.profile);
+    if (server) {
+      killTree(server.child.pid);
+      server.child.kill();
+    }
     try {
       rmSync(browser.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     } catch {
