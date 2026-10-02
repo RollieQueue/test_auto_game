@@ -7,6 +7,7 @@ import * as balance from '../sim/balance.js';
 import { describeTrapPick, fruitCostOf, threatsOn, trapCost } from './threats.js';
 import { describeTree } from './trees-logic.js';
 import { barrierCostOf, barrierTabShown, describeBarrierPick } from './rival.js';
+import { describeFeedPick } from './feed.js';
 import * as rivalUi from './rival.js'; // describeStump is reached through the namespace: a build without it only loses the stump's text
 import { placeTip } from './tip-logic.js';
 import { horizonLabel } from '../world/biomes.js';
@@ -110,10 +111,11 @@ function describeFruit(state) {
 }
 
 export function createTooltip(host) {
-  host.innerHTML = '<div class="t-main"></div><div class="t-sub"></div><div class="t-sub t-risk"></div><div class="t-body"></div>';
+  host.innerHTML = '<div class="t-main"></div><div class="t-sub"></div><div class="t-sub t-risk"></div><div class="t-sub t-feed"></div><div class="t-body"></div>';
   const mainEl = host.querySelector('.t-main');
   const subEl = host.querySelector('.t-sub');
   const riskEl = host.querySelector('.t-risk');
+  const feedEl = host.querySelector('.t-feed');
   const bodyEl = host.querySelector('.t-body');
   let shown = false;
   let key = '';
@@ -151,6 +153,7 @@ export function createTooltip(host) {
           if (ui.tool === 'fruit') info = describeFruit(state);
           else if (ui.tool === 'trap' && threatsOn(state)) info = describeTrapPick(ui.trapPick, trapCost(balance.B), state.res.sugar);
           else if (ui.tool === 'barrier' && barrierTabShown(state)) info = describeBarrierPick(ui.barrierPick, barrierCostOf(state), state.res.sugar);
+          else if (ui.tool === 'feed') info = describeFeedPick(state, ui.hoverTarget, describeTree);
           if (!info && ui.hoverTarget) info = describeTarget(state, ui.hoverTarget);
         }
       }
@@ -159,12 +162,13 @@ export function createTooltip(host) {
         return null;
       }
       const body = info.body || null;
-      const k = `${info.main}|${info.sub || ''}|${info.sub2 || ''}|${info.warn ? 1 : 0}|${body ? body.join('/') : ''}`;
+      const k = `${info.main}|${info.sub || ''}|${info.sub2 || ''}|${info.feed || ''}|${info.warn ? 1 : 0}|${body ? body.join('/') : ''}`;
       if (k !== key) {
         key = k;
         mainEl.textContent = info.main;
         subEl.textContent = info.sub || '';
         riskEl.textContent = info.sub2 || '';
+        feedEl.textContent = info.feed || '';
         bodyEl.replaceChildren(
           ...(body || []).map((line) => {
             const p = document.createElement('p');

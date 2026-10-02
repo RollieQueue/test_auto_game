@@ -22,6 +22,7 @@ import { stakesSlip } from './year-logic.js';
 import { pageClosed } from '../sim/stakes.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
 import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
+import { feedTabShown, feedTabTitle } from './feed.js';
 import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
 import { initSettingsPanel } from './settings.js';
 import { createMarks } from './marks.js';
@@ -98,6 +99,7 @@ export function createHud(root, actions) {
         <button class="tool" data-tool="fruit" type="button" role="tab">${icons.mushroom}<span>Гриб</span><kbd>2</kbd></button>
         <button class="tool" data-tool="trap" type="button" role="tab" hidden>${icons.ring}<span>Кольцо</span><kbd>3</kbd></button>
         <button class="tool" data-tool="barrier" type="button" role="tab" hidden>${icons.barrier}<span>Барьер</span><kbd>4</kbd></button>
+        <button class="tool" data-tool="feed" type="button" role="tab" hidden>${icons.feed}<span>Подкормка</span><kbd>5</kbd></button>
       </div>
 
       <div class="stamps">
@@ -220,6 +222,7 @@ export function createHud(root, actions) {
     objTitle: q('[data-k="obj-title"]'),
     trapTab: q('.tool[data-tool="trap"]'),
     barrierTab: q('.tool[data-tool="barrier"]'),
+    feedTab: q('.tool[data-tool="feed"]'),
     kbd3: q('.hint .k3'),
     objCount: q('.obj-count'),
     objCur: q('.obj-cur'),
@@ -724,6 +727,10 @@ export function createHud(root, actions) {
       case 'Numpad4':
         if (phase !== 'title' && barrierTabShown(cur)) actions.setTool('barrier');
         break;
+      case 'Digit5':
+      case 'Numpad5':
+        if (phase !== 'title' && feedTabShown(cur)) actions.setTool('feed');
+        break;
       case 'Space':
         if (ev.repeat) break;
         if (phase === 'title') startPrimary();
@@ -755,7 +762,7 @@ export function createHud(root, actions) {
         if (cur.ui.drag) actions.cancelDrag();
         else if (summaryOpen) dismissSummary();
         else if (yearOpen) dismissYear();
-        else if (cur.ui.tool === 'trap' || cur.ui.tool === 'barrier') actions.setTool('grow'); // the ring and barrier tools let go first, a second Esc pauses
+        else if (cur.ui.tool === 'trap' || cur.ui.tool === 'barrier' || cur.ui.tool === 'feed') actions.setTool('grow'); // the ring, barrier and feeding tools let go first, a second Esc pauses
         else if (phase === 'paused' || phase === 'playing') actions.togglePause();
         else handled = false;
         break;
@@ -1071,6 +1078,24 @@ export function createHud(root, actions) {
     }
   }
 
+  /** The feeding tab and key 5 exist once a tree is linked; the title says which tree is fed. With no tree left to feed the tool lets go. */
+  function updateFeedTab(state) {
+    const on = feedTabShown(state);
+    if (shown.feed !== on) {
+      shown.feed = on;
+      el.feedTab.hidden = !on;
+    }
+    if (!on) {
+      if (state.ui.tool === 'feed') actions.setTool('grow');
+      return;
+    }
+    const title = feedTabTitle(state);
+    if (shown.feedTitle !== title) {
+      shown.feedTitle = title;
+      el.feedTab.title = title;
+    }
+  }
+
   /** The warning slip of the stakes (no ally for a while, the last tree rotting): bottom centre above the tools, quiet otherwise. */
   function updateSlip(state) {
     const slip = phaseShowsSlip(state) ? stakesSlip(state) : null;
@@ -1109,6 +1134,7 @@ export function createHud(root, actions) {
   function updateControls(state) {
     updateThreatTab(state);
     updateBarrierTab(state);
+    updateFeedTab(state);
     const tool = state.ui.tool;
     for (const t of el.tools) {
       const on = t.dataset.tool === tool;

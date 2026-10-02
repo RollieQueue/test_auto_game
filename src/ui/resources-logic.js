@@ -3,6 +3,7 @@
 import { RESOURCE_INFO, fillWords } from '../content/resources.js';
 import { groundYAt } from '../world/query.js';
 import * as balance from '../sim/balance.js';
+import { sugarFeedText } from './feed.js';
 
 export const RESOURCES = [
   { k: 'sugar', label: 'Сахар', cap: 'sugar' },
@@ -38,12 +39,15 @@ export function resourceTip(state, k) {
   const v = resourceView(state, k);
   const main = v.capped && v.cap > 0 ? `${info.name} · ${v.value} из ${v.cap}` : `${info.name} · ${v.value}`;
   const lines = [info.what, info.use];
-  if (info.limit) lines.push(v.full && info.full ? info.full : info.limit);
+  // sugar: what becomes of the surplus (a tree being fed gets it, see feed.js)
+  const feed = k === 'sugar' ? sugarFeedText(state, v.full) : {};
+  if (info.limit) lines.push(feed.full || (v.full && info.full ? info.full : info.limit));
+  if (feed.extra) lines.push(feed.extra);
   return {
     main,
     sub: v.capped && v.cap > 0 ? fillWords(v.frac) : '',
     body: lines,
-    warn: v.full,
+    warn: v.full && !(feed.full && state.feed),
   };
 }
 

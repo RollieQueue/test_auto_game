@@ -80,6 +80,16 @@ export const icons = {
     `<path d="M1.8 5.4 C4.6 5 6.2 7.4 8 7.4" stroke="#2b1b14" stroke-width="2.7"/>` +
     `<path d="M8.4 4.6 L10.6 9.8 M10.8 4.6 L8.2 9.8" stroke="#a8322d" stroke-width="1.5"/>` +
     close,
+  // ---- feeding a tree (key 5): a crown on a trunk, a thread to its root, a lump of sugar riding along ----
+  feed:
+    open('ico-feed') +
+    `<path d="M11.8 11.6 L11.8 17.4 M11.8 14.4 L9.4 12.4 M11.8 15.4 L14.2 13.2" stroke-width="1.5"/>` +
+    `<circle cx="11.8" cy="7.2" r="5" fill="#8fb55a" fill-opacity=".7"/>` +
+    `<path d="M9.6 6.2 C10.4 4.8 11.8 4.4 13 4.8" stroke="#f4f0e2" stroke-width="1.1" opacity=".85"/>` +
+    `<path d="M2.4 21 C6.2 19.4 8.6 21 11.8 17.4 S18.2 19.6 21.6 18.4" stroke-width="1.4"/>` +
+    `<circle cx="2.4" cy="21" r="1.2" fill="#fff6dc"/>` +
+    `<path d="M16.8 11.6 L19.4 12.8 L19.3 15.4 L16.7 16.6 L14.4 15.2 L14.5 12.9 Z" fill="#e0a43a" fill-opacity=".85" stroke-width="1.1"/>` +
+    close,
   honey:
     open('ico-honey') +
     `<path d="M3.4 20.8 C5 19.4 8 19.6 11 20.8 M13.4 20.8 C15.6 19.6 18.6 19.6 20.8 20.8" stroke="#2b1b14" stroke-width="1.9"/>` +

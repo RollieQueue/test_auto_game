@@ -107,6 +107,14 @@ export const B = {
   findSugar: [4, 8, 14, 24], // one-off sugar (never above the sugar cap)
   findSpores: [0, 0, 1, 3], // one-off spores: rare finds only
 
+  // --- Feeding a tree («Подкормка», src/sim/feed.js) ---
+  // The surplus sugar of a full pantry goes through the network to ONE chosen tree (after the mother trees of Simard). It flows
+  // only from what lies above feedFrom x cap.sugar (and what the cap would throw away), at up to feedRate sugar/s.
+  feedFrom: 0.8, // share of cap.sugar above which sugar may be given away; the stock is never pushed under it
+  feedRate: 2, // sugar/s at most
+  feedGrowSeconds: 0.5, // seconds of full-health growth one fed sugar buys (x the tree's own speed): at most 2x faster
+  feedMantle: 0.03, // share of the gap to a full mantle one fed sugar closes (honey fungus on)
+
   // --- Threats (everything below, up to «Objectives», applies only with state.flags.threats) ---
   // Nematodes: small soil worms that wander, graze on thin hyphae and cut them. A cut leaves the part of the network
   // beyond it dead (nothing reaches it from the spore). Busy cords (edge.w >= biteMaxW) are too tough to bite.

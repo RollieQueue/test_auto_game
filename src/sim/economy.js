@@ -1,6 +1,7 @@
 // Economy: pool capacity, extraction from deposits, tree exchange and growth, sugar upkeep and baseline.
 import { clamp } from '../core/geom.js';
 import { B, biomeFx, pressure, treeFx } from './balance.js';
+import { stepFeed } from './feed.js';
 import { recheckTips } from './network.js';
 import { fungusFx, partnerPay } from './species.js';
 
@@ -121,7 +122,8 @@ export function stepEconomy(state, dt) {
   let upkeep = B.upkeepPerLength * state.stats.hyphaeLength * (1 + state.stats.hyphaeLength / P.sprawl) * sim.fx.upkeep * P.upkeep;
   if (res.sugar < B.upkeepSoftFloor) upkeep = Math.min(upkeep, B.upkeepFloorShare * income);
   sim.income = income;
-  res.sugar = clamp(res.sugar + (income - upkeep) * dt, 0, cap.sugar);
+  const raw = res.sugar + (income - upkeep) * dt;
+  res.sugar = clamp(raw - stepFeed(state, raw, dt), 0, cap.sugar); // the surplus the clamp would throw away may go to a fed tree (feed.js)
   res.water = Math.min(res.water, cap.pool);
   res.minerals = Math.min(res.minerals, cap.pool);
   updateCaps(state); // trees may have changed stage

@@ -2545,6 +2545,21 @@ kbd {
 .tool:nth-child(4).active {
   transform: translateY(-0.2em) rotate(-0.3deg);
 }
+.tool:nth-child(5) {
+  transform: translateY(0.25em) rotate(0.5deg);
+}
+.tool:nth-child(5):hover {
+  transform: translateY(0) rotate(0deg);
+}
+.tool:nth-child(5).active {
+  transform: translateY(-0.2em) rotate(0.3deg);
+}
+/* the line «подкармливается · +N/с» of a fed tree's tooltip */
+.tip .t-feed {
+  font-size: 1.05em;
+  line-height: 1.05;
+  color: #4d6a2a;
+}
 /* the line «заражение N % · защита N %» of a tree's tooltip */
 .tip .t-risk {
   font-size: 1.05em;

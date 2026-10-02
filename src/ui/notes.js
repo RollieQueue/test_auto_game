@@ -8,6 +8,7 @@ import { THREAT_BOTH, cutCause, threatNote } from './threats.js';
 import { PARTIAL_TEXT } from './labels.js';
 import { RIVAL_BOTH, RIVAL_EVENTS, createRivalTexts } from './rival.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
+import { feedNote } from './feed.js';
 
 export const MAX_NOTES = 3;
 const SMALL_H = 720; // window height (CSS px) up to which the stack is kept small: it would cover a quarter of the glade
@@ -98,6 +99,10 @@ export function describeNote(state, ev, prevWeather = 'clear', cause = 'worm') {
       return weatherNote(ev.kind, prevWeather);
     case 'objective':
       return { key: `obj:${ev.id}`, text: `Отмечено: ${ev.text ? ev.text.charAt(0).toLowerCase() + ev.text.slice(1) : ''}`, tone: 'good', icon: 'check' };
+    case 'feed-start':
+    case 'feed-stop':
+    case 'feed-denied':
+      return feedNote(state, ev);
     default:
       return threatNote(ev, cause);
   }

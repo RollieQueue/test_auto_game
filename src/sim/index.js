@@ -9,10 +9,12 @@ import { createObjectives, stepObjectives } from './objectives.js';
 import { initTime, stepTime } from './clock.js';
 import { canTrap, commandTrap, pickTrapNode, stepThreats, trapDenial } from './threats.js';
 import { stepStakes } from './stakes.js';
+import { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUseful, fedTree } from './feed.js';
 import { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode, stepRival } from './rival.js';
 
 export { commandGrow, estimateGrowth, canFruit, commandFruit, mushroomCost, pickFruitNode, canTrap, commandTrap, pickTrapNode, trapDenial };
 export { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode };
+export { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUseful, fedTree };
 
 export function initSim(state) {
   const { world, net } = state;
@@ -39,6 +41,7 @@ export function initSim(state) {
   state.traps = []; // «ловчие кольца»
   state.rival = null; // the honey fungus (state.flags.rival): the first step with the flag creates it, see rival.js
   state.barriers = []; // barrier tool (key 4)
+  state.feed = null; // the tree being fed (tool 5), see feed.js
   initTime(state);
 }
 

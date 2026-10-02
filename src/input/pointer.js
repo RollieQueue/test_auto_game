@@ -1,6 +1,6 @@
 // Pointer input. Drag from a network node to grow a hypha (right click cancels the drag); in 'fruit'
 // mode a click plants a mushroom, in 'trap' mode it grows a «ловчее кольцо» on the node, in 'barrier' mode it puts a barrier
-// against the honey fungus on the node. Keeps state.ui.pointer / hoverNode / hoverTarget / trapPick / barrierPick / drag /
+// against the honey fungus on the node, in 'feed' mode it feeds (or stops feeding) the tree under the pointer. Keeps state.ui.pointer / hoverNode / hoverTarget / trapPick / barrierPick / drag /
 // preview current.
 // Keyboard handling belongs to the UI (actions.cancelDrag, actions.setTool, ...).
 import { targetAt } from '../world/query.js';
@@ -74,6 +74,11 @@ export function attachInput(canvas, game) {
     if (state.ui.tool === 'trap') {
       const node = game.sim.pickTrapNode(state, p.x, p.y);
       if (node !== null) game.sim.commandTrap(state, node);
+      return;
+    }
+    if (state.ui.tool === 'feed') {
+      const target = targetAt(state.world, state.mushrooms, p.x, p.y);
+      if (target && target.kind === 'tree') game.sim.commandFeed(state, target.id);
       return;
     }
     if (state.ui.tool === 'barrier') {

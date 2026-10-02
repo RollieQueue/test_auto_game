@@ -129,6 +129,7 @@ export function encodeState(state) {
     traps: encodeValue(state.traps ?? []),
     rival: encodeValue(state.rival ?? null), // the honey fungus (null before it exists); unknown members round-trip as they are
     barriers: encodeValue(state.barriers ?? []),
+    feed: state.feed ? state.feed.treeId : null, // the tree being fed (sim/feed.js); saves from before it have none
     net: encodeNet(state.net),
     trees: world.trees.map((t) => [t.stage, t.growth, t.health, t.linked ? 1 : 0, t.infection ?? 0, t.mantle ?? 0, t.lost ? 1 : 0]),
     water: world.water.map((d) => d.amount),
@@ -239,6 +240,7 @@ export function validatePayload(p) {
   // `rival` and `barriers` are optional: saves from before the honey fungus have none (null = it has not been created)
   if (p.rival !== undefined && p.rival !== null) validateRival(p.rival, p.trees.length);
   check(p.barriers === undefined || (Array.isArray(p.barriers) && p.barriers.every((b) => isObj(b) && isId(b.nodeId, nodes) && allNum(b, ['id', 'x', 'y', 'r', 't', 'dur']))), 'barriers');
+  check(p.feed === undefined || p.feed === null || (Number.isInteger(p.feed) && p.feed >= 0 && p.feed < p.trees.length), 'feed');
   check(isObj(p.sim) && Number.isInteger(p.sim.rng) && isObj(p.sim.rest), 'sim');
   return p;
 }
@@ -349,6 +351,7 @@ export function decodeState(p) {
   state.traps = decodeValue(p.traps ?? []);
   state.rival = p.rival ? restoreRival(decodeValue(p.rival)) : null;
   state.barriers = decodeValue(p.barriers ?? []);
+  state.feed = Number.isInteger(p.feed) ? { treeId: p.feed, rate: 0 } : null;
 
   net.originId = p.net.originId;
   net.version = p.net.version;

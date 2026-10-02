@@ -1,8 +1,10 @@
 // Tree growth for the HUD: progress toward the next stage, the objective line «Помочь дереву подрасти · 40 %»
 // and the tooltip of a tree. Pure, no DOM. A tree grows only while it is linked and content (sim/economy.js).
 import * as balance from '../sim/balance.js';
+import * as sim from '../sim/index.js'; // treeBarred is reached through the namespace: a build without it only loses that line
 import { STAGE_WORDS } from './season-logic.js';
 import { rivalAwake, treeRisk } from './rival.js';
+import { feedLine } from './feed.js';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 export const pctText = (v) => `${Math.round(clamp01(v) * 100)} %`;
@@ -70,6 +72,9 @@ export function describeTree(tree, state) {
   if (!tree.linked) out.sub = 'нить сюда ещё не дошла';
   else if (!canGrow(tree)) out.sub = 'союз заключён · выше уже не вырастет';
   else out.sub = `союз заключён · рост ${pctText(tree.growth)}`;
+  if (state !== undefined && typeof sim.treeBarred === 'function' && sim.treeBarred(state, tree)) out.sub = 'все корни в барьере: дерево замерло';
+  const fed = state === undefined ? null : feedLine(state, tree);
+  if (fed) out.feed = fed;
   const risk = state === undefined ? (tree.infection > 0 ? treeRisk(tree) : null) : rivalAwake(state) ? treeRisk(tree) : null;
   if (risk) {
     out.sub2 = risk.text;
