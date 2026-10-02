@@ -47,7 +47,7 @@ export function costAt(world, x, y) {
 export const isPassable = (world, x, y) => Number.isFinite(costAt(world, x, y));
 
 /**
- * What is under a world point, for tooltips: { kind: 'mushroom'|'tree'|'water'|'mineral'|'rock'|'horizon', id } or null
+ * What is under a world point, for tooltips: { kind: 'mushroom'|'tree'|'stump'|'water'|'mineral'|'rock'|'horizon', id } or null
  * (open sky). `id` is the object id; for 'horizon' it is the horizon id string ('litter', 'humus', ...).
  */
 export function targetAt(world, mushrooms, x, y) {
@@ -57,6 +57,10 @@ export function targetAt(world, mushrooms, x, y) {
   const ground = groundYAt(world, x);
   if (y < ground) {
     for (const t of world.trees) if (Math.abs(x - t.x) <= 36 && y >= t.baseY - 420) return { kind: 'tree', id: t.id };
+    // an old stump (the rival's seat; worlds from before stumps have none), as tall as it is drawn: about 2.2 radii
+    for (const s of world.stumps || []) {
+      if (Math.abs(x - s.x) <= s.r + 8 && y >= s.y - s.r * 2.2 && y <= ground + 4) return { kind: 'stump', id: s.id };
+    }
     return null;
   }
   for (const w of world.water) {

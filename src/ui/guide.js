@@ -32,6 +32,7 @@ function rng(seed) {
   };
 }
 const f1 = (v) => v.toFixed(1);
+const fromKey = (h) => (h && h.from ? `${Math.round(h.from.x)},${Math.round(h.from.y)}` : '');
 
 const rectsOverlap = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
 const inflate = (r, k) => ({ l: r.l - k, t: r.t - k, r: r.r + k, b: r.b + k });
@@ -188,6 +189,7 @@ export function placeNote(view, size, tg, nodes, hud) {
 export function createGuide(host, obstacles) {
   host.innerHTML = `
     <svg class="guide-svg" width="100%" height="100%" aria-hidden="true">
+      <g class="g-from"><path class="from" /></g>
       <g class="g-ring"><path class="halo" /><path class="ink" /></g>
       <g class="g-arrow"><path class="halo" /><path class="ink" /></g>
     </svg>
@@ -199,6 +201,17 @@ export function createGuide(host, obstacles) {
   const svg = host.querySelector('.guide-svg');
   const ringG = host.querySelector('.g-ring');
   const arrowG = host.querySelector('.g-arrow');
+  // the dotted line from the nearest thread to the ring (hint.from, the rival hint); inline style because hud.css gives
+  // every guide path a draw-in dash
+  const fromPath = host.querySelector('.g-from path');
+  Object.assign(fromPath.style, {
+    fill: 'none',
+    stroke: 'var(--wax, #a3402e)',
+    strokeWidth: '2.6px',
+    strokeLinecap: 'round',
+    strokeDasharray: '1 7',
+    strokeDashoffset: '0',
+  });
   const ringPaths = [...ringG.querySelectorAll('path')];
   const arrowPaths = [...arrowG.querySelectorAll('path')];
   const noteEl = host.querySelector('.guide-note');
@@ -330,6 +343,19 @@ export function createGuide(host, obstacles) {
     const ringR = (tg.rx * tg.ry) / Math.sqrt((tg.ry * ex) ** 2 + (tg.rx * ey) ** 2);
     const tip = { x: tg.cx + ex * (ringR * 1.1 + 8), y: tg.cy + ey * (ringR * 1.1 + 8) };
 
+    if (shown.from && Number.isFinite(shown.from.x) && Number.isFinite(shown.from.y)) {
+      const fx = shown.from.x * view.scale + view.ox;
+      const fy = shown.from.y * view.scale + view.oy;
+      const ux = fx - tg.cx;
+      const uy = fy - tg.cy;
+      const ul = Math.hypot(ux, uy) || 1;
+      const rr = (tg.rx * tg.ry) / Math.sqrt((tg.ry * (ux / ul)) ** 2 + (tg.rx * (uy / ul)) ** 2);
+      const stop = rr * 1.08 + 3;
+      // from the node to the ring's edge; nothing to draw when the node already lies inside it
+      fromPath.setAttribute('d', ul > stop ? `M${f1(fx)} ${f1(fy)}L${f1(tg.cx + (ux / ul) * stop)} ${f1(tg.cy + (uy / ul) * stop)}` : '');
+    } else {
+      fromPath.setAttribute('d', '');
+    }
     const ringD = ringPath(tg.cx, tg.cy, tg.rx * 1.08 + 3, tg.ry * 1.08 + 3, seed);
     const arrowD = arrowPath(tail, tip, seed ^ 0x9e3779b9);
     for (const p of ringPaths) p.setAttribute('d', ringD);
@@ -464,7 +490,7 @@ export function createGuide(host, obstacles) {
           startOut();
           return;
         }
-        if (desired.key !== shown.key || desired.text !== shown.text || desired.title !== shown.title) {
+        if (desired.key !== shown.key || desired.text !== shown.text || desired.title !== shown.title || fromKey(desired) !== fromKey(shown)) {
           const keyChanged = desired.key !== shown.key;
           shown = desired;
           prevKey = shown.key;

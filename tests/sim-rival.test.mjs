@@ -23,6 +23,8 @@ const evs = (events, type) => events.filter((e) => e.type === type);
 const RIVAL_EVENTS = new Set(['rival-wake', 'rival-tip', 'rival-grip', 'tree-infected', 'tree-freed', 'tree-lost', 'rival-cut', 'rival-fruit', 'barrier-placed', 'barrier-denied', 'barrier-gone']);
 const near = (a, b, tol, what = '') => assert.ok(Math.abs(a - b) <= tol, `${what} ${a} is not within ${tol} of ${b}`);
 const clone = (v) => JSON.parse(JSON.stringify(v));
+/** Seconds one grip (rate 1, bare tree, season 1) needs to rot a tree from 0 to `to`: the first quarter runs at B.rivalEarlyRate. */
+const rotSeconds = (to) => ((Math.min(to, 0.25) / B.rivalEarlyRate + Math.max(0, to - 0.25)) * B.rivalInfectSeconds);
 
 /** A new game in play with the rival flag (true: wakes with chapter 2; 'now': at once). */
 function fresh(seed = 7, flag = true) {
@@ -296,6 +298,8 @@ test('a tip at its root tip waits for the grip gate, grips, and the tree rots th
   r.age = 0;
   const tip = spawnTipAt(s, x + 40, y, 0, tree.id);
   tip.retarget = Infinity;
+  assert.ok(tip.gripAt >= B.rivalGripAfter && tip.gripAt <= B.rivalGripAfter + B.rivalGripJitter, 'the gate carries a seeded jitter');
+  nodeAt(s, x + 160, y); // the grip needs a player node near it (see the fairness tests)
   const early = stepR(s, B.rivalGripAfter - 1);
   assert.equal(r.grip.length, 0, 'no grip before the gate');
   assert.equal(evs(early, 'rival-grip').length, 0);
@@ -304,22 +308,23 @@ test('a tip at its root tip waits for the grip gate, grips, and the tree rots th
   assert.equal(tip.speed, 0);
   assert.equal(tree.infection, 0);
 
-  const seen = stepR(s, 3 + B.rivalInfectSeconds + 5);
+  const seen = stepR(s, B.rivalGripJitter + 3 + rotSeconds(1) + 5);
   const grips = evs(seen, 'rival-grip');
   assert.equal(grips.length, 1);
   assert.deepEqual([grips[0].treeId, grips[0].x, grips[0].y], [tree.id, x + 100, y]);
-  assert.ok(grips[0].at >= B.rivalGripAfter - 1e-6, 'not before the gate (state.time and rival.age run together here)');
+  near(grips[0].at, tip.gripAt, 1, 'at the tip own gate (state.time and rival.age run together here)');
   assert.equal(r.tips.includes(tip), false, 'the tip became a grip');
   assert.equal(r.stats.grips, 1);
 
   const levels = evs(seen, 'tree-infected');
   assert.deepEqual(levels.map((e) => e.level), [0.25, 0.5, 0.75], 'each level once, in order');
   assert.ok(levels.every((e) => e.treeId === tree.id));
-  levels.forEach((e) => near(e.at - grips[0].at, e.level * B.rivalInfectSeconds, 1, `level ${e.level}`));
+  levels.forEach((e) => near(e.at - grips[0].at, rotSeconds(e.level), 1, `level ${e.level}`));
   const lost = evs(seen, 'tree-lost');
   assert.equal(lost.length, 1);
   assert.deepEqual([lost[0].treeId, lost[0].x, lost[0].y], [tree.id, tree.x, tree.baseY]);
-  near(lost[0].at - grips[0].at, B.rivalInfectSeconds, 1, 'time to lose a tree');
+  near(lost[0].at - grips[0].at, rotSeconds(1), 1, 'time to lose a tree');
+  assert.ok(lost[0].at - grips[0].at >= 3.5 * 60 - 1, 'a bare tree with one grip in season 1 takes at least 3.5 minutes to lose');
   const order = seen.filter((e) => ['rival-grip', 'tree-infected', 'tree-lost'].includes(e.type)).map((e) => e.type);
   assert.deepEqual(order, ['rival-grip', 'tree-infected', 'tree-infected', 'tree-infected', 'tree-lost']);
   assert.equal(tree.lost, true);
@@ -333,6 +338,7 @@ test('a tip at its root tip waits for the grip gate, grips, and the tree rots th
   let fromTree = null;
   for (let i = 0; i < 60 && !fromTree; i++) {
     r.spawnT = 0;
+    r.emptyT = B.rivalRegrow; // the old twig may have withered by now: a rival cut back completely sends its tips at once
     r.tips.length = 0;
     stepR(s, DT);
     fromTree = r.src.find((rec) => rec.key === `t${tree.id}`) ?? null;
@@ -349,7 +355,7 @@ test('the last living tree is never rotted beyond B.rivalLastTree', () => {
   s.world.trees[0].lost = true;
   s.world.trees[0].infection = 1;
   gripOn(s, 1);
-  const seen = stepR(s, 1.5 * B.rivalInfectSeconds);
+  const seen = stepR(s, 1.5 * rotSeconds(1));
   const t = s.world.trees[1];
   near(t.infection, B.rivalLastTree, 1e-9, 'infection');
   assert.equal(t.lost, false);
@@ -375,8 +381,8 @@ test('a tree nobody holds heals, faster under a mantle; a second grip adds only 
     stepR(s, 20);
     return s.world.trees[0].infection;
   };
-  near(rot(1), 20 / B.rivalInfectSeconds, 1e-9, 'one grip');
-  near(rot(2), (20 * (1 + B.rivalExtraGrip)) / B.rivalInfectSeconds, 1e-9, 'two grips');
+  near(rot(1), (20 * B.rivalEarlyRate) / B.rivalInfectSeconds, 1e-9, 'one grip');
+  near(rot(2), (20 * B.rivalEarlyRate * (1 + B.rivalExtraGrip)) / B.rivalInfectSeconds, 1e-9, 'two grips');
 });
 
 test('seasons: winter freezes the tips (no speed, no new nodes), summer slows them, and the rot follows B.rivalInfectSeason', () => {
@@ -411,7 +417,7 @@ test('seasons: winter freezes the tips (no speed, no new nodes), summer slows th
     gripOn(s, 0);
     seasonAt(s, name);
     stepR(s, 20);
-    near(s.world.trees[0].infection, (20 * B.rivalInfectSeason[name]) / B.rivalInfectSeconds, 1e-9, `rot in ${name}`);
+    near(s.world.trees[0].infection, (20 * B.rivalInfectSeason[name] * B.rivalEarlyRate) / B.rivalInfectSeconds, 1e-9, `rot in ${name}`);
   }
 });
 
@@ -426,7 +432,7 @@ test('the mantle slows the rot by (1 - B.mantleProtect * mantle)', () => {
     return s.world.trees[0].infection;
   };
   const bare = rotted(0);
-  near(bare, 30 / B.rivalInfectSeconds, 1e-9, 'bare tree');
+  near(bare, (30 * B.rivalEarlyRate) / B.rivalInfectSeconds, 1e-9, 'bare tree');
   near(rotted(1), bare * (1 - B.mantleProtect), 1e-9, 'full mantle');
   near(rotted(0.5), bare * (1 - B.mantleProtect * 0.5), 1e-9, 'half a mantle');
 });
@@ -842,6 +848,7 @@ test('stumps (seeds 1..400): 1-2, far from the spore and from trunks, on the gro
 test('long runs (6 seeds, 600 s): caps hold, rival-tip at most once a second, every node in open soil, no NaN', () => {
   for (const seed of [1, 2, 3, 4, 5, 6]) {
     const s = fresh(seed, 'now');
+    for (const t of s.world.trees) nodeAt(s, t.tips[0].x + 30, t.tips[0].y); // a player on every tree: the rival may grip any
     const tipAt = [];
     let maxTips = 0;
     let maxLive = 0;
@@ -1062,18 +1069,27 @@ test('objectives: rivalCut counts edges cut by barriers (not twig dieback), riva
   assert.equal(r.stats.cut, 0);
   stepObjectives(s);
   assert.ok(!doneIds(s).includes('rivalCut'));
-  // the goal itself
-  r.stats.cut = B.rivalCutGoal - 1;
-  stepObjectives(s);
-  assert.ok(!doneIds(s).includes('rivalCut'));
-  r.stats.cut = 0;
+  // one barrier is no longer enough: it cuts a few segments and frees no tree
   commandBarrier(s, barrierNode);
   stepR(s, B.barrierWither + 1);
-  assert.ok(r.stats.cut >= B.rivalCutGoal, 'a barrier over a rhizomorph cuts enough');
+  assert.ok(r.stats.cut > 0 && r.stats.cut < B.rivalCutGoal, `one barrier cut ${r.stats.cut} segments`);
+  stepObjectives(s);
+  assert.ok(!doneIds(s).includes('rivalCut'), 'a single barrier does not finish the observation');
+  // the goal itself: B.rivalCutFreed trees freed, or B.rivalCutGoal segments cut (either one)
+  r.stats.cut = B.rivalCutGoal - 1;
+  r.stats.freedTrees = B.rivalCutFreed - 1;
+  stepObjectives(s);
+  assert.ok(!doneIds(s).includes('rivalCut'));
+  r.stats.cut = B.rivalCutGoal;
   s.events.length = 0;
   stepObjectives(s);
-  assert.ok(doneIds(s).includes('rivalCut'));
+  assert.ok(doneIds(s).includes('rivalCut'), 'segments cut');
   assert.deepEqual(evs(s.events, 'objective').map((e) => e.id), ['rivalCut']);
+  s.objectives = createObjectives(2, false, s.world.biome, true);
+  r.stats.cut = 0;
+  r.stats.freedTrees = B.rivalCutFreed;
+  stepObjectives(s);
+  assert.ok(doneIds(s).includes('rivalCut'), 'trees freed');
   s.objectives = createObjectives(2, false, s.world.biome, true);
   s.rival = null; // a game without a rival object has cut nothing
   stepObjectives(s);

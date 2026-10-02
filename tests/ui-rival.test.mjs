@@ -110,7 +110,8 @@ test('a tree tooltip says infection and protection, and a lost tree is a snag ki
   const healthy = describeTree(tree);
   assert.equal(healthy.sub2, undefined, 'both zero: nothing extra');
   assert.match(describeTree({ ...tree, infection: 0.4, mantle: 0.2 }).sub2, /^заражение 40 % · защита 20 %$/);
-  assert.match(describeTree({ ...tree, infection: 0, mantle: 0.55 }).sub2, /заражение 0 % · защита 55 %/, 'protection alone is shown too');
+  assert.equal(describeTree({ ...tree, infection: 0, mantle: 0.55 }).sub2, undefined, 'without a state the line needs an infection');
+  assert.match(describeTree({ ...tree, infection: 0, mantle: 0.55 }, rivalState()).sub2, /заражение 0 % · защита 55 %/, 'with an awake rival protection alone is shown too');
   assert.equal(describeTree({ ...tree, infection: 0.3, mantle: 0 }).warn, undefined, 'a light infection does not alarm');
   assert.equal(describeTree({ ...tree, infection: 0.6, mantle: 0.1 }).warn, true);
   assert.ok(describeTree({ ...tree, infection: 0.4 }).main.includes('Берёза'), 'the usual lines stay');
@@ -253,8 +254,14 @@ test('the guide points at the oldest grip once the rival holds a tree', () => {
   const h = rivalHint(s);
   assert.equal(h.id, 'rival');
   assert.match(h.text, /Опёнок держит корни берёзы/);
-  assert.match(h.text, /\{4\}/, 'the key renders as a key cap');
-  assert.match(h.text, /толстые нити/);
+  assert.match(h.text, /Протяни нить к этому дереву/, 'no thread near the grip: extend one first');
+  assert.equal(h.text.includes('{4}'), false);
+  s.net.nodes.push({ id: 99, x: 520, y: 390, alive: true, born: 1 });
+  const h2 = rivalHint(s);
+  assert.match(h2.text, /\{4\}/, 'a thread within reach: the key renders as a key cap');
+  s.net.nodes.pop();
+  assert.ok(h.from, 'the nearest node is offered for the dotted line');
+  assert.match(h2.text, /толстые нити/);
   assert.deepEqual([h.ring.x, h.ring.y], [500, 380]);
   assert.ok(h.ring.rx > 20);
   assert.equal(h.key, 'rival:0');

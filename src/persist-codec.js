@@ -193,6 +193,20 @@ function validateRival(r, treeCount) {
   check(isBool(r.awake) && isNum(r.spores) && (r.rs === undefined || Number.isInteger(r.rs)), 'rival state');
 }
 
+// The steering internals of a rhizomorph tip and what an old save without them (or with JSON's null for Infinity) gets.
+const TIP_DEFAULTS = { age: 0, acc: 0, nextLen: 12, wob: 0, wobGoal: 0, wobT: 0, think: 0, retarget: 0, stall: 0, best: 1e9, noProg: 0, lost: 0 };
+
+/** Makes every numeric steering internal of the saved tips finite (`best` is 1e9 when nothing was measured), so a legacy save keeps playing. */
+function restoreRival(r) {
+  if (!r || !Array.isArray(r.tips)) return r;
+  for (const t of r.tips) {
+    for (const [k, v] of Object.entries(TIP_DEFAULTS)) if (!isNum(t[k])) t[k] = v;
+    if (!isNum(t.base) || t.base <= 0) t.base = isNum(t.speed) && t.speed > 0 ? t.speed : 1;
+    if (t.side !== 1 && t.side !== -1) t.side = 1;
+  }
+  return r;
+}
+
 /** Throws when the payload cannot be a save of this version; returns it otherwise. */
 export function validatePayload(p) {
   check(isObj(p) && p.v === SAVE_VERSION, 'version');
@@ -326,7 +340,7 @@ export function decodeState(p) {
   for (const o of state.objectives) o.done = done.has(o.id);
   state.fauna = decodeValue(p.fauna ?? []);
   state.traps = decodeValue(p.traps ?? []);
-  state.rival = p.rival ? decodeValue(p.rival) : null;
+  state.rival = p.rival ? restoreRival(decodeValue(p.rival)) : null;
   state.barriers = decodeValue(p.barriers ?? []);
 
   net.originId = p.net.originId;

@@ -2,7 +2,7 @@
 // and the tooltip of a tree. Pure, no DOM. A tree grows only while it is linked and content (sim/economy.js).
 import * as balance from '../sim/balance.js';
 import { STAGE_WORDS } from './season-logic.js';
-import { treeRisk } from './rival.js';
+import { rivalAwake, treeRisk } from './rival.js';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 export const pctText = (v) => `${Math.round(clamp01(v) * 100)} %`;
@@ -39,6 +39,12 @@ export function objectiveProgress(state, o) {
     const t = leadingTree(state);
     return t ? ` · ${pctText(t.growth)}` : '';
   }
+  if (o.id === 'rivalCut') {
+    const st = (state && state.rival && state.rival.stats) || {};
+    const n = (v) => (Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+    const B = balance.B || {};
+    return ` · спасено ${n(st.freedTrees)}/${B.rivalCutFreed || 2} · перерезано ${n(st.cut)}/${B.rivalCutGoal || 15}`;
+  }
   return '';
 }
 
@@ -50,9 +56,10 @@ const INFECTION_WARN = 0.5;
 
 /**
  * Tooltip lines of a tree: { main, sub, sub2?, warn? }. With the honey-fungus rival: `sub2` says «заражение N % · защита N %»
- * while either is above zero, and a lost tree is told to have been killed by the fungus and to stand as a snag.
+ * once the rival is awake (given `state`) while either is above zero; without `state` (the old call) only when the tree is
+ * infected. A lost tree is told to have been killed by the fungus and to stand as a snag.
  */
-export function describeTree(tree) {
+export function describeTree(tree, state) {
   if (tree.lost) {
     return { main: `${tree.name} · сухостой`, sub: 'дерево погубил опёнок · стоит сухостоем', warn: true };
   }
@@ -63,7 +70,7 @@ export function describeTree(tree) {
   if (!tree.linked) out.sub = 'нить сюда ещё не дошла';
   else if (!canGrow(tree)) out.sub = 'союз заключён · выше уже не вырастет';
   else out.sub = `союз заключён · рост ${pctText(tree.growth)}`;
-  const risk = treeRisk(tree);
+  const risk = state === undefined ? (tree.infection > 0 ? treeRisk(tree) : null) : rivalAwake(state) ? treeRisk(tree) : null;
   if (risk) {
     out.sub2 = risk.text;
     if (risk.infection >= INFECTION_WARN) out.warn = true;

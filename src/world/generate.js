@@ -307,10 +307,11 @@ function placeStumps(world) {
     stumps.push({ id: stumps.length, x, y: groundYAt(world, x), r });
   };
   // `want` is a wish; when the first band has no spot the loop simply goes on to the other one. Stumps go where no HUD
-  // card hides them (STUMP.seen); only a glade with no such spot gets one in the whole bands (the left band always has
-  // a spot: the spore is 340+ from the edge).
+  // card hides them (STUMP.seen). A glade with no such spot (about a third of them: trunks and the spore fill the rest)
+  // gets one in the whole bands, the right one first (the objectives card folds once the rival wakes; the resource card
+  // on the left never does), then the left one, which always has a spot: the spore is 340+ from the edge.
   for (const b of order) if (stumps.length < want) tryBand(b, STUMP.seen);
-  for (const b of order) if (!stumps.length) tryBand(b, STUMP.bands);
+  for (const b of [1, 0]) if (!stumps.length) tryBand(b, STUMP.bands);
   return stumps.sort((a, c) => a.x - c.x).map((s, id) => ({ ...s, id }));
 }
 

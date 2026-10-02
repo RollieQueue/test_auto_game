@@ -158,7 +158,9 @@ export const B = {
   // --- Rival (state.flags.rival, src/sim/rival.js): the honey fungus (Armillaria). Black rhizomorphs creep from old stumps
   // (later from lost trees) towards the trees most worth having, grip their roots and rot them; a thick cord stops a tip, a
   // barrier (key 4) withers whatever lies inside it. The player's mantle (how well a tree is fed) slows the rot.
-  rivalWakeDelay: 45, // s after the notebook opens chapter 2 (?rival=1 wakes it at once)
+  rivalWakeDelay: 45, // s after the notebook opens chapter 2 (?rival=1 wakes it at once), but ...
+  rivalWakeBy: 420, // ... no later than this many s of play, whatever chapter the player is in
+  rivalLateAutumn: 0.6, // from this share of autumn on (and in winter) the rival does not wake: it sleeps until spring (seasons only)
   rivalSeason: { spring: 1, summer: 0.55, autumn: 1.1, winter: 0 }, // tip speed by season (seasons only)
   rivalInfectSeason: { spring: 1, summer: 0.75, autumn: 1.15, winter: 0.15 }, // rot speed by season (seasons only)
   rivalSpeed: [5, 8], // u/s a tip grows at season 1
@@ -176,9 +178,15 @@ export const B = {
   rivalStallDie: 14, // s a tip may stand stalled (nowhere to go) before it gives up
   rivalNoProgress: 45, // s without getting nearer to its tree before a tip gives up
   rivalGripRadius: 18, // u: the contact radius to a root tip (the same as the player's tipLinkRadius)
-  rivalGripAfter: 60, // s after the waking: no grip is made before
+  rivalGripAfter: 60, // s after the waking: no grip is made before ...
+  rivalGripJitter: 30, // ... plus 0..this per starting tip (seeded), so the first grips do not come in step
+  rivalReach: 250, // u: a grip goes to a linked tree, or to one with a player node this near the grip point (one the player can answer)
+  rivalReachWeight: 0.25, // a tree the player cannot answer for yet is this much less wanted by a tip (and is not gripped at all)
+  rivalGrace: 25, // s after a barrier that freed a tree has ended: no rhizomorph goes for that tree («ризоморфы отступили»)
+  rivalTurnGap: 25, // s between two rival-turn events (a tip turning away from a thick cord)
+  rivalEarlyRate: 0.5, // the rot runs at this share of its speed until the tree is 25 % rotted (time to see the grip and answer)
   rivalMaxGrips: 2, // grips on one tree
-  rivalInfectSeconds: 180, // s from 0 to 1 for one grip at season 1 and no mantle
+  rivalInfectSeconds: 290, // s from 0 to 1 for one grip at season 1 and no mantle, were it all at full speed: with the slow first quarter a loss takes 1.25 x this (6 min), two grips in autumn 3.5 min
   rivalExtraGrip: 0.5, // every further grip adds this share of the rate
   rivalHealSeconds: 240, // s from 1 to 0 for a free tree with no mantle
   rivalHealMantle: 2, // ... faster by (1 + this * mantle)
@@ -189,12 +197,13 @@ export const B = {
   rivalFruit: [3, 7], // mushrooms in a cluster
   rivalOrphanSeconds: 6, // s a rhizomorph cut off from its source takes to wither away
   rivalTwigAge: 150, // s: a dead-end twig (no tip, no grip) this old withers away on its own
-  rivalCutGoal: 3, // page 2: segments cut by barriers
+  rivalCutFreed: 2, // page 2: trees freed from the rival by barriers ...
+  rivalCutGoal: 15, // ... or segments cut by barriers (either completes it)
   mantleTau: 40, // s: the mantle follows how well the tree is fed (and how many roots touch it) with this smoothing
   mantleProtect: 0.75, // rot speed x (1 - this * mantle)
   mantleGoal: 0.5, // page 3: every living tree has at least this much mantle
   barrierCost: 20, // sugar, plus barrierCostStep for every barrier standing
-  barrierCostStep: 5,
+  barrierCostStep: 10,
   barrierRadius: 85, // u around the node it is placed on
   barrierDur: 40, // s
   barrierMax: 3,

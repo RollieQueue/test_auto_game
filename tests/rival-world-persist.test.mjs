@@ -91,6 +91,8 @@ test('stumpProblems catches stumps that break a rule', () => {
 // ---- persistence of the rival, barriers and tree fields ----
 
 /** A hand-built rival with every pinned field plus the sim's own extras (they must round-trip untouched). */
+const TIP_INTERNALS = { base: 7.5, age: 3.25, acc: 1.5, nextLen: 11, side: -1, wob: 0.125, wobGoal: 0.25, wobT: 1.5, think: 0.125, retarget: 2, stall: 0, best: 1e9, noProg: 0.5, lost: 0 };
+
 function makeRival(state) {
   const trees = state.world.trees;
   const s = state.world.stumps[0];
@@ -108,8 +110,8 @@ function makeRival(state) {
       { id: 2, a: 1, b: 3, w: 2, alive: true, born: 150.75, wither: 0.4 },
     ],
     tips: [
-      { id: 0, node: 3, x: s.x + 74, y: s.y + 62, dir: 0.31, target: { kind: 'tree', id: trees.length - 1 }, speed: 7.5 },
-      { id: 1, node: 2, x: s.x + 45, y: s.y + 53, dir: -1.2, target: null, speed: 0 },
+      { id: 0, node: 3, x: s.x + 74, y: s.y + 62, dir: 0.31, target: { kind: 'tree', id: trees.length - 1 }, speed: 7.5, ...TIP_INTERNALS, best: 212.5 },
+      { id: 1, node: 2, x: s.x + 45, y: s.y + 53, dir: -1.2, target: null, speed: 0, ...TIP_INTERNALS },
     ],
     grip: [{ treeId: 0, node: 3, x: trees[0].x, y: trees[0].baseY + 60, since: 160 }],
     clusters: [{ id: 0, treeId: 0, x: trees[0].x + 8, y: trees[0].baseY, n: 5, age: 12.5 }],
@@ -124,6 +126,38 @@ function makeRival(state) {
     lastTip: new Map([[0, 99.5]]),
   };
 }
+
+test('a rhizomorph tip keeps its measured best distance and a legacy null becomes a finite number', () => {
+  const state = makeState();
+  assert.equal(state.rival.tips[0].best, 212.5);
+  // a real finite value round-trips as it is
+  const back = roundTrip(state);
+  assert.equal(back.rival.tips[0].best, 212.5);
+  assert.equal(back.rival.tips[1].best, 1e9, 'the finite stand-in for nothing measured stays 1e9');
+  // JSON turned the old Infinity into null: the load restores a finite number
+  const p = JSON.parse(JSON.stringify(encodeState(state)));
+  p.rival.tips[0].best = null;
+  p.rival.tips[1].best = null;
+  const old = decodeState(p);
+  for (const t of old.rival.tips) assert.ok(Number.isFinite(t.best), 'best is finite');
+  assert.equal(old.rival.tips[0].best, 1e9);
+});
+
+test('a save whose tips lack their steering internals loads with finite defaults', () => {
+  const state = makeState();
+  const p = JSON.parse(JSON.stringify(encodeState(state)));
+  for (const t of p.rival.tips) {
+    for (const k of Object.keys(TIP_INTERNALS)) delete t[k];
+    t.retarget = null;
+  }
+  const back = decodeState(p);
+  for (const t of back.rival.tips) {
+    for (const k of Object.keys(TIP_INTERNALS)) assert.ok(Number.isFinite(t[k]), `${k} is finite`);
+    assert.ok(t.base > 0, 'a tip that has a speed keeps going');
+    assert.ok(t.side === 1 || t.side === -1);
+  }
+  assert.equal(back.rival.tips[0].base, 7.5, 'base falls back to the tip speed');
+});
 
 function makeState() {
   const { state } = playBot(7, { maxSeconds: 90 });

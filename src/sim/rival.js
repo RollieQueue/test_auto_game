@@ -54,8 +54,23 @@ export function createRival(state) {
     hot: false, // some edge has wither > 0
     src: [], // { key, node }: the rhizomorph root node of every stump and lost tree
     levels: state.world.trees.map(() => 0), // announced infection level per tree, 0..3 (tree-infected)
-    stats: { grips: 0, freed: 0, lost: 0, cut: 0, killed: 0 },
+    stats: { grips: 0, freed: 0, lost: 0, cut: 0, killed: 0, freedTrees: 0 },
+    dormant: false, // the wake fell in late autumn or winter: it sleeps until spring (rival-dormant was sent)
+    grace: {}, // treeId -> state.time until which no rhizomorph goes for that tree (after a barrier freed it)
+    retreats: [], // { treeId, at, x, y }: rival-retreat to send when the barrier that freed the tree ends
+    freedIds: [], // distinct trees freed from the rival (stats.freedTrees = their number)
+    turnT: 0, // s until the next rival-turn event may be sent
   };
+}
+
+/** Fields added after the first saves: a rival loaded from an older save gets their defaults. */
+function upgrade(rival) {
+  rival.dormant ??= false;
+  rival.grace ??= {};
+  rival.retreats ??= [];
+  rival.freedIds ??= [];
+  rival.turnT ??= 0;
+  rival.stats.freedTrees ??= rival.freedIds.length;
 }
 
 // ---- derived lookups ------------------------------------------------------------------------------------------------
@@ -129,13 +144,17 @@ function crossesCord(state, x1, y1, x2, y2) {
   return hit;
 }
 
-/** Can a tip at (x, y) go on along heading `a` for `look` units: open soil on the way, no thick cord across it? */
-function clear(state, x, y, a, look) {
+const WAY_CLEAR = 0;
+const WAY_TERRAIN = 1; // rock, the surface or the air ahead
+const WAY_CORD = 2; // open soil, but a thick player cord lies across it
+
+/** Can a tip at (x, y) go on along heading `a` for `look` units? WAY_CLEAR: open soil on the way and no thick cord across it. */
+function wayAhead(state, x, y, a, look) {
   const { world } = state;
   const c = Math.cos(a);
   const s = Math.sin(a);
-  if (!open(world, x + c * look * 0.45, y + s * look * 0.45) || !open(world, x + c * look, y + s * look)) return false;
-  return !crossesCord(state, x, y, x + c * look, y + s * look);
+  if (!open(world, x + c * look * 0.45, y + s * look * 0.45) || !open(world, x + c * look, y + s * look)) return WAY_TERRAIN;
+  return crossesCord(state, x, y, x + c * look, y + s * look) ? WAY_CORD : WAY_CLEAR;
 }
 
 /** Squared distance from a point to a segment (no allocation: this runs over every edge while a barrier stands). */
@@ -195,15 +214,33 @@ export function nearestRootTip(state, tree, x, y) {
   return best;
 }
 
+/** A barrier freed this tree a moment ago: the rhizomorphs leave it alone until the grace is over (B.rivalGrace after the barrier). */
+const graced = (state, rival, treeId) => (rival.grace?.[treeId] ?? 0) > state.time;
+const anyGrace = (state, rival) => {
+  for (const id in rival.grace) if (rival.grace[id] > state.time) return true;
+  return false;
+};
+
+/**
+ * A grip must be one the player can answer: the tree is linked (the player has a node on its roots), or a player node lies
+ * within B.rivalReach of the grip point `rt` (a barrier needs a node; a thread to there is a few seconds' work). A tip that
+ * reaches the roots of a tree without that waits there.
+ */
+function answerable(state, rival, tree, rt) {
+  if (tree.linked) return true;
+  return nearestNode(state, rt.x, rt.y, B.rivalReach) !== null;
+}
+
 /** How much the rival wants this tree from (x, y): worth (stage, species, linked to the player) over the mantle and the way. */
 function treeScore(state, rival, tree, x, y) {
-  if (tree.lost) return 0;
+  if (tree.lost || graced(state, rival, tree.id)) return 0;
   const grips = gripsOf(rival, tree.id);
   if (grips >= B.rivalMaxGrips) return 0;
   const rt = nearestRootTip(state, tree, x, y);
   if (!rt) return 0;
   const worth = B.treePay[tree.stage] * treeFx(tree).pay * (tree.linked ? 1.5 : 0.7);
-  return (worth * (1 - B.mantleProtect * (tree.mantle ?? 0))) / (1 + rt.d / 450) / (1 + 0.7 * grips);
+  const fair = answerable(state, rival, tree, rt) ? 1 : B.rivalReachWeight; // a tree the player cannot answer for is only a second choice
+  return (fair * worth * (1 - B.mantleProtect * (tree.mantle ?? 0))) / (1 + rt.d / 450) / (1 + 0.7 * grips);
 }
 
 function retarget(state, rival, tip) {
@@ -269,6 +306,7 @@ function newTip(rival, node, dir, base) {
     noProg: 0,
     lost: 0, // s without any tree to go for
     trunk: true,
+    gripAt: B.rivalGripAfter + rand(rival) * B.rivalGripJitter, // rival.age before which this tip does not grip (seeded jitter)
   };
   rival.tips.push(tip);
   return tip;
@@ -331,7 +369,7 @@ function thinkTip(state, rival, tip, f) {
   const { world } = state;
   tip.retarget -= THINK;
   const tree = tip.target ? world.trees[tip.target.id] : null;
-  if (tip.retarget <= 0 || !tree || tree.lost || gripsOf(rival, tree.id) >= B.rivalMaxGrips) {
+  if (tip.retarget <= 0 || !tree || tree.lost || gripsOf(rival, tree.id) >= B.rivalMaxGrips || graced(state, rival, tree.id)) {
     retarget(state, rival, tip);
     tip.retarget = 1.5 + rand(rival) * 1.5;
   }
@@ -342,12 +380,17 @@ function thinkTip(state, rival, tip, f) {
   const goalTree = tip.target ? world.trees[tip.target.id] : null;
   const goal = goalTree ? nearestRootTip(state, goalTree, tip.x, tip.y) : null;
   if (goal && goal.d <= B.rivalGripRadius) {
-    if (rival.age < B.rivalGripAfter) {
-      tip.speed = 0; // it has arrived early: it waits at the root
+    if (rival.age < (tip.gripAt ?? B.rivalGripAfter) || !answerable(state, rival, goalTree, goal)) {
+      tip.speed = 0; // it has arrived early, or the player cannot answer a grip here yet: it waits at the root
       return 'ok';
     }
     makeGrip(state, rival, tip, goalTree, goal);
     return 'gripped';
+  }
+  if (!goal && anyGrace(state, rival)) {
+    tip.speed = 0; // the barrier drove it back: it holds still until the grace is over
+    tip.lost = 0;
+    return 'ok';
   }
   let want = tip.dir;
   let near = 1;
@@ -368,12 +411,19 @@ function thinkTip(state, rival, tip, f) {
   tip.wob += (tip.wobGoal - tip.wob) * 0.1;
   want += tip.wob * near;
   let chosen = null;
+  let cordAhead = false;
   for (const off of OFFSETS) {
     const a = want + off * tip.side;
-    if (clear(state, tip.x, tip.y, a, B.rivalLook)) {
+    const way = wayAhead(state, tip.x, tip.y, a, B.rivalLook);
+    if (off === 0 && way === WAY_CORD) cordAhead = true; // the way it wants to go is shut by a thick cord of the player
+    if (way === WAY_CLEAR) {
       chosen = a;
       break;
     }
+  }
+  if (cordAhead && goal && rival.turnT <= 0) {
+    rival.turnT = B.rivalTurnGap;
+    state.events.push({ type: 'rival-turn', x: tip.x, y: tip.y });
   }
   if (chosen === null) {
     // boxed in by rock, the surface or thick cords: stand, try the other way round next time, give up after a while
@@ -548,6 +598,13 @@ function stepBarriers(state, rival, dt) {
     barriers.splice(i, 1);
     events.push({ type: 'barrier-gone', id: b.id, x: b.x, y: b.y });
   }
+  // the barrier that freed a tree is over: the rhizomorphs have drawn back from it (the grace runs B.rivalGrace s from here)
+  for (let i = rival.retreats.length - 1; i >= 0; i--) {
+    const r = rival.retreats[i];
+    if (state.time < r.at) continue;
+    rival.retreats.splice(i, 1);
+    if (!state.world.trees[r.treeId].lost) events.push({ type: 'rival-retreat', treeId: r.treeId, x: r.x, y: r.y });
+  }
 }
 
 /** Sugar a barrier costs now: the base price plus a step for every barrier still standing. */
@@ -604,6 +661,16 @@ function releaseGrips(state, rival) {
     rival.grip.splice(i, 1);
     rival.stats.freed++;
     state.events.push({ type: 'tree-freed', treeId: g.treeId, x: g.x, y: g.y });
+    if (gripsOf(rival, g.treeId) > 0) continue;
+    // the tree is free of the rival: it counts (once per tree) for the page-2 observation, and the rhizomorphs leave it alone
+    // while the barrier stands and for B.rivalGrace s after it
+    if (!rival.freedIds.includes(g.treeId)) {
+      rival.freedIds.push(g.treeId);
+      rival.stats.freedTrees = rival.freedIds.length;
+    }
+    const left = state.barriers.reduce((m, b) => Math.max(m, b.dur - b.t), 0);
+    rival.grace[g.treeId] = Math.max(rival.grace[g.treeId] ?? 0, state.time + left + B.rivalGrace);
+    if (left > 0) rival.retreats.push({ treeId: g.treeId, at: state.time + left, x: g.x, y: g.y });
   }
 }
 
@@ -634,7 +701,8 @@ function stepInfection(state, rival, dt) {
       const e = rival.edges[c.into[g.node]];
       rate += (n++ === 0 ? 1 : B.rivalExtraGrip) * (e ? 1 - e.wither : 1);
     }
-    if (n > 0) tree.infection += (rate * season * (1 - B.mantleProtect * tree.mantle) * rot * dt) / B.rivalInfectSeconds;
+    // the first quarter of the rot runs slow (B.rivalEarlyRate): a grip is seen, and answered, well before it hurts
+    if (n > 0) tree.infection += (rate * season * (1 - B.mantleProtect * tree.mantle) * rot * (tree.infection < 0.25 ? B.rivalEarlyRate : 1) * dt) / B.rivalInfectSeconds;
     else if (tree.infection > 0) tree.infection -= ((1 + B.rivalHealMantle * tree.mantle) * dt) / B.rivalHealSeconds;
     tree.infection = clamp(tree.infection, 0, living <= 1 ? B.rivalLastTree : 1);
     let lvl = rival.levels[tree.id] ?? 0;
@@ -671,10 +739,18 @@ function stepClusters(state, rival, dt) {
 
 // ---- the step ----------------------------------------------------------------------------------------------------------
 
+/** Late autumn and winter (seasons only): no waking, the rival sleeps until spring. */
+function tooLate(state) {
+  if (!state.flags.seasons || !state.clock) return false;
+  const { season, seasonFrac } = state.clock;
+  return season === 'winter' || (season === 'autumn' && seasonFrac >= B.rivalLateAutumn);
+}
+
 function wake(state, rival) {
   const src = sources(state);
   if (!src.length) return;
   rival.awake = true;
+  rival.dormant = false;
   const first = src[0];
   const n = Math.min(B.rivalStartTips, B.rivalMaxTips);
   for (let i = 0; i < n; i++) spawnTip(state, rival, src[i % src.length]);
@@ -684,12 +760,24 @@ function wake(state, rival) {
 export function stepRival(state, dt) {
   if (!state.flags.rival) return;
   const rival = (state.rival ??= createRival(state));
+  upgrade(rival);
   if (!rival.awake) {
     if ((state.chapter ?? 1) >= 2) rival.wait += dt;
-    if (state.flags.rival === 'now' || rival.wait >= B.rivalWakeDelay) wake(state, rival);
+    // it wakes B.rivalWakeDelay s into chapter 2, or after B.rivalWakeBy s of play, whichever is first; in late autumn and winter
+    // it sleeps on until spring (and says so once)
+    if (state.flags.rival === 'now') wake(state, rival);
+    else if (rival.wait >= B.rivalWakeDelay || state.time >= B.rivalWakeBy) {
+      if (!tooLate(state)) wake(state, rival);
+      else if (!rival.dormant) {
+        const first = sources(state)[0];
+        rival.dormant = true;
+        if (first) state.events.push({ type: 'rival-dormant', x: first.x, y: first.stump ? first.stump.y : first.y });
+      }
+    }
     if (!rival.awake) return;
   }
   rival.age += dt;
+  rival.turnT = Math.max(0, rival.turnT - dt);
   rival.tipEvT = Math.max(0, rival.tipEvT - dt);
   const f = growthFactor(state);
   stepBarriers(state, rival, dt);

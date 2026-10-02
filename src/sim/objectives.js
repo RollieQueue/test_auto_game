@@ -42,7 +42,7 @@ export function pageObjectives(chapter, seasons = false, biome = null, rival = f
       { id: 'finds', text: `Записать в тетрадь ${B.chapter2Finds} вида находок` },
       { id: 'worms', text: `Поймать ${B.chapter2Worms} нематод в ловчие кольца` },
       ...(glade ? [glade] : []),
-      ...(rival ? [{ id: 'rivalCut', text: 'Перерезать барьером тяжи опёнка (клавиша 4)' }] : []),
+      ...(rival ? [{ id: 'rivalCut', text: `Освободить ${B.rivalCutFreed} дерева от опёнка или перерезать ${B.rivalCutGoal} тяжей барьером (клавиша 4)` }] : []),
       { id: 'spores500', text: `Собрать ${B.chapter2Spores} спор` },
     ];
   }
@@ -94,9 +94,9 @@ const CHECKS = {
   // chapter 3
   winter: (state) => state.clock.season === 'winter' && state.clock.seasonFrac >= 0.9 && state.res.sugar >= B.winterSugar,
   reserve: (state) => state.res.sugar >= B.reserveSugar,
-  // the honey fungus: segments cut by barriers (the player can always grow to a rhizomorph and cut it); a mantle on every
-  // living tree (a lost tree is no longer the player's to keep, so it does not count)
-  rivalCut: (state) => (state.rival?.stats.cut ?? 0) >= B.rivalCutGoal,
+  // the honey fungus: trees freed by barriers or segments cut by them (the player can always grow to a rhizomorph and cut it);
+  // a mantle on every living tree (a lost tree is no longer the player's to keep, so it does not count)
+  rivalCut: (state) => (state.rival?.stats.freedTrees ?? 0) >= B.rivalCutFreed || (state.rival?.stats.cut ?? 0) >= B.rivalCutGoal,
   rivalGuard: (state) => {
     const living = state.world.trees.filter((t) => !t.lost);
     return living.length > 0 && living.every((t) => (t.mantle ?? 0) >= B.mantleGoal);

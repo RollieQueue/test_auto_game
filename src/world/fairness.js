@@ -80,9 +80,9 @@ export const STUMP = {
   r: [26, 34],
   bands: [[48, 700], [1220, 1872]], // left, right: x of the stump centre
   // Where a stump is not hidden by a HUD card: the resource card always covers world x < ~372 at the surface (at
-  // 1280×720), the objectives card folds to a one-line header once a page is under way. generate.js places stumps here
+  // 1280×720), the open objectives card covers x > ~1479 there (and ~1529 at 1600×900). generate.js places stumps here
   // and falls back to the whole bands only when no stump would fit at all.
-  seen: [[420, 700], [1220, 1872]],
+  seen: [[420, 700], [1220, 1450]],
   edge: 40, // from the world's left and right edges
   fromOrigin: 260, // 2-D distance from the spore
   fromTrunk: 140, // horizontal distance from any trunk

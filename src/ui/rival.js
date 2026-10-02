@@ -7,6 +7,7 @@ import { createSenseGate, ruPlural, threatsOn } from './threats.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const pctOf = (v) => `${Math.round(Math.max(0, Math.min(1, isNum(v) ? v : 0)) * 100)} %`;
+const pos = (v, fallback) => (isNum(v) && v > 0 ? v : fallback);
 const sugarWord = (n) => `${n} сахара`;
 
 export const DEFAULT_BARRIER_COST = 30;
@@ -105,16 +106,42 @@ export function treeRisk(tree) {
   return { infection: inf, mantle: man, text: `заражение ${pctOf(inf)} · защита ${pctOf(man)}` };
 }
 
+/**
+ * Tooltip of an old stump: { main, sub?, warn? }. With the rival on, before it wakes the stump only hints at what sleeps under
+ * it; once the rival wakes (or sleeps on until spring) the tooltip says so. Without the rival it is only «Старый пень».
+ */
+export function describeStump(state, target) {
+  if (!(state && state.flags && state.flags.rival)) return { main: 'Старый пень' }; // no rival in this game: just a stump
+  const r = state.rival || null;
+  if (r && r.awake) return { main: 'Старый пень · опёнок проснулся', sub: 'ризоморфы идут от него к корням', warn: true };
+  if (r && r.dormant) return { main: 'Старый пень · опёнок дремлет до весны', sub: 'под корой тихо; весной он проснётся' };
+  return { main: 'Старый пень', sub: 'под ним кто-то спит… корни рядом лучше беречь' };
+}
+
 // ---- events -> notes and labels ---------------------------------------------------------------------------
 
 /** Rival events a floating label is made for (they carry x, y). */
-export const RIVAL_LOCAL = new Set(['rival-wake', 'rival-grip', 'tree-freed', 'tree-lost', 'rival-fruit', 'rival-cut', 'barrier-placed', 'barrier-denied']);
+export const RIVAL_LOCAL = new Set([
+  'rival-wake',
+  'rival-grip',
+  'tree-freed',
+  'tree-lost',
+  'rival-fruit',
+  'rival-cut',
+  'rival-retreat',
+  'rival-turn',
+  'barrier-placed',
+  'barrier-denied',
+]);
 
 /** Rival events that also leave a margin note (the news matters beyond the spot). */
-export const RIVAL_BOTH = new Set(['rival-wake', 'rival-grip', 'tree-freed', 'tree-lost', 'rival-fruit']);
+export const RIVAL_BOTH = new Set(['rival-wake', 'rival-grip', 'tree-freed', 'tree-lost', 'rival-fruit', 'rival-retreat', 'rival-turn']);
 
 /** Every event type of the rival that notes.js or labels.js may turn into text. */
-export const RIVAL_EVENTS = new Set([...RIVAL_LOCAL, 'tree-infected']);
+export const RIVAL_EVENTS = new Set([...RIVAL_LOCAL, 'tree-infected', 'rival-dormant']);
+
+export const RIVAL_DORMANT_NOTE = 'Опёнок дремлет до весны: под пнём затаилось что-то тёмное';
+export const RIVAL_TURN_NOTE = 'Толстая нить не пускает ризоморф: прочные шнуры к дереву — тоже защита';
 
 export const RIVAL_WAKE_NOTE = 'Под старым пнём проснулся опёнок: чёрные шнуры-ризоморфы потянутся к корням. Против них — барьер (4)';
 
@@ -132,6 +159,12 @@ export function rivalNote(state, ev) {
   switch (ev.type) {
     case 'rival-wake':
       return { key: 'rival:wake', text: RIVAL_WAKE_NOTE, tone: 'warn', icon: 'honey', life: 12 };
+    case 'rival-dormant':
+      return { key: 'rival:dormant', text: RIVAL_DORMANT_NOTE, tone: 'warn', icon: 'honey', life: 10 };
+    case 'rival-retreat':
+      return { key: `rival:retreat:${ev.treeId}`, text: `Барьер растворился, ризоморфы отступили от корней ${treeGen(tree)}`, tone: 'good', icon: 'barrier', life: 8 };
+    case 'rival-turn':
+      return { key: 'rival:turn', text: RIVAL_TURN_NOTE, tone: 'good', icon: 'thread', life: 10 };
     case 'rival-grip':
       return { key: `rival:grip:${ev.treeId}`, text: `Опёнок вцепился в корни ${treeGen(tree)}`, tone: 'warn', icon: 'honey', life: 8 };
     case 'tree-infected': {
@@ -174,6 +207,10 @@ export function rivalLabel(state, ev) {
       return { key: 'rival:fruit', text: 'опята!', tone: 'warn', icon: 'honey' };
     case 'rival-cut':
       return { key: 'rival:cut', text: 'ризоморф растворён', tone: 'good', icon: 'barrier' };
+    case 'rival-retreat':
+      return { key: 'rival:retreat', text: 'ризоморфы отступили', tone: 'good', icon: 'barrier' };
+    case 'rival-turn':
+      return { key: 'rival:turn', text: 'нить не пускает', tone: 'good', icon: 'thread' };
     case 'barrier-placed':
       return { key: 'barrier:placed', text: 'барьер', tone: 'good', icon: 'barrier' };
     case 'barrier-denied': {
@@ -203,13 +240,18 @@ const GATES = {
   'tree-freed': [5, 8],
   'rival-fruit': [4, 20],
   'rival-cut': [Infinity, 3],
+  'rival-retreat': [4, 20],
 };
+// Where the notes and the labels of one event differ: the dormant news is a note only, once; the turn note is told
+// once per game and its label twice, 30 s apart.
+const NOTE_GATES = { ...GATES, 'rival-dormant': [1, 0], 'rival-turn': [1, 0] };
+const LABEL_GATES = { ...GATES, 'rival-turn': [2, 30] };
 
 /** Text maker with the rate limits: `note(state, ev)` / `label(state, ev)` return null when the news is held back. */
 export function createRivalTexts() {
-  const make = () => Object.fromEntries(Object.entries(GATES).map(([k, [max, gap]]) => [k, createSenseGate(max, gap)]));
-  let noteGates = make();
-  let labelGates = make();
+  const make = (table) => Object.fromEntries(Object.entries(table).map(([k, [max, gap]]) => [k, createSenseGate(max, gap)]));
+  let noteGates = make(NOTE_GATES);
+  let labelGates = make(LABEL_GATES);
   const pass = (gates, state, ev) => {
     const g = gates[ev.type];
     return !g || g.take(isNum(state.time) ? state.time : 0);
@@ -224,8 +266,8 @@ export function createRivalTexts() {
       return d && pass(labelGates, state, ev) ? d : null;
     },
     reset() {
-      noteGates = make();
-      labelGates = make();
+      noteGates = make(NOTE_GATES);
+      labelGates = make(LABEL_GATES);
     },
   };
 }
@@ -245,18 +287,46 @@ export function pickGrip(state) {
   return best;
 }
 
-/** A guide hint ({ id, title, text, ring, key }) pointing at the gripped roots, or null. */
-export function rivalHint(state) {
+/** The alive player node nearest to (x, y) as { x, y, d } (d = distance), or null when the network has none. A plain scan. */
+export function nearestPlayerNode(state, x, y) {
+  const nodes = (state && state.net && state.net.nodes) || [];
+  let best = null;
+  let bd = Infinity;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (!n || !n.alive || !isNum(n.x) || !isNum(n.y)) continue;
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < bd) {
+      bd = d;
+      best = n;
+    }
+  }
+  return best ? { x: best.x, y: best.y, d: bd } : null;
+}
+
+/**
+ * A guide hint ({ id, title, text, ring, key, from? }) pointing at the gripped roots, or null. A barrier is set on one's own
+ * thread, so with no player node within the barrier radius of the grip the text says to extend a thread there first, and
+ * `from` (the nearest node) lets the guide draw a dotted line from it to the ring.
+ */
+export function rivalHint(state, B = balance.B) {
   const g = pickGrip(state);
   if (!g) return null;
   const tree = findTree(state, g.treeId);
-  return {
+  const radius = pos(B && B.barrierRadius, 70);
+  const near = nearestPlayerNode(state, g.x, g.y);
+  const reached = Boolean(near) && near.d <= radius;
+  const hint = {
     id: 'rival',
     title: 'Опёнок',
-    text: `Опёнок держит корни ${treeGen(tree)}. Поставь барьер {4} на узел рядом: толстые нити тоже не пропускают ризоморфы.`,
+    text: reached
+      ? `Опёнок держит корни ${treeGen(tree)}. Поставь барьер {4} на узел рядом: толстые нити тоже не пускают ризоморфы.`
+      : `Опёнок держит корни ${treeGen(tree)}. Протяни нить к этому дереву — барьер ставят на свою нить.`,
     ring: { x: g.x, y: g.y, rx: 58, ry: 40 },
     key: `rival:${g.treeId}`,
   };
+  if (!reached && near) hint.from = { x: near.x, y: near.y };
+  return hint;
 }
 
 // «Once per player» flags of the hint, kept like prefs.js keeps the worm ones (guarded: storage may be blocked).
@@ -306,8 +376,6 @@ export function rivalSummaryLine(stats) {
 }
 
 // ---- help page ---------------------------------------------------------------------------------------------
-
-const pos = (v, fallback) => (isNum(v) && v > 0 ? v : fallback);
 
 /** The numbers the help page quotes, from B with fallbacks (the fallbacks only matter while the sim lacks a value). */
 export function rivalNumbers(B = balance.B) {
