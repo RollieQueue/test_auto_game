@@ -220,6 +220,22 @@ A hypha node that comes within `8 + 10 * decor.scale` units of a `world.decor` i
 `{ type: 'find', id: decor.id, kind: decor.type, x, y }`. Names, notes and rarity per kind come from
 `src/content/finds.js`; the HUD shows them on an «Атлас находок» page, the renderer marks found items.
 
+## Margin marks (achievements)
+
+«Пометки на полях»: 14 achievements, kept per player across games, shown on the atlas's second tab.
+- `src/ui/marks-logic.js` (pure): `MARKS` (id, kind `game` | `life`, icon, title, line, cond) and
+  `checkMarks(state, events, tracker, memory, kinds)` → the ids earned this frame. `tracker` (`newTracker()`) is
+  per game and resets on a new state; a continued save starts a fresh tracker. `memory` is the store's lifetime
+  part; `kinds` are the atlas store's lifetime find counts.
+- `src/ui/marks-store.js`: localStorage key `roots-threads.marks.v1` = `{ v: 1, earned: { id: { at, glade } }, species[],
+  biomes[] }`; a missing or broken storage falls back to a session-only copy (like `atlas-store.js`).
+- `src/ui/marks.js`: `createMarks({ notes, atlasStore })` → `update(state, dt)` (called by hud.js every frame after
+  `updateRival`), the earned note «Пометка на полях: «…»» (one per 3.2 s), and the tab HTML for `atlas.js`
+  (`createAtlas(page, store, marks)`; tab keys ← → and M while the atlas is open).
+- Events the marks read: `mushroom-mature`, `worm-spawn`, `worm-caught`, `severed` (with its cause), `tree-lost`,
+  `tree-freed`, `rival-grip`, `season`, `year-end`, `all-objectives`. Renaming one of them silently breaks a mark:
+  `tests/marks.test.mjs` covers each.
+
 ## Glades (src/world/biomes.js, fairness.js)
 
 `world.biome` is one of `birch | oak | pine | mixed` and `world.name` a generated Russian glade name

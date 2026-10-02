@@ -2507,3 +2507,134 @@ kbd {
     gap: 0.9em;
   }
 }
+
+/* ------------------------------------------------------------------ marks in the margins: the atlas's second tab */
+.atl-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 0.5em;
+  margin: 0.1em 0 0.5em;
+}
+.atl-tab {
+  padding: 0.05em 0.9em 0.12em;
+  font: 400 1.35em/1.15 var(--font-script);
+  color: rgba(58, 42, 30, 0.7);
+  background: transparent;
+  border: 1.5px solid rgba(58, 42, 30, 0.3);
+  border-radius: 0.5em 0.9em 0.55em 0.8em / 0.8em 0.5em 0.9em 0.55em;
+  cursor: pointer;
+}
+.atl-tab:hover,
+.atl-tab:focus-visible {
+  color: var(--sepia);
+  border-color: rgba(58, 42, 30, 0.7);
+  outline: none;
+}
+.atl-tab.on {
+  color: var(--indigo);
+  border-color: rgba(38, 48, 74, 0.85);
+  background: rgba(255, 250, 235, 0.45);
+  transform: rotate(-1deg);
+}
+.atl-tab-n {
+  font: 700 0.62em/1 var(--font-serif);
+  color: var(--wax);
+}
+.mk-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.55em 0.9em;
+}
+.mk-entry {
+  display: grid;
+  grid-template-columns: 3.4em 1fr;
+  column-gap: 0.7em;
+  align-items: start;
+  padding: 0.45em 0.6em 0.45em 0.5em;
+  border: 1px solid rgba(58, 42, 30, 0.28);
+  border-radius: 0.4em 0.7em 0.45em 0.65em / 0.65em 0.4em 0.7em 0.45em;
+  background: rgba(255, 250, 235, 0.28);
+}
+.mk-ico {
+  display: grid;
+  place-items: center;
+  width: 3.4em;
+  height: 3.4em;
+  border: 1.5px solid rgba(38, 48, 74, 0.8);
+  border-radius: 0.3em 0.5em 0.35em 0.45em / 0.45em 0.3em 0.5em 0.35em;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 250, 235, 0.75), rgba(230, 216, 185, 0.7));
+}
+.mk-ico .ico {
+  width: 2.3em;
+  height: 2.3em;
+}
+.mk-title {
+  margin: 0;
+  font: 700 1.14em/1.15 var(--font-serif);
+  color: var(--sepia);
+}
+.mk-line {
+  margin: 0.15em 0 0;
+  font: 400 1.12em/1.12 var(--font-hand);
+  color: var(--indigo);
+}
+.mk-when {
+  margin-top: 0.15em;
+  font: italic 400 0.82em/1.2 var(--font-serif);
+  color: var(--wax);
+}
+.mk-cond {
+  margin: 0.15em 0 0;
+  font: 400 1.08em/1.12 var(--font-hand);
+  color: rgba(58, 42, 30, 0.6);
+}
+.mk-prog {
+  font: 700 0.8em/1 var(--font-serif);
+  color: rgba(58, 42, 30, 0.7);
+  white-space: nowrap;
+}
+/* not earned yet: a faint pencil outline */
+.mk-entry.pencil {
+  border-style: dashed;
+  border-color: rgba(58, 42, 30, 0.22);
+  background: transparent;
+}
+.mk-entry.pencil .mk-ico {
+  border-style: dashed;
+  border-color: rgba(58, 42, 30, 0.3);
+  background: transparent;
+}
+.mk-entry.pencil .ico {
+  opacity: 0.32;
+  filter: grayscale(1) contrast(0.7);
+}
+.mk-entry.pencil .mk-title {
+  font-weight: 400;
+  font-style: italic;
+  color: rgba(58, 42, 30, 0.6);
+}
+.mk-entry.earned {
+  border-color: rgba(58, 42, 30, 0.5);
+}
+@media (max-height: 760px) {
+  .mk-grid {
+    gap: 0.4em 0.7em;
+  }
+  .mk-entry {
+    grid-template-columns: 2.8em 1fr;
+    padding: 0.3em 0.5em 0.3em 0.4em;
+  }
+  .mk-ico {
+    width: 2.8em;
+    height: 2.8em;
+  }
+  .mk-ico .ico {
+    width: 1.9em;
+    height: 1.9em;
+  }
+  .mk-line,
+  .mk-cond {
+    font-size: 1em;
+    line-height: 1.08;
+  }
+}

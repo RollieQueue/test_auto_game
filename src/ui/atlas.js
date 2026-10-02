@@ -5,6 +5,7 @@ import { FINDS_INTRO } from '../content/finds.js';
 import { icons, flourish } from './icons.js';
 import { artByKind, plateByKind, atlasModel, openableKinds, stepKind } from './atlas-logic.js';
 import { buildSpecimen, paintSpecimen } from './specimen.js';
+import { tabsHtml } from './marks.js';
 
 const MANIFEST_URL = 'assets/art/manifest.json';
 
@@ -63,13 +64,17 @@ function entryHtml(e) {
       <div class="atl-count">${count}${ever}</div></article>`;
 }
 
-/** Inner HTML of the atlas page; `lifetime` is { [kind]: n } from the atlas store (null: this game only). */
-export function buildAtlas(state, art = {}, lifetime = null) {
+/**
+ * Inner HTML of the atlas page; `lifetime` is { [kind]: n } from the atlas store (null: this game only); `marks`
+ * ({ earned, total } from the marks watcher) adds the tab bar of «Находки» / «Пометки».
+ */
+export function buildAtlas(state, art = {}, lifetime = null, marks = null) {
   const m = atlasModel(state, art, lifetime);
   return `
     <div class="overline">Тетрадь натуралиста · страница находок</div>
     <h2>Атлас находок</h2>
     ${flourish}
+    ${marks ? tabsHtml('finds', marks.earned, marks.total) : ''}
     <div class="atl-head">
       <div>
         <div class="sub">${esc(FINDS_INTRO.replace(/^Атлас находок\.\s*/, ''))}</div>
@@ -84,12 +89,15 @@ export function buildAtlas(state, art = {}, lifetime = null) {
     <div class="actions"><button class="ink-btn" data-act="atlas-close" type="button">Закрыть <kbd>A</kbd></button></div>`;
 }
 
-/** Fills `page` on open (and again when the art manifest arrives). */
-export function createAtlas(page, store = null) {
+/**
+ * Fills `page` on open (and again when the art manifest arrives). `marks` (marks.js) adds the second tab, «Пометки».
+ */
+export function createAtlas(page, store = null, marks = null) {
   let art = { decor: {}, plate: {} };
   let state = null;
   let token = 0;
   let kind = null; // the kind whose specimen page is open, null for the grid
+  let tab = 'finds'; // 'finds' (the grid and the specimens) or 'marks'
 
   // a picture that fails to load falls back to the initial
   page.addEventListener(
@@ -108,13 +116,30 @@ export function createAtlas(page, store = null) {
 
   function paint() {
     const top = page.scrollTop;
+    if (tab === 'marks' && !marks) tab = 'finds';
+    if (tab === 'marks') {
+      page.classList.remove('spec-mode');
+      page.innerHTML = marks.pageHtml();
+      page.scrollTop = 0;
+      return;
+    }
     const spec = kind ? buildSpecimen(state, kind, { ...art.decor, ...art.plate }, lifetime()) : '';
     if (kind && !spec) kind = null; // not openable (unknown or not found): back to the grid
     page.classList.toggle('spec-mode', Boolean(kind));
-    page.innerHTML = spec || buildAtlas(state, art.decor, lifetime());
+    page.innerHTML = spec || buildAtlas(state, art.decor, lifetime(), marks ? marks.counts() : null);
     page.scrollTop = kind ? 0 : top;
     const canvas = page.querySelector('.spec-canvas');
     if (canvas) paintSpecimen(canvas);
+  }
+
+  /** Switches between «Находки» and «Пометки» (a specimen page closes). */
+  function setTab(next) {
+    if (!state || !marks || next === tab) return;
+    tab = next;
+    kind = null;
+    paint();
+    page.scrollTop = 0;
+    page.querySelector(`.atl-tab[data-tab="${tab}"]`)?.focus({ preventScroll: true });
   }
 
   function show(next) {
@@ -133,6 +158,7 @@ export function createAtlas(page, store = null) {
 
   page.addEventListener('click', (ev) => {
     const btn = ev.target.closest('button');
+    if (btn && btn.dataset.act === 'atlas-tab') return setTab(btn.dataset.tab);
     if (btn && kind) {
       if (btn.dataset.act === 'spec-back') show(null);
       else if (btn.dataset.act === 'spec-prev') go(-1);
@@ -147,19 +173,21 @@ export function createAtlas(page, store = null) {
     open(s) {
       state = s;
       kind = null;
+      tab = 'finds';
       if (store) store.sync(s); // finds made while the store could not hear them (a loaded save)
       paint();
       const mine = ++token;
       loadArt().then((a) => {
         if (mine !== token || !state || JSON.stringify(a) === JSON.stringify(art)) return;
         art = a;
-        paint();
+        if (tab === 'finds') paint();
       });
     },
     close() {
       token++;
       state = null;
       kind = null;
+      tab = 'finds';
       page.classList.remove('spec-mode');
     },
     /** True while a specimen page is open (Esc and a click outside go back to the grid, not out of the atlas). */
@@ -182,6 +210,12 @@ export function createAtlas(page, store = null) {
         if (code === 'Escape' || code === 'Space' || code === 'Enter') return show(null), true;
         return false;
       }
+      const tabBtn = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.atl-tab') : null;
+      if (tabBtn && page.contains(tabBtn) && (code === 'Enter' || code === 'Space')) return setTab(tabBtn.dataset.tab), true;
+      if (marks && code === 'ArrowRight' && tab === 'finds') return setTab('marks'), true;
+      if (marks && code === 'ArrowLeft' && tab === 'marks') return setTab('finds'), true;
+      if (marks && code === 'KeyM') return setTab(tab === 'marks' ? 'finds' : 'marks'), true;
+      if (tab === 'marks') return false;
       if (code === 'Enter' || code === 'Space') {
         const card = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-open]') : null;
         if (card && page.contains(card)) return show(card.dataset.open), true;

@@ -186,3 +186,116 @@ export function capBar(id, from, to) {
     `</svg>`
   );
 }
+
+/** Ink icons of the marks in the margins (src/ui/marks-logic.js names them in MARKS[].icon). */
+export const markIcons = {
+  // first fruit: a cap on a stem
+  mk_fruit:
+    open('ico-mk') +
+    `<path d="M10 14.4 C9.6 17.6 9.4 19.4 8.8 21 L15.4 21 C14.8 19.4 14.4 17.6 14 14.4 Z" fill="#efe3c4" fill-opacity=".85"/>` +
+    `<path d="M3.6 13.8 C3.8 7.6 8 4 12 4 C16.4 4 20.4 7.6 20.4 13.8 C16 15.2 8 15.2 3.6 13.8 Z" fill="#b8472f" fill-opacity=".75"/>` +
+    `<path d="M8.4 9 L9.4 9.4 M13 7.2 L14.2 7.8 M15.8 11 L16.8 11.4" stroke="#fff6dc" stroke-width="1.5"/>` +
+    close,
+  // union of three trees: three crowns joined by a thread underground
+  mk_trio:
+    open('ico-mk') +
+    `<path d="M5.6 11 L5.6 15 M12 8 L12 14 M18.4 10.4 L18.4 15" stroke-width="1.6"/>` +
+    `<circle cx="5.6" cy="7.8" r="3.4" fill="#7da15a" fill-opacity=".7"/><circle cx="12" cy="4.8" r="3.4" fill="#7da15a" fill-opacity=".7"/><circle cx="18.4" cy="7.4" r="3.4" fill="#7da15a" fill-opacity=".7"/>` +
+    `<path d="M2.6 15.2 L21.4 15.2" stroke-width="1" opacity=".55"/>` +
+    `<path d="M5.6 15 C6.4 19 9.6 19.6 12 14 C14.6 19.6 17.6 19 18.4 15" stroke-width="1.3"/>` +
+    `<circle cx="5.6" cy="15" r="1.2" fill="#fff6dc"/><circle cx="12" cy="14" r="1.2" fill="#fff6dc"/><circle cx="18.4" cy="15" r="1.2" fill="#fff6dc"/>` +
+    close,
+  // a second year: growth rings of a stump
+  mk_year:
+    open('ico-mk') +
+    `<ellipse cx="12" cy="12" rx="9" ry="8.2" fill="#d9b27a" fill-opacity=".7"/>` +
+    `<ellipse cx="12" cy="12" rx="5.9" ry="5.2" stroke-width="1.1"/><ellipse cx="12" cy="12" rx="2.7" ry="2.3" stroke-width="1.1"/>` +
+    `<path d="M12 12 L19.4 6.6" stroke-width="1" opacity=".6"/>` +
+    close,
+  // a worm in a ring
+  mk_trap:
+    open('ico-mk') +
+    `<circle cx="12" cy="12" r="8.4" fill="#a7c27c" fill-opacity=".38" stroke-width="1.6"/>` +
+    `<path d="M7.6 14.4 C8.6 9.6 12.4 14.4 13.6 10.4 C14.4 8 16.6 9.6 16.4 11.6" stroke="#a8322d" stroke-width="2.2"/>` +
+    `<circle cx="16.4" cy="11.6" r="1" fill="${INK}" stroke="none"/>` +
+    close,
+  // a tree let go: crown, trunk, a broken grip
+  mk_freed:
+    open('ico-mk') +
+    `<path d="M12 11.6 L12 20 M9 20.6 L15 20.6" stroke-width="1.6"/>` +
+    `<path d="M5 9.4 C4.4 5 8 2.8 12 3 C16.4 2.8 19.6 5.6 19 9.4 C17 12 7.4 12.4 5 9.4 Z" fill="#7da15a" fill-opacity=".72"/>` +
+    `<path d="M3.2 17 C5.4 15.2 8.6 15.2 10.4 17" stroke="#c28a2e" stroke-width="1.6"/>` +
+    `<path d="M13.6 17 C15.4 15.2 18.6 15.2 20.8 17" stroke="#c28a2e" stroke-width="1.6"/>` +
+    close,
+  // ten finds: a heap of pebbles with a tally
+  mk_ten:
+    open('ico-mk') +
+    `<path d="M3.6 19.6 C2.8 15.6 6.4 13.4 9.4 14 C12.6 13.4 14.4 17 13 19.6 Z" fill="#a89f8e" fill-opacity=".85"/>` +
+    `<path d="M11.6 19.6 C11.2 16.4 14.6 14.4 17.4 15 C20.6 15 21.4 18.6 19.8 19.6 Z" fill="#c9bfa6" fill-opacity=".85"/>` +
+    `<path d="M6.4 3.6 L6.6 11 M9.2 3.6 L9.4 11 M12 3.6 L12.2 11 M14.8 3.6 L15 11 M4.8 9.6 L16.6 5" stroke-width="1.5"/>` +
+    close,
+  // three forests: a birch, a broad oak, a pine
+  mk_forests:
+    open('ico-mk') +
+    `<path d="M5 9 L5 20.6 M12 11.4 L12 20.6 M19 11 L19 20.6" stroke-width="1.5"/>` +
+    `<ellipse cx="5" cy="6.4" rx="2.2" ry="4" fill="#9fc07c" fill-opacity=".75"/>` +
+    `<circle cx="12" cy="8.2" r="4.2" fill="#6f9648" fill-opacity=".75"/>` +
+    `<path d="M19 2.6 L15.4 9 L22.6 9 Z M19 6.4 L14.8 13 L23.2 13 Z" fill="#4f7a4a" fill-opacity=".75"/>` +
+    close,
+  // a good year: three mushrooms of different size
+  mk_basket:
+    open('ico-mk') +
+    `<path d="M5.6 15 L5.4 20.4 M13 11.4 L13.4 20.4 M19 15.6 L19.2 20.4" stroke-width="1.6"/>` +
+    `<path d="M2 15.4 C2 11.6 4.4 9.6 6.2 9.6 C8.8 9.6 10 12 9.8 15.4 Z" fill="#c8693f" fill-opacity=".75"/>` +
+    `<path d="M8.4 11.8 C8.4 6.4 11 3.8 13.6 3.8 C16.6 3.8 18.4 7 18.2 11.8 Z" fill="#b8472f" fill-opacity=".75"/>` +
+    `<path d="M15.6 16 C15.8 12.8 17.4 11.8 19.2 11.8 C21.4 12 22.4 14.4 22.2 16 Z" fill="#d9b27a" fill-opacity=".8"/>` +
+    close,
+  // winter without loss: a snowflake
+  mk_frost:
+    open('ico-mk') +
+    `<path d="M12 2.8 L12 21.2 M4 7.4 L20 16.6 M4 16.6 L20 7.4" stroke="#4f7a9f" stroke-width="1.6"/>` +
+    `<path d="M9.6 4.6 L12 6.8 L14.4 4.6 M9.6 19.4 L12 17.2 L14.4 19.4" stroke="#4f7a9f" stroke-width="1.2"/>` +
+    `<circle cx="12" cy="12" r="2.4" fill="#e9f1f6" fill-opacity=".9"/>` +
+    close,
+  // a page without bites: a leaf of paper, a worm struck out
+  mk_page:
+    open('ico-mk') +
+    `<path d="M5.4 3.4 L18.4 3 L18.8 20.4 L5.6 20.8 Z" fill="#f2e8cc" fill-opacity=".9"/>` +
+    `<path d="M8.4 8 C9.6 6.4 11.2 9.6 12.6 8 C13.6 6.8 14.8 7.8 15 8.6" stroke="#a8322d" stroke-width="1.5"/>` +
+    `<path d="M7.6 12.6 L16.4 12.6 M7.6 15.4 L13.6 15.4" stroke-width="1" opacity=".6"/>` +
+    `<path d="M8 17.8 L10.6 20.2 L16.6 14.2" stroke="#26304a" stroke-width="2.2"/>` +
+    close,
+  // a year without losses to the honey fungus: a shield over a clump of honey fungus
+  mk_honey:
+    open('ico-mk') +
+    `<path d="M12 2.8 L19.6 5.6 C19.8 12 17.2 17.6 12 21 C6.8 17.6 4.2 12 4.4 5.6 Z" fill="#d9b27a" fill-opacity=".6"/>` +
+    `<path d="M7.6 12.4 C7.6 9.6 9 8.4 10.2 8.4 C11.6 8.4 12.4 9.6 12.2 12.4 Z" fill="#b97a14" fill-opacity=".85"/>` +
+    `<path d="M11.4 14.8 C11.4 11.6 13.2 10 14.8 10 C16.6 10 17.4 11.8 17.2 14.8 Z" fill="#b97a14" fill-opacity=".85"/>` +
+    `<path d="M9.8 12.4 L9.6 16.4 M14.2 14.8 L14.2 18" stroke-width="1.4"/>` +
+    close,
+  // the whole glade in the net: nodes in a ring joined by threads
+  mk_net:
+    open('ico-mk') +
+    `<path d="M12 3.6 L19.6 8.4 L17.4 17.6 L6.6 17.6 L4.4 8.4 Z M12 3.6 L12 11.8 L19.6 8.4 M12 11.8 L4.4 8.4 M12 11.8 L17.4 17.6 M12 11.8 L6.6 17.6" stroke-width="1.2"/>` +
+    `<circle cx="12" cy="3.6" r="2" fill="#7da15a"/><circle cx="19.6" cy="8.4" r="2" fill="#7da15a"/><circle cx="17.4" cy="17.6" r="2" fill="#7da15a"/><circle cx="6.6" cy="17.6" r="2" fill="#7da15a"/><circle cx="4.4" cy="8.4" r="2" fill="#7da15a"/>` +
+    `<circle cx="12" cy="11.8" r="1.8" fill="#fff6dc"/>` +
+    close,
+  // four fungi: four caps in a row
+  mk_four:
+    open('ico-mk') +
+    `<path d="M3.8 14 L3.8 19.6 M9.2 12 L9.2 19.6 M14.8 12 L14.8 19.6 M20.2 14 L20.2 19.6" stroke-width="1.4"/>` +
+    `<path d="M1.6 14 C1.6 9.8 6 9.8 6 14 Z" fill="#b8472f" fill-opacity=".78"/>` +
+    `<path d="M6.4 12 C6.4 6.6 12 6.6 12 12 Z" fill="#8a5a34" fill-opacity=".78"/>` +
+    `<path d="M12 12 C12 6.6 17.6 6.6 17.6 12 Z" fill="#d6872f" fill-opacity=".78"/>` +
+    `<path d="M17.6 14 C17.6 9.8 22.4 9.8 22.4 14 Z" fill="#e0b04a" fill-opacity=".8"/>` +
+    close,
+  // full atlas: an open book with a pebble pressed in
+  mk_atlas:
+    open('ico-mk') +
+    `<path d="M2.6 5.6 C6.4 4.4 9.6 4.8 12 6.6 C14.4 4.8 17.6 4.4 21.4 5.6 L21.4 19 C17.6 17.8 14.4 18.2 12 20 C9.6 18.2 6.4 17.8 2.6 19 Z" fill="#f2e8cc" fill-opacity=".9"/>` +
+    `<path d="M12 6.6 L12 20" stroke-width="1.2"/>` +
+    `<ellipse cx="7.2" cy="12.2" rx="2.4" ry="1.8" fill="#a89f8e" fill-opacity=".85"/>` +
+    `<path d="M15.4 9.4 C16.8 8.6 18.4 9.8 17.4 11.4 C16.6 12.6 15 11.8 15.4 9.4 Z M15 14.6 L19 14" fill="#7da15a" fill-opacity=".7" stroke-width="1.1"/>` +
+    close,
+};
+Object.assign(icons, markIcons);

@@ -20,6 +20,7 @@ import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasH
 import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
 import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
 import { initSettingsPanel } from './settings.js';
+import { createMarks } from './marks.js';
 import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
@@ -270,7 +271,8 @@ export function createHud(root, actions) {
 
   const notes = createNotes(el.notes);
   const atlasStore = createAtlasStore();
-  const atlas = createAtlas(el.atlasPage, atlasStore);
+  const marks = createMarks({ notes, atlasStore }); // «Пометки на полях»: achievements, the atlas's second tab
+  const atlas = createAtlas(el.atlasPage, atlasStore, marks);
   const calendar = createCalendar(q('.res-card'));
   const tooltip = createTooltip(el.tip);
   // floating labels keep out of the column of margin notes: the notes on screen and the slot of the next one
@@ -1020,6 +1022,7 @@ export function createHud(root, actions) {
       updateFinds(state);
       updateThreats(state);
       updateRival(state);
+      marks.update(state, dt);
       if (phase === 'playing') updateNudge(state, dt);
       notes.tick(dt);
       labels.tick(dt);
