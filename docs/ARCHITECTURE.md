@@ -23,6 +23,13 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
   latter defaulting to `prefers-reduced-motion`) are applied at boot and on change: `audio.setVolume(v)` sets the master
   gain (0.9·v²; `M` still mutes), `render/motion.js` `reducedMotion()` is read by the renderer to stop sway, falling
   leaves, clouds, rain/snow, twinkles, the season wash, sparks and flashes. The sim never reads either.
+- The pause page also has «Новая поляна» (hud.js `new-ask` / `new-yes` / `new-no`). The first click asks «Точно? Эта поляна
+  пропадёт», and «Да, новая» calls `actions.restart()` (a new random glade, as on the summary). Closing the pause page
+  disarms the question.
+- Soil labels (src/render/soil-labels.js `labelLayout`) slide past water pools, mineral pockets and rocks to the next free
+  line of their band (`obstacleBoxes`, `freeLabelY`).
+- The guide's «Теперь жди…» hint (guide-logic.js `pickHint`, `WAIT_HINT_UNTIL` 240 s) shows only while page 1 is open and
+  the game is under four minutes old.
 - Seasons with day/night (`state.flags.seasons`) and soil threats (`state.flags.threats`) are on in the game by
   default; `?seasons=0` / `?threats=0` turn them off. The honey-fungus rival (`state.flags.rival`) rides with the threats;
   `?rival=0` turns it off, `?rival=1` wakes it at once. Tests that build a state with `createState` get both off
@@ -345,10 +352,28 @@ moves, at up to `B.feedRate` sugar/s, into the tree's growth (`B.feedGrowSeconds
 ('on' | 'switch' | 'off' | false), `feedDenial`, `canFeedAny`. Events `feed-start`, `feed-stop {reason: 'player'|'lost'|'unlinked'}`,
 `feed-denied`. UI: src/ui/feed.js (tab, tooltip line, notes), resources-logic.js (where the surplus goes).
 On the scene: while `state.feed.rate > B.feedFlowMin` (0.05) `recomputeFlows` pushes one flow of kind `'feed'` from the spore
-to the fed tree's contact (`bestNode`), last, so it never crowds out a real flow at `maxFlows`; `thicken` skips it and barred
-nodes carry none. src/render/flows.js draws it as a golden glow with slow drops; src/render/feed-mark.js puts a golden drop and
+to the fed tree's contact (`bestNode`), last, so it never crowds out a real flow at `maxFlows`. `thicken` grows its path towards
+`B.feedThickW` (2.2) with `B.feedThickSeconds` (55) at the full feeding rate, slower at a lower one (not by load): a fed path becomes
+a cord a raider cannot pass in about a minute. Barred nodes carry none. src/render/flows.js draws it as a golden glow with slow drops; src/render/feed-mark.js puts a golden drop and
 «+N/с» (src/ui/feed.js `rateText`) on the grass right of the trunk foot, clear of the rot ring and its infection label.
 `'feed'` is one of the saved flow kinds (persist-codec `FLOW_KINDS`).
+
+Page unlocks (src/sim/unlocks.js; words in src/ui/unlocks.js). A closed page gives something new: `state.flags.unlocks =
+{ feed, trap, finds }`, granted in `stepObjectives` at each page close (`grantUnlocks`). It pushes `unlock {key, page}` before the
+next page's `chapter` event.
+- Page 1 opens `feed`: tool 5. `canFeedAny` and `feedTabShown` are false until then, and `commandFeed` refuses with
+  `feed-denied 'locked'`.
+- Page 2 opens `trap`: a ring digests a worm in `B.trapDigestSecondsPage2` (7 s, not 14), see `trapDigestSeconds(state)`.
+- Page 3 opens `finds`: the find radius is × `B.findRadiusPage3` (1.5), see `findRadiusScale(state)`. What the net already
+  touches is checked at once.
+
+Without chapters (`flags.threats` off), `isUnlocked` is always true and the better numbers stay the old ones (`earned`). A state
+that has closed a page without the flag (an old save) counts as unlocked by its chapter; `decodeState` writes the flags down
+(`syncUnlocks`).
+
+The HUD (hud.js `updateUnlocks`) compares `flags.unlocks` with what it has already shown. It puts the slip «Новое умение: …»
+(`.slip.gift`, above the tool bar) after the summary page closes. The summary shows «Открыто: …» and help lists every unlock.
+Year and closed-page advice (year-logic.js `gradeNext(g, feedOpen)`, `closedAdvice`) name «подкормка (5)» only once it is open.
 
 Stakes (src/sim/stakes.js, numbers `B.stakes`; text in src/ui/year-logic.js; all of it in `state.flags`, so a save needs no new
 field): at every `year-end` the sim stores `flags.yearGrades` (the grade of the year: parts, score 0..100, grade
@@ -467,7 +492,11 @@ Barrier as a choice (run 8): while a ring stands, `estimateGrowth` / `commandGro
 `grow-denied`), a growing tip under a new ring stops, flows.js makes no flow through barred nodes (`barredNodes`) so nothing inside
 thickens, and a tree whose every root contact is inside (`treeBarred(state, tree)`) is left out of `stepTrees`: it neither drinks,
 pays nor grows, and its mantle holds. `barrierEffects(state, nodeId)` tells the tooltip what a ring would freeze.
-Raider (`tip.raid`, from chapter 2): every `B.rivalRaidEvery`-th timer tip (at most `B.rivalRaidMax` alive) goes for the network: it
+Raider (`tip.raid`, from chapter 2). Every `raidEvery(state)`-th timer tip goes for the network, with at most `raidMax(state)` alive:
+`B.rivalRaidEvery` / `B.rivalRaidMax` (3 / 1), and from page `B.rivalRaidFromChapter` (3) `B.rivalRaidEveryLate` / `B.rivalRaidMaxLate` (2 / 2).
+Deep grip (from page `B.rivalDeepFromChapter`, 2): once per page (`rival.deepPage`), an extra tip starts below the gravel. It climbs
+to the deepest root tip of a linked tree (>= `B.rivalDeepTipMin` deep, >= `B.rivalDeepClear` from every player node, so no ring on an
+existing node reaches it) and grips without waiting for a node in reach (`rival-deep`, `tip.deep`, `grip.deep`). The raider:
 warns (`rival-raid-seek`) `B.rivalRaidLead` s, touches the nearest thin edge (`rival-raid-touch`), runs towards the spore over thin
 edges (up to `B.rivalRaidReach`), and each overgrown edge (`state.rival.over`) is cut with `cause: 'rival'` after
 `B.rivalRaidWither` s. Thick cords (`w >= B.rivalBlockW`), the immune stretch round the spore and barriers stop it; a barrier
