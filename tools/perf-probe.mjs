@@ -1089,6 +1089,12 @@ async function loadSaved(sess) {
   for (let tries = 0; tries < 6; tries++) {
     await sleep(500);
     if ((await sess.eval(`window.__game.state.phase`)) === 'playing') return;
+    // a first-encounter card (the first nematode on screen, the honey fungus waking) pauses the glade: read it, go on
+    const ok = await sess.eval(sess.buttonCentre('button[data-act="callout-ok"]'));
+    if (ok) {
+      await sess.click(ok[0], ok[1]);
+      continue;
+    }
     const p = await sess.eval(sess.buttonCentre('button[data-act="continue-save"]'));
     if (p) await sess.click(p[0], p[1]);
   }

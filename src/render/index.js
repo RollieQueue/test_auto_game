@@ -329,10 +329,9 @@ export function createRenderer(canvas) {
       b.bitmap.close?.();
     }
     u.frames++;
-    if (u.next < u.bands.length) {
-      u.g.getImageData(0, 0, 1, 1); // submit this frame's uploads now, not all at once with the first blit of the plate
-      return;
-    }
+    // no getImageData sync here: on a GPU canvas it reads the plate back and stalls the frame for 30-40 ms (probe, real GPU);
+    // each frame's band draws are flushed with that frame anyway
+    if (u.next < u.bands.length) return;
     upload = null;
     stats.worldUploadFrames = u.frames;
     finishPlate(u.c, u.plate);
