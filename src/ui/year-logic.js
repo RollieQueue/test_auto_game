@@ -38,7 +38,7 @@ const ADVICE = {
 };
 /** The same advice while «Подкормка» is still closed (page 1 not written yet): it names what opens the tool instead. */
 const ADVICE_LOCKED = {
-  alive: 'береги деревья от опёнка барьером (4); допиши первую страницу — она откроет подкормку (5)',
+  alive: 'береги деревья от опёнка барьером (4); допиши первую страницу — она откроет подкормку',
 };
 
 /** A part that is full or nearly (ratio from here on) is a reason «за». */
@@ -143,7 +143,7 @@ export function closedAdvice(state) {
   const c = pageClosed(state);
   if (!c) return '';
   if (c.cause === 'grove' && !isUnlocked(state, 'feed')) {
-    return 'На будущий раз: опёнок идёт к деревьям, которым ты помогаешь; барьер (4) бережёт их корни, а дописанная первая страница откроет подкормку (5).';
+    return 'На будущий раз: опёнок идёт к деревьям, которым ты помогаешь; барьер (4) бережёт их корни, а дописанная первая страница откроет подкормку.';
   }
   return c.cause === 'grove'
     ? 'На будущий раз: опёнок идёт к деревьям, которым ты помогаешь; барьер (4) и подкормка (5) берегут их корни.'

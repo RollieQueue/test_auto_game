@@ -6,7 +6,8 @@ import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
 import { chapterTotal, fruitCostOf, threatsOn, trapCost } from './threats.js';
 import { barrierCostOf, rivalNumbers } from './rival.js';
 import { speciesHelp } from './species-logic.js';
-import { isUnlocked } from '../sim/unlocks.js';
+import { toolRevealed } from '../sim/tools.js';
+import { TOOLS } from './tools.js';
 import { pageOrdinal, unlockHelpItems } from './unlocks.js';
 
 const FALLBACK_HORIZONS = [
@@ -60,12 +61,13 @@ function unlockList(state) {
 function threatsSection(state) {
   if (!threatsOn(state)) return '';
   const cost = trapCost(balance.B);
+  const use = hasTool(state, 'trap') ? 'Нажми <kbd>3</kbd> и щёлкни по нити' : 'Ловчее кольцо — инструмент, который откроется вместе с первой нематодой: щёлкни им по нити';
   return `
         <section>
           <h3>Нематоды</h3>
           <p>В почве бродят нематоды — тонкие черви. Червь перекусывает тонкую нить, и всё, что отрезано от споры, отмирает:
           узлы, а с ними и грибы на них. Береги тонкие ответвления и держи у них кольца.</p>
-          <p>Нажми <kbd>3</kbd> и щёлкни по нити: на ней вырастет <i>ловчее кольцо</i>. Оно стоит ${cost} сахара.
+          <p>${use}: на ней вырастет <i>ловчее кольцо</i>. Оно стоит ${cost} сахара.
           Червь, подползший к кольцу, застревает, а грибница забирает его минералы. Каждое кольцо ловит ограниченное число
           червей и истощается; <kbd>Esc</kbd> возвращает к нити.</p>
         </section>
@@ -79,11 +81,20 @@ function threatsSection(state) {
 
 const rivalFlag = (state) => threatsOn(state) && Boolean(state.flags.rival);
 
+/** The tool has entered the game (a bare state, as the help is built before a game, lists every tool). */
+export function hasTool(state, key) {
+  if (!(state && state.flags)) return true;
+  if (key === 'trap' && !threatsOn(state)) return false;
+  if (key === 'barrier' && !rivalFlag(state)) return false;
+  return toolRevealed(state, key);
+}
+
 /** «Опёнок»: shown only when the honey-fungus rival is on (its numbers come from balance.js). */
 export function rivalSection(state, B = balance.B) {
   if (!rivalFlag(state)) return '';
   const n = rivalNumbers(B);
   const cost = barrierCostOf(state, B);
+  const use = hasTool(state, 'barrier') ? 'Нажми <kbd>4</kbd> и щёлкни по нити рядом' : 'Барьер (он откроется, когда опёнок проснётся): щёлкни им по нити рядом';
   return `
         <section>
           <h3>Опёнок</h3>
@@ -91,7 +102,7 @@ export function rivalSection(state, B = balance.B) {
           а у погибшего дерева осенью высыпают медовые опята.</p>
           <p>Дерево защищает микориза: мантия из твоих нитей на кончиках корней. Чем лучше кормишь дерево, тем она крепче:
           до ${n.protect} % заражения. Толстые нити ризоморфы не пробивают.</p>
-          <p>Шнур вцепился? Нажми <kbd>4</kbd> и щёлкни по нити рядом: на ${n.radius} ед. вокруг шнуры растворятся.
+          <p>Шнур вцепился? ${use}: на ${n.radius} ед. вокруг шнуры растворятся.
           Барьер: ${cost} сахара, держится около ${n.seconds} с, не больше ${n.max} сразу. Внутри кольца нити замирают: не растут и не носят соки,
           а дерево, у которого все корни внутри, не платит.</p>
           <p>${raidLine(state)}</p>
@@ -100,14 +111,12 @@ export function rivalSection(state, B = balance.B) {
 
 /** The raider's line of the help page: it names feeding (key 5) only once the tool is open (page 1 closed). */
 function raidLine(state) {
-  return isUnlocked(state, 'feed')
+  return hasTool(state, 'feed')
     ? 'Иногда ризоморф идёт не к дереву, а по тонким нитям сети. Подкорми дерево (<kbd>5</kbd>) из полной кладовой — путь к нему станет толстым тяжом, и налётчик не пройдёт; барьер перед ним тоже его растворит.'
     : 'Иногда ризоморф идёт не к дереву, а по тонким нитям сети. Толстый тяж он не пройдёт, а барьер перед ним его растворит.';
 }
 
 const KEYS = [
-  ['1', '2', 'нить / гриб'],
-  ['5', '', 'подкормка: щёлкни по дереву, и лишний сахар пойдёт ему'],
   ['Пробел', '', 'пауза'],
   ['F', '', 'скорость ×1 / ×2'],
   ['M', '', 'звук'],
@@ -115,6 +124,23 @@ const KEYS = [
   ['H', '', 'эта страница'],
   ['Esc', '', 'отмена, пауза'],
 ];
+
+/**
+ * The rows of the tools in the list of keys: only the tools that have entered the game, then a line that says more will come.
+ * «1 2 3 нить / гриб / кольцо», and the feeding tool apart, as its text is longer.
+ */
+export function toolKeyRows(state) {
+  const open = TOOLS.filter(([tool]) => hasTool(state, tool));
+  const row = (list, text) => `<li><span class="kk">${list.map(([, key]) => `<kbd>${key}</kbd>`).join(' ')}</span><span>${text}</span></li>`;
+  const plain = open.filter(([tool]) => tool !== 'feed');
+  let out = row(plain, plain.map(([, , name]) => name).join(' / '));
+  if (open.some(([tool]) => tool === 'feed')) out += row([TOOLS[4]], 'подкормка: щёлкни по дереву, и лишний сахар пойдёт ему');
+  const possible = TOOLS.filter(([tool]) => (tool !== 'trap' || threatsOn(state)) && (tool !== 'barrier' || rivalFlag(state)));
+  if (open.length < possible.length) {
+    out += '<li><span class="kk">…</span><span>другие инструменты откроются позже, по ходу игры</span></li>';
+  }
+  return out;
+}
 
 /** Inner HTML of the help page for the given state (world may be missing). */
 export function buildHelp(state) {
@@ -126,13 +152,8 @@ export function buildHelp(state) {
   const fruitSeconds = Math.round(B.mushroomGrowSeconds ?? 20);
   const goal = Math.round(B.sporesGoal ?? 100);
   const speed = Math.round(B.growSpeed ?? 140);
-  const threats = threatsOn(state);
-  const feedOpen = !(state && state.flags) || isUnlocked(state, 'feed'); // key 5 is on the page once page 1 is closed
-  const keys = KEYS.filter(([a]) => a !== '5' || feedOpen).map(([a, b, text]) => {
-    const toolKeys = a === '1' && threats; // «1 2 3 нить / гриб / кольцо», «1 2 3 4 …/ барьер» with the rival
-    const four = toolKeys && rivalFlag(state);
-    return `<li><span class="kk"><kbd>${a}</kbd>${b ? ` <kbd>${b}</kbd>` : ''}${toolKeys ? ' <kbd>3</kbd>' : ''}${four ? ' <kbd>4</kbd>' : ''}</span><span>${toolKeys ? (four ? 'нить / гриб / кольцо / барьер' : 'нить / гриб / кольцо') : text}</span></li>`;
-  }).join('');
+  const fruitUse = hasTool(state, 'fruit') ? 'Нажми <kbd>2</kbd> и щёлкни по узлу' : 'Инструмент «Гриб» откроется, когда нить дойдёт до дерева. Тогда щёлкни по узлу';
+  const keys = toolKeyRows(state) + KEYS.map(([a, b, text]) => `<li><span class="kk"><kbd>${a}</kbd></span><span>${text}</span></li>`).join('');
 
   return `
     <div class="overline">Тетрадь натуралиста · памятка на полях</div>
@@ -146,7 +167,7 @@ export function buildHelp(state) {
             <li>${icons.sugar}<span><b>Сахар</b> — плата за рост нитей и грибов. Его приносят деревья-союзники.</span></li>
             <li>${icons.water}<span><b>Влага</b> — из голубых карманов в земле. Без неё деревья чахнут.</span></li>
             <li>${icons.minerals}<span><b>Минералы</b> — оливковый азот у поверхности, фиолетовые кристаллы фосфора глубже.</span></li>
-            <li>${icons.spores}<span><b>Споры</b> — твои очки. Их выпускают зрелые грибы. Предела у них нет.</span></li>
+            <li>${icons.spores}<span><b>Споры</b> — урожай грибницы: ветер разносит их, и из них вырастут новые грибницы. Тетрадь считает споры: они закрывают страницы и дают отметку за год. Их выпускают зрелые грибы, предела у них нет.</span></li>
           </ul>
           <p>У сахара, влаги и минералов есть <i>предел</i>, он стоит рядом с числом: «Влага 71 / 90» — в кладовой 71 доля из 90.
           Полоска под числом краснеет, когда кладовая полна: нити перестают добывать, пока деревья не заберут влагу или
@@ -177,9 +198,9 @@ ${rivalSection(state)}
         </section>
         <section>
           <h3>Грибы</h3>
-          <p>Нажми <kbd>2</kbd> и щёлкни по узлу у самой земли — не глубже ${fruitDepth} ед. и не ближе ${fruitRoomMin}–${fruitRoomMax} ед. к другому грибу: чем крупнее его шляпка, тем больше места он занимает.
+          <p>${fruitUse} у самой земли — не глубже ${fruitDepth} ед. и не ближе ${fruitRoomMin}–${fruitRoomMax} ед. к другому грибу: чем крупнее его шляпка, тем больше места он занимает.
           Гриб стоит ${fruitCost} сахара, растёт около ${fruitSeconds} секунд, а потом выпускает споры. Чем сытнее сеть, тем их больше.
-          Собери ${goal} спор.</p>
+          Споры — то, что считает тетрадь: набери ${goal}, это одна из строк первой страницы.</p>
         </section>
         <section>
           <h3>Находки</h3>

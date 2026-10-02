@@ -2,7 +2,7 @@
 // Which hint to show comes from guide-logic.js; this file is the drawing, placement and timing.
 // The overlay never takes pointer events, except for the small "×" that hides the guide for good.
 import { pickHint } from './guide-logic.js';
-import { guideEnabled, setGuideEnabled, wormHintSeen, markWormHint, raidHintSeen, markRaidHint } from './prefs.js';
+import { guideEnabled, setGuideEnabled, raidHintSeen, markRaidHint } from './prefs.js';
 import { RIVAL_HINT_TIME, markRivalHint, raidHint, rivalHint, rivalHintSeen } from './rival.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -12,12 +12,12 @@ const FIRST_DELAY = 1.2; // s of play before the first hint
 const STEP_GAP = 0.55; // s between two hints
 const OUT_TIME = 0.35; // fade-out, matches the CSS transition
 const RECHECK = 0.25; // s between hint recomputations
-const WORM_HINT_TIME = 11; // s the arrow at the first worm stays
-// (the arrow at the first honey-fungus grip, and the one at its first raider, stay RIVAL_HINT_TIME s, see rival.js)
+// (the arrow at the first honey-fungus grip, and the one at its first raider, stay RIVAL_HINT_TIME s, see rival.js;
+// the first worm has a card of its own that pauses the game, ui/callout.js)
 
 // ---- small deterministic helpers (the "hand" must wobble the same way on every redraw) -----------------
 
-function hashSeed(str) {
+export function hashSeed(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
   return h >>> 0;
@@ -111,7 +111,7 @@ function svgEl(tag, attrs = {}) {
 }
 
 /** Fills `el` with text where {key} becomes a <kbd>. */
-function setRichText(el, text) {
+export function setRichText(el, text) {
   el.textContent = '';
   const parts = text.split(/\{([^}]+)\}/);
   parts.forEach((part, i) => {
@@ -243,8 +243,6 @@ export function createGuide(host, obstacles) {
   let dimmed = false;
   let doneAtStart = false;
   let doneHandled = false;
-  let wormLive = false; // the first-worm arrow is on screen (it was marked seen when it appeared)
-  let wormT = 0;
   let rivalLive = false; // the first-grip arrow is on screen (it was marked seen when it appeared)
   let rivalT = 0;
   let raidLive = false; // the first-raider arrow is on screen (marked seen when it appeared)
@@ -274,8 +272,6 @@ export function createGuide(host, obstacles) {
     finished = false;
     prevKey = null;
     doneHandled = false;
-    wormLive = false;
-    wormT = 0;
     rivalLive = false;
     rivalT = 0;
     raidLive = false;
@@ -396,11 +392,6 @@ export function createGuide(host, obstacles) {
     void noteEl.offsetWidth; // let the start state paint so the transition runs
     noteEl.classList.add('in');
     mode = 'in';
-    if (h.id === 'worm') {
-      wormLive = true;
-      wormT = 0;
-      markWormHint(); // once per player; the arrow stays until the worm leaves or the ring tool is taken
-    }
     if (h.id === 'rival') {
       rivalLive = true;
       rivalT = 0;
@@ -480,17 +471,13 @@ export function createGuide(host, obstacles) {
       recheck -= dt;
       if (recheck <= 0) {
         recheck = RECHECK;
-        const extras = { wormHint: Boolean(state.flags && state.flags.threats) && (wormLive || !wormHintSeen()), rivalHint: wantRival, raidHint: wantRaid };
+        const extras = { rivalHint: wantRival, raidHint: wantRaid };
         desired = want ? pickHint(state, prevKey, state.ui.tool, extras) : (wantRival && rivalHint(state)) || (wantRaid && raidHint(state)) || null;
       } else if (!want && !(desired && ((wantRival && desired.id === 'rival') || (wantRaid && desired.id === 'raid')))) {
         desired = null;
       }
 
       if (shown) {
-        if (shown.id === 'worm') {
-          wormT += dt;
-          if (wormT > WORM_HINT_TIME || state.ui.tool === 'trap') desired = null; // done: the player took the ring tool
-        }
         if (shown.id === 'rival') {
           rivalT += dt;
           if (rivalT > RIVAL_HINT_TIME || state.ui.tool === 'barrier') desired = null; // done: the player took the barrier tool
@@ -500,7 +487,6 @@ export function createGuide(host, obstacles) {
           if (raidT > RIVAL_HINT_TIME || state.ui.tool === 'barrier') desired = null; // done: the player took the barrier tool
         }
         if (!desired || desired.id !== shown.id) {
-          if (shown.id === 'worm') wormLive = false;
           if (shown.id === 'rival') rivalLive = false;
           if (shown.id === 'raid') raidLive = false;
           startOut();

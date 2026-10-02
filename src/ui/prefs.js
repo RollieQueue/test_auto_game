@@ -67,8 +67,8 @@ export function markAtlasHint() {
   }
 }
 
-// One-time pointers about the soil threats, once per player: the margin note on the first worm ever, and the
-// guide's arrow at it (separate flags: the note is for everyone, the arrow only while the guide is on).
+// One-time pointers about the soil threats, once per player: the card that pauses the game at the first worm ever seen and the
+// one at the first waking of the honey fungus (ui/callout.js).
 const seenMemory = new Set();
 
 function seen(name) {
@@ -88,10 +88,10 @@ function markSeen(name) {
   }
 }
 
-export const wormNoteSeen = () => seen('worm-note');
-export const markWormNote = () => markSeen('worm-note');
-export const wormHintSeen = () => seen('worm-hint');
-export const markWormHint = () => markSeen('worm-hint');
+export const wormCardSeen = () => seen('worm-card');
+export const markWormCard = () => markSeen('worm-card');
+export const rivalCardSeen = () => seen('rival-card');
+export const markRivalCard = () => markSeen('rival-card');
 // the guide's arrow at the first raider of the honey fungus (rival.js raidHint), once per player
 export const raidHintSeen = () => seen('raid-hint');
 export const markRaidHint = () => markSeen('raid-hint');

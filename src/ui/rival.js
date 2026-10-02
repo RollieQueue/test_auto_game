@@ -204,6 +204,7 @@ export function rivalNote(state, ev) {
   const tree = isNum(ev.treeId) ? findTree(state, ev.treeId) : null;
   switch (ev.type) {
     case 'rival-wake':
+      if (ev.carded) return null; // the first waking ever has a card of its own (ui/callout.js)
       return { key: 'rival:wake', text: RIVAL_WAKE_NOTE, tone: 'warn', icon: 'honey', life: 12 };
     case 'rival-dormant':
       return { key: 'rival:dormant', text: RIVAL_DORMANT_NOTE, tone: 'warn', icon: 'honey', life: 10 };

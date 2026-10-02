@@ -2957,3 +2957,79 @@ kbd {
     line-height: 1.08;
   }
 }
+
+/* ------------------------------------------------------------------ first-encounter card, a tool that has just entered the game */
+
+/* a scene dimmed round a spotlight (--sx, --sy, --sr are set by callout.js); no spot: an even dim */
+.screen.callout {
+  padding: 0;
+  background: radial-gradient(circle at var(--sx, 50%) var(--sy, 50%), rgba(18, 11, 6, 0) var(--sr, 0px), rgba(18, 11, 6, 0.62) calc(var(--sr, 0px) * 1.9 + 60px));
+}
+.screen.callout.no-spot {
+  background: rgba(18, 11, 6, 0.5);
+}
+.screen.callout.open {
+  display: block;
+}
+.callout .guide-svg {
+  opacity: 1;
+}
+.co-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 19em;
+  max-width: calc(100% - 2em);
+  padding: 0.62em 1.2em 0.75em 1.05em;
+  font-size: 1.3em;
+  line-height: 1.12;
+  text-align: left;
+  color: var(--sepia);
+  transform: translateY(0.6em) rotate(-1deg);
+  transition: transform 0.45s ease;
+}
+.screen.callout.shown .co-card {
+  transform: rotate(-1deg);
+}
+.co-card .g-title {
+  font-family: var(--font-script);
+  font-size: 1.22em;
+  line-height: 1;
+  color: var(--indigo);
+  margin: 0 0 0.22em;
+}
+.co-card .g-text {
+  margin: 0;
+  font-size: 1.04em;
+  line-height: 1.15;
+}
+.co-card kbd {
+  font-size: 0.72em;
+}
+.co-card .co-ok {
+  display: block;
+  margin: 0.55em 0 0 auto;
+}
+
+/* a tab that has just entered the game glows for a few seconds (callout.js / hud.js remove .fresh when it is over) */
+.tool.fresh {
+  filter: none;
+  animation: tool-fresh 1.1s ease-in-out 5;
+}
+@keyframes tool-fresh {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(38, 48, 74, 0);
+  }
+  50% {
+    box-shadow:
+      0 0 0 0.26em rgba(236, 184, 66, 0.95),
+      0 0 1.2em 0.5em rgba(236, 184, 66, 0.75);
+  }
+}
+.reduce-motion .tool.fresh {
+  animation: none;
+  box-shadow:
+    0 0 0 0.26em rgba(236, 184, 66, 0.95),
+    0 0 1.2em 0.4em rgba(236, 184, 66, 0.7);
+}

@@ -8,6 +8,7 @@ import { createSimData, pathBetween } from './sim/network.js';
 import { restoreTime } from './sim/clock.js';
 import { rescanFinds } from './sim/finds.js';
 import { syncUnlocks } from './sim/unlocks.js';
+import { syncTools } from './sim/tools.js';
 import { createObjectives } from './sim/objectives.js';
 
 // The payload shape did not change when the world generator got a version (`gen`, see encodeState), so the version stays:
@@ -341,7 +342,9 @@ export function decodeState(p) {
   assignPlain(state.cap, p.cap);
   assignPlain(state.stats, p.stats);
   delete state.flags.firstDusk; // a save made before the long first morning has no such flag and keeps the old clock (see sim/clock.js)
-  assignPlain(state.flags, decodeValue(p.flags));
+  const savedFlags = decodeValue(p.flags);
+  const hadTools = Boolean(savedFlags && savedFlags.tools); // a save from before the tools were revealed one by one has no such record
+  assignPlain(state.flags, savedFlags);
   if (p.clock !== undefined) state.clock = decodeValue(p.clock);
   if (p.weather !== undefined) state.weather = decodeValue(p.weather);
   state.chapter = p.chapter ?? 1;
@@ -369,6 +372,7 @@ export function decodeState(p) {
   assignPlain(sim, decodeValue(p.sim.rest));
   // a save from before the trees' growth was counted: the stage-ups so far and the growth under way, so a page-1 save keeps its pace
   if (!('treeGrowTotal' in p.sim.rest)) sim.treeGrowTotal = (sim.treeStageUps || 0) + state.world.trees.reduce((a, t) => a + (t.stage < 3 ? t.growth || 0 : 0), 0);
+  if (!hadTools) syncTools(state); // ... so it gets the tools its state shows it has met (src/sim/tools.js)
   state.events = [];
   restoreTime(state);
   return state;

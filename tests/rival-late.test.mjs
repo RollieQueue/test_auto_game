@@ -315,5 +315,7 @@ test('help: the raider line names feeding (5) only once page 1 has opened it', a
   assert.match(rivalSection(s), /Толстый тяж он не пройдёт/);
   assert.doesNotMatch(rivalSection(s), /Подкорми дерево/);
   s.flags.unlocks = { feed: true };
+  assert.doesNotMatch(rivalSection(s), /Подкорми дерево/, 'the unlock alone is not the tool: it must have entered the game');
+  s.flags.tools = { feed: true };
   assert.match(rivalSection(s), /Подкорми дерево \(<kbd>5<\/kbd>\) из полной кладовой — путь к нему станет толстым тяжом/);
 });

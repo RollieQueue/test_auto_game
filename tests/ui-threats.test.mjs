@@ -1,10 +1,9 @@
-// The HUD side of the soil threats: pure helpers in src/ui/threats.js and the worm arrow of the guide.
+// The HUD side of the soil threats: pure helpers in src/ui/threats.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { B } from '../src/sim/balance.js';
 import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
-import { pickHint } from '../src/ui/guide-logic.js';
 import {
   FIRST_WORM_NOTE,
   THREAT_BOTH,
@@ -13,13 +12,11 @@ import {
   chapterTotal,
   describeTrapPick,
   objectivesTitle,
-  pickWorm,
   ruPlural,
   summaryTexts,
   threatLabel,
   threatNote,
   trapCost,
-  wormHint,
 } from '../src/ui/threats.js';
 
 const on = (s) => {
@@ -112,44 +109,6 @@ test('labels and notes for the threat events', () => {
   assert.equal(threatNote({ type: 'link' }), null);
   assert.match(FIRST_WORM_NOTE, /клавиша 3/);
   for (const type of THREAT_LOCAL) assert.ok(threatLabel({ type, reason: 'off' }), `a label for ${type}`);
-});
-
-test('the guide points at the first worm and ignores leaving ones', () => {
-  const s = on(createState(7));
-  s.phase = 'playing';
-  const o = s.net.nodes[s.net.originId];
-  assert.ok(sim.commandGrow(s, o.id, [{ x: o.x + 12, y: o.y + 6 }, { x: o.x + 24, y: o.y + 12 }]));
-  for (let i = 0; i < 60; i++) {
-    sim.updateSim(s, 1 / 60);
-    s.time += 1 / 60;
-  }
-  assert.equal(pickWorm(s), null);
-  assert.equal(wormHint(s), null);
-  s.fauna = [
-    { id: 1, x: 900, y: 500, mode: 'leave', fade: 0.6, age: 30 },
-    { id: 2, x: 905, y: 505, mode: 'wander', fade: 0.1, age: 1 }, // still fading in
-    { id: 3, x: 910, y: 510, mode: 'wander', fade: 1, age: 4 },
-  ];
-  assert.equal(pickWorm(s).id, 3);
-  const h = wormHint(s);
-  assert.equal(h.id, 'worm');
-  assert.match(h.text, /\{3\}/);
-  assert.ok(h.ring.rx > 20);
-  // the normal steps go on unless the one-time arrow is asked for
-  assert.notEqual(pickHint(s).id, 'worm');
-  assert.equal(pickHint(s, null, 'grow', { wormHint: true }).id, 'worm');
-  s.flags.threats = false;
-  assert.notEqual(pickHint(s, null, 'grow', { wormHint: true }).id, 'worm');
-});
-
-test('the key of the worm arrow changes only when the worm moved far', () => {
-  const s = on(createState(7));
-  s.fauna = [{ id: 1, x: 900, y: 500, mode: 'wander', fade: 1, age: 2 }];
-  const a = wormHint(s).key;
-  s.fauna[0].x = 912;
-  assert.equal(wormHint(s).key, a);
-  s.fauna[0].x = 1100;
-  assert.notEqual(wormHint(s).key, a);
 });
 
 test('the HUD shows the real mushroom price (threats raise it, every standing mushroom too)', async () => {

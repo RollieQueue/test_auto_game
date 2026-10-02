@@ -17,9 +17,9 @@ export function createState(seed, gen = GEN) {
     flows: [],
     mushrooms: [],
     objectives: [],
-    flags: { allObjectivesDone: false },
+    flags: { allObjectivesDone: false, tools: {} }, // tools: the toolbar's record (sim/tools.js)
     events: [],
-    ui: { tool: 'grow', pointer: null, hoverNode: null, hoverTarget: null, drag: null, preview: null, barrierPick: null },
+    ui: { tool: 'grow', pointer: null, hoverNode: null, hoverTarget: null, drag: null, preview: null, barrierPick: null, card: null },
     stats: { hyphaeLength: 0, maxDepth: 0 },
   };
   initSim(state);

@@ -9,6 +9,7 @@ import { createObjectives, stepObjectives } from './objectives.js';
 import { initTime, stepTime } from './clock.js';
 import { canTrap, commandTrap, pickTrapNode, stepThreats, trapDenial } from './threats.js';
 import { stepStakes } from './stakes.js';
+import { revealTools } from './tools.js';
 import { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUnlocked, feedUseful, fedTree } from './feed.js';
 import { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode, stepRival } from './rival.js';
 
@@ -64,6 +65,7 @@ export function updateSim(state, dt) {
   }
   stepObjectives(state, dt);
   stepStakes(state, dt);
+  revealTools(state);
   // Smoothed net change per second (commands run between steps, so their one-off costs are not counted).
   const k = Math.min(1, dt / B.rateTau);
   for (const key of ['sugar', 'water', 'minerals', 'spores']) rates[key] += ((res[key] - before[key]) / dt - rates[key]) * k;

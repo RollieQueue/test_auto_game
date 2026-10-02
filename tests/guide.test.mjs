@@ -94,7 +94,7 @@ for (const seed of [9, 26]) {
     assert.equal(pickHint(s).id, 'spore');
     assert.equal(pickHint(s, null, 'grow', { rivalHint: false }).id, 'spore');
     assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'rival');
-    assert.equal(pickHint(s, null, 'grow', { rivalHint: true, wormHint: true }).id, 'rival');
+    assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'rival');
     // the arrow is for the grip only: without one the spore stays
     s.rival.grip = [];
     assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'spore');

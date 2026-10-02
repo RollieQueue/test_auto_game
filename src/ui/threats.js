@@ -260,36 +260,5 @@ export function createSenseGate(max = 3, gap = 30) {
   };
 }
 
+/** The margin note that opens the ring for a player who has met the worms before (the first time ever it is the card, ui/callout.js). */
 export const FIRST_WORM_NOTE = 'В почве нематоды: они перекусывают тонкие нити. Поставь ловчее кольцо — клавиша 3';
-
-// ---- the guide's pointer at the first worm ---------------------------------------------------------------
-
-const WORM_KEY_STEP = 80; // world units: the hint is re-placed only when the worm moved this far
-
-/** The worm the first-worm hint should point at: alive on screen, not leaving. */
-export function pickWorm(state) {
-  const fauna = (state && state.fauna) || [];
-  let best = null;
-  for (const w of fauna) {
-    if (!w || !isNum(w.x) || !isNum(w.y) || w.mode === 'leave') continue;
-    if (isNum(w.fade) && w.fade < 0.4) continue;
-    if (!best || w.age > best.age) best = w;
-  }
-  return best;
-}
-
-/** A guide hint ({ id, title, text, ring, key, duration }) pointing at a worm, or null. */
-export function wormHint(state) {
-  if (!threatsOn(state)) return null;
-  const w = pickWorm(state);
-  if (!w) return null;
-  const kx = Math.round(w.x / WORM_KEY_STEP);
-  const ky = Math.round(w.y / WORM_KEY_STEP);
-  return {
-    id: 'worm',
-    title: 'Нематода',
-    text: 'Эта нематода перекусывает тонкие нити. Нажми {3} и поставь ловчее кольцо на нить поблизости.',
-    ring: { x: w.x, y: w.y, rx: 52, ry: 36 },
-    key: `worm:${kx}:${ky}`,
-  };
-}

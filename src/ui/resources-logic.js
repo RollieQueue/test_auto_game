@@ -32,12 +32,21 @@ export function resourceView(state, k) {
   return { value, cap, frac, full, capped: true };
 }
 
+/** How many spores the open page of the notebook asks for (its first spores line that is not ticked), or 0 when none is open. */
+export function sporesGoalOf(state) {
+  const B = balance.B || {};
+  const goals = { spores: B.sporesGoal, spores500: B.chapter2Spores, spores1500: B.chapter3Spores };
+  const o = (state.objectives || []).find((x) => !x.done && goals[x.id] > 0);
+  return o ? goals[o.id] : 0;
+}
+
 /** The tooltip over a row: { main, sub, body, warn } (see tooltip.js), or null for an unknown stock. */
 export function resourceTip(state, k) {
   const info = RESOURCE_INFO[k];
   if (!info) return null;
   const v = resourceView(state, k);
   const main = v.capped && v.cap > 0 ? `${info.name} · ${v.value} из ${v.cap}` : `${info.name} · ${v.value}`;
+  const goal = k === 'spores' ? sporesGoalOf(state) : 0;
   const lines = [info.what, info.use];
   // sugar: what becomes of the surplus (a tree being fed gets it, see feed.js)
   const feed = k === 'sugar' ? sugarFeedText(state, v.full) : {};
@@ -45,7 +54,7 @@ export function resourceTip(state, k) {
   if (feed.extra) lines.push(feed.extra);
   return {
     main,
-    sub: v.capped && v.cap > 0 ? fillWords(v.frac) : '',
+    sub: v.capped && v.cap > 0 ? fillWords(v.frac) : goal ? `страница ждёт ${goal} спор` : '',
     body: lines,
     warn: v.full && !(feed.full && state.feed),
   };

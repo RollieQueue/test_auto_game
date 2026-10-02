@@ -3,7 +3,7 @@
 //   spore -> water -> tree -> fruit -> mineral -> wait -> (quiet)
 import { groundYAt, rockAt } from '../world/query.js';
 import * as balance from '../sim/balance.js';
-import { fruitCostOf, wormHint } from './threats.js';
+import { fruitCostOf } from './threats.js';
 import { raidHint, rivalHint } from './rival.js';
 
 const FRUIT_DEPTH = () => balance.B?.fruitMaxDepth ?? 45;
@@ -117,7 +117,6 @@ export const WAIT_HINT_UNTIL = 240;
 /**
  * The hint for the current state, or null when the guide has nothing more to say.
  * `prevKey` is the key of the target chosen last time (for stickiness).
- * `extras.wormHint`: the one-time arrow at the first worm ever may interrupt the normal steps.
  * `extras.rivalHint`: the same for the first grip of the honey fungus (it goes before the worm's arrow, and before the spore).
  * `extras.raidHint`: the same for the first raider of the honey fungus (right after the grip's arrow; the caller says it is still unseen).
  * Returns { id, title, text, ring: {x, y, rx, ry} | null, key, duration? }.
@@ -137,10 +136,6 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
   if (extras.raidHint) {
     const ah = raidHint(state);
     if (ah) return ah;
-  }
-  if (started && extras.wormHint) {
-    const wh = wormHint(state);
-    if (wh) return wh;
   }
   // nothing grown yet: point at the spore
   if (!started) {
@@ -213,8 +208,8 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
       }
       const text =
         tool === 'fruit'
-          ? 'Щёлкни по этому узлу: вырастет гриб. Созрев, он выпустит споры, а споры — это очки.'
-          : 'Нить дошла до земли. Нажми {2} и щёлкни по узлу: вырастет гриб. Созрев, он выпустит споры.';
+          ? 'Щёлкни по этому узлу: вырастет гриб. Созрев, он выпустит споры: это урожай, который тетрадь считает.'
+          : 'Нить дошла до земли. Нажми {2} и щёлкни по узлу: вырастет гриб. Созрев, он выпустит споры, их тетрадь и считает.';
       return hint('fruit', 'Гриб', text, { ring, key });
     }
     return null;

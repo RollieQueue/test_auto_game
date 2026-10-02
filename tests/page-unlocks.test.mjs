@@ -293,15 +293,15 @@ test('the help page lists what each page gives, the closed ones marked', () => {
   assert.doesNotMatch(buildHelp(s), /Ещё закрыто/);
 });
 
-test('year and closed-page advice name «подкормка (5)» only once it is open, else the page that opens it', async () => {
+test('year and closed-page advice name «подкормка (5)» only once it is open, else the page that opens it (no key yet)', async () => {
   const { closedAdvice, gradeNext } = await import('../src/ui/year-logic.js');
   const lost = { capped: 'lost', parts: [] };
   assert.match(gradeNext(lost), /барьер \(4\) и подкормка \(5\)/);
-  assert.match(gradeNext(lost, false), /допиши первую страницу — она откроет подкормку \(5\)/);
+  assert.match(gradeNext(lost, false), /допиши первую страницу — она откроет подкормку$/);
   const s = fresh();
   s.flags.pageClosed = { cause: 'grove', time: 500, year: 0, chapter: 1 };
   assert.equal(isUnlocked(s, 'feed'), false);
-  assert.match(closedAdvice(s), /дописанная первая страница откроет подкормку \(5\)/);
+  assert.match(closedAdvice(s), /дописанная первая страница откроет подкормку\./);
   s.flags.unlocks = { feed: true };
   assert.match(closedAdvice(s), /барьер \(4\) и подкормка \(5\) берегут/);
 });

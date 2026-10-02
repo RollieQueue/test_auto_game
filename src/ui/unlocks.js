@@ -15,7 +15,7 @@ function numbers(B = balance.B) {
   };
 }
 
-/** { title, line (the slip's one line), summary (the closed page's page), help (an item of the help page, HTML) } of an unlock key. */
+/** { title, line (the slip's one line), summary (the closed page's page), help (an item of the help page, HTML; helpLocked: the same before the tool is open, without its key) } of an unlock key. */
 export function unlockTexts(key, B = balance.B) {
   const n = numbers(B);
   switch (key) {
@@ -25,6 +25,7 @@ export function unlockTexts(key, B = balance.B) {
         line: 'Щёлкни по дереву: лишний сахар пойдёт ему, и оно быстрее растёт.',
         summary: 'Открыто: подкормка (5) — лишний сахар пойдёт дереву, и оно быстрее растёт',
         help: `<b>Подкормка</b> (<kbd>5</kbd>): щёлкни по дереву, и сахар сверх ${n.from} % кладовой пойдёт ему`,
+        helpLocked: `<b>Подкормка</b>: щёлкни по дереву, и сахар сверх ${n.from} % кладовой пойдёт ему`, // the key is not on the page before the tool is open
       };
     case 'trap':
       return {
@@ -67,7 +68,7 @@ export function unlockHelpItems(state, B = balance.B) {
     key,
     page: UNLOCK_PAGE[key],
     open: isUnlocked(state, key),
-    html: unlockTexts(key, B).help,
+    html: isUnlocked(state, key) ? unlockTexts(key, B).help : (unlockTexts(key, B).helpLocked ?? unlockTexts(key, B).help),
   }));
 }
 

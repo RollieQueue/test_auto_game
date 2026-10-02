@@ -12,6 +12,9 @@ import { createTooltip } from './tooltip.js';
 import { createLabels } from './labels.js';
 import { tooltipDenialFamily } from './labels-logic.js';
 import { createGuide } from './guide.js';
+import { createCallout } from './callout.js';
+import { rivalDue, wormDue } from './callout-logic.js';
+import { toolShown } from './tools.js';
 import { buildHelp } from './help.js';
 import { createAtlas } from './atlas.js';
 import { createAtlasStore } from './atlas-store.js';
@@ -21,14 +24,15 @@ import { seasonNote } from './season-logic.js';
 import { buildClosedPage, buildYearPage } from './year.js';
 import { stakesSlip } from './year-logic.js';
 import { pageClosed } from '../sim/stakes.js';
-import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
+import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormCardSeen, markWormCard, rivalCardSeen, markRivalCard } from './prefs.js';
 import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
-import { feedTabShown, feedTabTitle } from './feed.js';
-import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
+import { feedTabTitle } from './feed.js';
+import { barrierCostOf, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
 import { initSettingsPanel } from './settings.js';
 import { createMarks } from './marks.js';
 import { createSlips } from './slips.js';
 import { UNLOCK_PAGE, isUnlocked } from '../sim/unlocks.js';
+import { TOOL_KEYS, revealTool, toolRevealed } from '../sim/tools.js';
 import { summaryUnlockLine, unlockSlip } from './unlocks.js';
 import * as balance from '../sim/balance.js';
 
@@ -36,6 +40,8 @@ import * as balance from '../sim/balance.js';
 const BAR_COLORS = { sugar: ['#e0b04a', '#b97a14'], water: ['#78b6dc', '#2f6f9f'], minerals: ['#8d7bc0', '#6a4a8c'] };
 
 const ART_URL = 'assets/art/frontispiece.webp';
+const CALLOUT_GRACE_MS = 450; // a card ignores Space, Enter and Esc this long after it opens
+const PULSE_SECONDS = 6; // a tab that entered the game glows this long
 const OBJ_REVEAL_START = 8; // s the objectives card is open at the start of a game
 const OBJ_REVEAL_TICK = 6; // s it opens when an objective is ticked off
 const OBJ_QUIET_WAKE = 12; // s the objectives card stays folded after the honey fungus woke
@@ -119,7 +125,7 @@ export function createHud(root, actions) {
 
       <div class="tools" role="tablist" aria-label="Инструмент">
         <button class="tool" data-tool="grow" type="button" role="tab">${icons.thread}<span>Нить</span><kbd>1</kbd></button>
-        <button class="tool" data-tool="fruit" type="button" role="tab">${icons.mushroom}<span>Гриб</span><kbd>2</kbd></button>
+        <button class="tool" data-tool="fruit" type="button" role="tab" hidden>${icons.mushroom}<span>Гриб</span><kbd>2</kbd></button>
         <button class="tool" data-tool="trap" type="button" role="tab" hidden>${icons.ring}<span>Кольцо</span><kbd>3</kbd></button>
         <button class="tool" data-tool="barrier" type="button" role="tab" hidden>${icons.barrier}<span>Барьер</span><kbd>4</kbd></button>
         <button class="tool" data-tool="feed" type="button" role="tab" hidden>${icons.feed}<span>Подкормка</span><kbd>5</kbd></button>
@@ -138,6 +144,8 @@ export function createHud(root, actions) {
     <div class="labels" aria-hidden="true"></div>
 
     <div class="tip" aria-hidden="true"></div>
+
+    <div class="screen callout" role="presentation"></div>
 
     <div class="screen title-screen">
       <div class="page title-page">
@@ -165,7 +173,6 @@ export function createHud(root, actions) {
           </div>
           <div class="hint">
             <span>Нить: зажми мышь на узле и веди</span>
-            <span><kbd>1</kbd> <kbd>2</kbd> <kbd class="k3" hidden>3</kbd> инструмент</span>
             <span><kbd>Пробел</kbd> пауза</span>
             <span><kbd>F</kbd> скорость</span>
             <span><kbd>M</kbd> звук</span>
@@ -254,10 +261,11 @@ export function createHud(root, actions) {
     gladeSummary: q('[data-glade="summary"]'),
     objCard: q('.obj-card'),
     objTitle: q('[data-k="obj-title"]'),
+    fruitTab: q('.tool[data-tool="fruit"]'),
     trapTab: q('.tool[data-tool="trap"]'),
     barrierTab: q('.tool[data-tool="barrier"]'),
     feedTab: q('.tool[data-tool="feed"]'),
-    kbd3: q('.hint .k3'),
+    callout: q('.callout'),
     objCount: q('.obj-count'),
     objCur: q('.obj-cur'),
     objList: q('.obj-list'),
@@ -354,6 +362,7 @@ export function createHud(root, actions) {
   /** The refusal the cursor tooltip says right now («Не хватает сахара (нужно 20)»): the floating label would only repeat it. */
   const tipDenial = () => (el.tip.classList.contains('show') ? tooltipDenialFamily(tipMain.textContent) : null);
   const nudge = createSugarNudge();
+  const callout = createCallout(el.callout, cardRects); // the first-encounter card (a nematode, the honey fungus waking)
   const senseGate = createSenseGate();
   const guide = createGuide(el.guide, () => [
     q('.res-card'),
@@ -450,6 +459,13 @@ export function createHud(root, actions) {
   let pausedByAtlas = false;
   let yearOpen = false;
   let pausedByYear = false;
+  let calloutOpen = false; // a first-encounter card is up (state.ui.card says which): the game waits behind it
+  let pausedByCallout = false;
+  let calloutAt = 0; // performance.now() when it opened (a key pressed an instant before must not close it)
+  let curView = null;
+  let knownTools = new Set(); // the tools whose tabs the HUD has already seen (a loaded game starts with its own: no glow)
+  const pendingPulse = new Set(); // tabs that entered the game and have not glowed yet (they glow once no page or card is over the scene)
+  const pulseLeft = {}; // tool key -> s of glow left
   let closedOpen = false; // the year page shows the closed page (no «Продолжить»: the notebook is shut until a new game)
   let pendingYear = null; // a year-end waiting for the page that is open now (the summary) to close
   let prevChapter = 1; // the chapter at the previous frame (the page that just closed when all-objectives arrives)
@@ -493,6 +509,12 @@ export function createHud(root, actions) {
     pausedByAtlas = false;
     yearOpen = false;
     pausedByYear = false;
+    calloutOpen = false;
+    pausedByCallout = false;
+    pendingPulse.clear();
+    knownTools = new Set(TOOL_KEYS.filter((key) => toolRevealed(state, key)));
+    for (const t of el.tools) t.classList.remove('fresh');
+    for (const key of Object.keys(pulseLeft)) delete pulseLeft[key];
     closedOpen = false;
     pendingYear = null;
     prevChapter = chapterOf(state);
@@ -522,6 +544,8 @@ export function createHud(root, actions) {
     setScreen(el.help, false);
     setScreen(el.atlas, false);
     setScreen(el.year, false);
+    setScreen(el.callout, false);
+    callout.hide();
   }
 
   // ---- actions -----------------------------------------------------------
@@ -561,6 +585,29 @@ export function createHud(root, actions) {
       pausedBySummary = true;
       actions.togglePause();
     }
+  }
+
+  /** The first-encounter card: the scene waits behind it; «Понятно», Space, Enter or Esc resume. `target`: { x, y, spot } in world units. */
+  function openCallout(state, kind, target) {
+    calloutOpen = true;
+    calloutAt = performance.now();
+    state.ui.card = kind;
+    setScreen(el.callout, true); // displayed at once, so the card can be measured and placed
+    callout.show(kind, target, curView);
+    if (state.phase === 'playing') {
+      pausedByCallout = true; // the same pause as the pause button: the clock, the speed and the autosave wait with it
+      actions.togglePause();
+    }
+  }
+
+  function closeCallout() {
+    if (!calloutOpen) return false;
+    calloutOpen = false;
+    if (cur) cur.ui.card = null;
+    setScreen(el.callout, false);
+    if (pausedByCallout && cur && cur.phase === 'paused') actions.togglePause();
+    pausedByCallout = false;
+    return true;
   }
 
   function openYear(state, year) {
@@ -706,6 +753,8 @@ export function createHud(root, actions) {
         return void dismissSummary();
       case 'year-continue':
         return void dismissYear();
+      case 'callout-ok':
+        return void closeCallout();
       case 'retry': // the same glade and fungus, from the start
         return actions.restart(cur.seed, cur.flags.species);
       case 'restart':
@@ -733,6 +782,14 @@ export function createHud(root, actions) {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || !cur) return;
     const phase = cur.phase;
     let handled = true;
+    if (calloutOpen) {
+      // the first-encounter card owns the keyboard: Space, Enter and Esc put it away (not in the first instant: a key pressed just then was meant for the game)
+      if (['Space', 'Enter', 'Escape'].includes(ev.code)) {
+        if (!ev.repeat && performance.now() - calloutAt > CALLOUT_GRACE_MS) closeCallout();
+        ev.preventDefault();
+      }
+      return;
+    }
     if (helpOpen) {
       // the help page owns the keyboard: H, Esc, Space and Enter close it; arrows, PageUp/PageDown, Home/End scroll it
       if (['KeyH', 'Escape', 'Space', 'Enter'].includes(ev.code)) {
@@ -771,19 +828,19 @@ export function createHud(root, actions) {
         break;
       case 'Digit2':
       case 'Numpad2':
-        if (phase !== 'title') actions.setTool('fruit');
+        if (phase !== 'title' && toolShown(cur, 'fruit')) actions.setTool('fruit');
         break;
       case 'Digit3':
       case 'Numpad3':
-        if (phase !== 'title' && threatsOn(cur)) actions.setTool('trap');
+        if (phase !== 'title' && toolShown(cur, 'trap')) actions.setTool('trap');
         break;
       case 'Digit4':
       case 'Numpad4':
-        if (phase !== 'title' && barrierTabShown(cur)) actions.setTool('barrier');
+        if (phase !== 'title' && toolShown(cur, 'barrier')) actions.setTool('barrier');
         break;
       case 'Digit5':
       case 'Numpad5':
-        if (phase !== 'title' && feedTabShown(cur)) actions.setTool('feed');
+        if (phase !== 'title' && toolShown(cur, 'feed')) actions.setTool('feed');
         break;
       case 'Space':
         if (ev.repeat) break;
@@ -880,7 +937,7 @@ export function createHud(root, actions) {
   function resourceHover(state) {
     const p = state.ui.pointer;
     let hit = null;
-    const pageOpen = helpOpen || atlasOpen || summaryOpen || yearOpen;
+    const pageOpen = helpOpen || atlasOpen || summaryOpen || yearOpen || calloutOpen;
     if (state.phase !== 'title' && !pageOpen && p && p.inside !== false && !state.ui.drag && p.sx < 480 && p.sy < 560) {
       const c = el.resCard.getBoundingClientRect();
       if (p.sx >= c.left && p.sx <= c.right && p.sy >= c.top && p.sy <= c.bottom) {
@@ -1058,14 +1115,15 @@ export function createHud(root, actions) {
   /** Sugar sits at its cap: say what to do with it (a short, rate-limited note and the «Гриб» tab lit up for a while). */
   function updateNudge(state, dt) {
     const r = nudge.update(state, dt);
-    if (r.fire) {
+    const open = toolShown(state, 'fruit'); // never a nudge at a tab that is not there yet
+    if (r.fire && open) {
       const text =
         state.ui.tool === 'fruit'
           ? 'Сахар на пределе: щёлкни по узлу у земли, и вырастет гриб'
           : 'Сахар на пределе: нажми 2 и вырасти гриб у самой земли';
       notes.say({ key: 'nudge:fruit', text, tone: 'good', icon: 'mushroom', life: 9 });
     }
-    const lit = r.active && state.ui.tool !== 'fruit';
+    const lit = open && r.active && state.ui.tool !== 'fruit';
     if (shown.nudge !== lit) {
       shown.nudge = lit;
       const tab = el.tools.find((t) => t.dataset.tool === 'fruit');
@@ -1106,14 +1164,24 @@ export function createHud(root, actions) {
     }
   }
 
-  /** The ring tab and the «3» of the title page exist only while the soil threats are on. */
+  /** The «Гриб» tab and key 2 exist once the game asks for a mushroom (the first tree alliance). */
+  function updateFruitTab(state) {
+    const on = toolShown(state, 'fruit');
+    if (shown.fruit !== on) {
+      shown.fruit = on;
+      el.fruitTab.hidden = !on;
+    }
+    if (!on && state.ui.tool === 'fruit') actions.setTool('grow');
+  }
+
+  /** The ring tab and key 3 exist once the first nematode has been shown to the player (and never with the soil threats off). */
   function updateThreatTab(state) {
-    const on = threatsOn(state);
+    const on = toolShown(state, 'trap');
     if (shown.threats !== on) {
       shown.threats = on;
       el.trapTab.hidden = !on;
-      el.kbd3.hidden = !on;
     }
+    if (!on && state.ui.tool === 'trap') actions.setTool('grow');
     const title = trapTabTitle(trapCost(balance.B), on && isUnlocked(state, 'trap') ? balance.B.trapDigestSecondsPage2 : 0); // page 2 closed: the sturdier ring
     if (shown.trapTitle !== title) {
       shown.trapTitle = title;
@@ -1123,7 +1191,7 @@ export function createHud(root, actions) {
 
   /** The barrier tab and key 4 exist once the honey fungus is awake; its title carries the price now (it can grow with the barriers standing). */
   function updateBarrierTab(state) {
-    const on = barrierTabShown(state);
+    const on = toolShown(state, 'barrier');
     if (shown.barrier !== on) {
       shown.barrier = on;
       el.barrierTab.hidden = !on;
@@ -1138,7 +1206,7 @@ export function createHud(root, actions) {
 
   /** The feeding tab and key 5 exist once a tree is linked; the title says which tree is fed. With no tree left to feed the tool lets go. */
   function updateFeedTab(state) {
-    const on = feedTabShown(state);
+    const on = toolShown(state, 'feed');
     if (shown.feed !== on) {
       shown.feed = on;
       el.feedTab.hidden = !on;
@@ -1178,7 +1246,7 @@ export function createHud(root, actions) {
     }
   }
 
-  const phaseShowsSlip = (state) => state.phase === 'playing' && !yearOpen && !summaryOpen && !helpOpen && !atlasOpen;
+  const phaseShowsSlip = (state) => state.phase === 'playing' && !yearOpen && !summaryOpen && !helpOpen && !atlasOpen && !calloutOpen;
 
   /** Counts the trees freed from the honey fungus for the summary and year pages. */
   function updateRival(state) {
@@ -1186,25 +1254,84 @@ export function createHud(root, actions) {
     for (const ev of state.events) if (ev.type === 'tree-freed') freedTrees += 1;
   }
 
-  /** One-time pointer to the nematodes at the first worm ever, and the counters of the summary page. */
+  /** The counters of the summary page, and the margin note that a worm smelled a thread (once the ring is there to answer it). */
   function updateThreats(state) {
     if (!threatsOn(state) || state.phase === 'title') return;
     for (const ev of state.events) {
       if (ev.type === 'worm-caught') caught += 1;
       else if (ev.type === 'severed') lostNodes += Number.isFinite(ev.nodes) ? ev.nodes : Number.isFinite(ev.lost) ? ev.lost : 0;
-      else if (ev.type === 'worm-sense' && state.ui.tool !== 'trap' && senseGate.take(state.time)) {
+      else if (ev.type === 'worm-sense' && toolShown(state, 'trap') && state.ui.tool !== 'trap' && senseGate.take(state.time)) {
         notes.say({ key: 'threat:sense', text: WORM_SENSE_NOTE, tone: 'warn', icon: 'worm', life: 9 });
-      } else if (ev.type === 'worm-spawn' && !wormNoteSeen()) {
-        markWormNote();
-        notes.say({ key: 'threat:first-worm', text: FIRST_WORM_NOTE, tone: 'warn', icon: 'worm', life: 13 });
       }
     }
   }
 
-  function updateControls(state) {
+  /**
+   * The first nematode the player can see, and the first waking of the honey fungus, open a card that pauses the game (once per
+   * player, callout-logic.js); the worm also reveals the ring (a player who has had the card before gets a margin note instead).
+   */
+  function updateCallouts(state, view) {
+    if (calloutOpen) callout.layout(view);
+    if (state.phase !== 'playing' || !threatsOn(state)) return;
+    // a page that opens this very frame (a finished page, a year's end) goes first: it pauses the game itself
+    const turning = state.events.some((ev) => ev.type === 'all-objectives' || ev.type === 'chapter' || ev.type === 'year-end');
+    const busy = turning || helpOpen || atlasOpen || summaryOpen || yearOpen || closedOpen || calloutOpen || pendingYear !== null;
+    if (!rivalCardSeen()) {
+      for (const ev of state.events) {
+        if (ev.type !== 'rival-wake') continue;
+        const due = rivalDue(state, view, cardRects(), ev, busy);
+        if (!due) break;
+        markRivalCard();
+        ev.carded = true; // notes.js: the card says it, no margin note
+        openCallout(state, 'rival', due);
+        return;
+      }
+    }
+    if (toolRevealed(state, 'trap') || !state.fauna.length) return;
+    const worm = wormDue(state, view, cardRects(), busy);
+    if (!worm) return;
+    revealTool(state, 'trap'); // (the next frame's updateControls sees it and lets the tab glow)
+    if (wormCardSeen()) {
+      notes.say({ key: 'threat:first-worm', text: FIRST_WORM_NOTE, tone: 'warn', icon: 'worm', life: 13 });
+    } else {
+      markWormCard();
+      openCallout(state, 'worm', { x: worm.x, y: worm.y, spot: true });
+    }
+  }
+
+  /** A tab that has just entered the game glows for a few seconds, once no page or card lies over the scene. */
+  function updatePulse(state, dt) {
+    if (pendingPulse.size && phaseShowsSlip(state)) {
+      for (const key of pendingPulse) {
+        const tab = el.tools.find((t) => t.dataset.tool === key);
+        if (!tab || tab.hidden) continue;
+        tab.classList.remove('fresh');
+        void tab.offsetWidth;
+        tab.classList.add('fresh');
+        pulseLeft[key] = PULSE_SECONDS;
+        pendingPulse.delete(key);
+      }
+    }
+    for (const key of Object.keys(pulseLeft)) {
+      pulseLeft[key] -= dt;
+      if (pulseLeft[key] > 0) continue;
+      delete pulseLeft[key];
+      const tab = el.tools.find((t) => t.dataset.tool === key);
+      if (tab) tab.classList.remove('fresh');
+    }
+  }
+
+  function updateControls(state, dt) {
+    for (const key of TOOL_KEYS) {
+      if (!toolRevealed(state, key) || knownTools.has(key)) continue;
+      knownTools.add(key); // a tool that entered the game since the last frame (the sim writes state.flags.tools): its tab will glow
+      pendingPulse.add(key);
+    }
+    updateFruitTab(state);
     updateThreatTab(state);
     updateBarrierTab(state);
     updateFeedTab(state);
+    updatePulse(state, dt);
     const tool = state.ui.tool;
     for (const t of el.tools) {
       const on = t.dataset.tool === tool;
@@ -1242,7 +1369,7 @@ export function createHud(root, actions) {
       if (phase === 'title' && saveFor !== state) refreshSave(state);
 
       setScreen(el.title, phase === 'title');
-      const pauseOpen = phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen;
+      const pauseOpen = phase === 'paused' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen && !calloutOpen;
       setScreen(el.pauseScreen, pauseOpen);
       if (!pauseOpen && !el.newConfirm.hidden) setNewAsk(false); // a closed pause page never keeps the question armed
 
@@ -1254,10 +1381,12 @@ export function createHud(root, actions) {
       updateResources(state, dt);
       updateObjectives(state);
       updateObjCard(state, dt);
-      updateControls(state);
+      curView = view;
+      updateControls(state, dt);
       updateSeasons(state);
       updateCards(state, dt, view);
 
+      updateCallouts(state, view); // before the notes: a card takes the news it tells out of the notes
       // events -> floating labels at their place (local) and margin notes (global), summary trigger
       // (notes first: the labels then see the stack they must keep out of)
       notes.process(state, Boolean(view && view.scale > 0));
@@ -1270,7 +1399,7 @@ export function createHud(root, actions) {
       notes.tick(dt);
       slips.tick(dt);
       labels.tick(dt);
-      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
+      guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen && !calloutOpen);
       // a page of observations is full: the summary opens. With chapters the sim turns to the next page afterwards.
       let chapterEv = null;
       let pageDone = false;
@@ -1296,13 +1425,13 @@ export function createHud(root, actions) {
       prevChapter = chapterNow;
       // the end of the first (and every later) year: its page waits for the summary page if that is open
       for (const ev of state.events) if (ev.type === 'year-end') pendingYear = ev.year;
-      if (pageClosed(state) && !closedOpen && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen) {
+      if (pageClosed(state) && !closedOpen && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !calloutOpen) {
         if (yearOpen) dismissYear();
         openClosed(state);
       }
       updateSlip(state);
       updateUnlocks(state);
-      if (pendingYear !== null && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen) {
+      if (pendingYear !== null && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen && !calloutOpen) {
         openYear(state, pendingYear);
         pendingYear = null;
       }

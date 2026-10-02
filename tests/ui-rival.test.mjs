@@ -284,6 +284,7 @@ test('the guide points at the oldest grip once the rival holds a tree', () => {
 
 test('the help page has a section on the rival, with its numbers from B', () => {
   const s = rivalState();
+  s.flags.tools = { fruit: true, trap: true, barrier: true }; // the tools the player has met
   const html = buildHelp(s);
   assert.match(html, /<h3>Опёнок<\/h3>/);
   assert.match(html, /Armillaria/);
@@ -291,7 +292,7 @@ test('the help page has a section on the rival, with its numbers from B', () => 
   assert.match(html, /микориз/);
   assert.match(html, /мантия/, 'why mycorrhiza protects');
   assert.match(html, /<kbd>4<\/kbd>/);
-  assert.match(html, /нить \/ гриб \/ кольцо \/ барьер/, 'the key list names the barrier');
+  assert.match(html, /<kbd>1<\/kbd> <kbd>2<\/kbd> <kbd>3<\/kbd> <kbd>4<\/kbd><\/span><span>нить \/ гриб \/ кольцо \/ барьер/, 'the key list names the barrier');
 
   const B = { barrierCost: 41, barrierRadius: 95, barrierDur: 75, barrierMax: 4, mantleProtect: 0.7 };
   const sec = rivalSection(s, B);
