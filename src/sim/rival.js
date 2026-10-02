@@ -1096,6 +1096,13 @@ function tooLate(state) {
   return season === 'winter' || (season === 'autumn' && seasonFrac >= B.rivalLateAutumn);
 }
 
+/** The wake keeps clear of the news around it: a breather after the page change, and not in the first seconds of a season. */
+function breather(state, rival) {
+  if (rival.dormant) return true; // it slept through the late autumn and the winter: spring is its time, at once
+  if ((state.chapter ?? 1) >= 2 && rival.wait < B.rivalWakeBreather) return false;
+  return !(state.flags.seasons && state.clock && state.clock.seasonFrac < B.rivalWakeSeasonEdge);
+}
+
 function wake(state, rival) {
   const src = sources(state);
   if (!src.length) return;
@@ -1116,7 +1123,7 @@ export function stepRival(state, dt) {
     // it wakes B.rivalWakeDelay s into chapter 2, or after B.rivalWakeBy s of play, whichever is first; in late autumn and winter
     // it sleeps on until spring (and says so once)
     if (state.flags.rival === 'now') wake(state, rival);
-    else if (rival.wait >= B.rivalWakeDelay || state.time >= B.rivalWakeBy) {
+    else if ((rival.wait >= B.rivalWakeDelay || state.time >= B.rivalWakeBy) && breather(state, rival)) {
       if (!tooLate(state)) wake(state, rival);
       else if (!rival.dormant) {
         const first = sources(state)[0];

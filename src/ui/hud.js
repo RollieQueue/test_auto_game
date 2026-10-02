@@ -1389,6 +1389,12 @@ export function createHud(root, actions) {
       updateCallouts(state, view); // before the notes: a card takes the news it tells out of the notes
       // events -> floating labels at their place (local) and margin notes (global), summary trigger
       // (notes first: the labels then see the stack they must keep out of)
+      // a page, the year or a first-encounter card is up (or opens in this very frame): notes and slips wait behind it
+      const flowHold =
+        phase !== 'title' &&
+        (summaryOpen || yearOpen || helpOpen || atlasOpen || closedOpen || Boolean(state.ui && state.ui.card) || state.events.some((e) => e.type === 'all-objectives' || e.type === 'year-end' || e.type === 'page-closed'));
+      notes.hold(flowHold);
+      slips.hold(flowHold);
       notes.process(state, Boolean(view && view.scale > 0));
       labels.process(state, view, tipDenial());
       updateFinds(state);
@@ -1397,7 +1403,7 @@ export function createHud(root, actions) {
       marks.update(state, dt);
       if (phase === 'playing') updateNudge(state, dt);
       notes.tick(dt);
-      slips.tick(dt);
+      slips.tick(dt, notes.visible() < 2);
       labels.tick(dt);
       guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen && !calloutOpen);
       // a page of observations is full: the summary opens. With chapters the sim turns to the next page afterwards.

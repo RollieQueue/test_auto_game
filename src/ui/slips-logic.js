@@ -19,7 +19,8 @@ export const slipOf = (mark) => ({ id: mark.id, icon: mark.icon, title: mark.tit
 
 /**
  * The slips on screen. `push(item)` queues a slip ({ id, ... }; an id that is already queued or showing is ignored);
- * (an item may carry its own `life`, in seconds); `tick(dt)` returns { enter, leave, gone }: the items that should appear, start leaving and be removed now. At most
+ * (an item may carry its own `life`, in seconds; a page's gift, which has a `kicker`, goes before the marks and a mark never
+ * shares the screen with it); `tick(dt, canEnter)` returns { enter, leave, gone }: the items that should appear, start leaving and be removed now. At most
  * `max` slips are on screen (leaving ones included, so the stack never grows past it); the others wait.
  */
 export function createSlipQueue({ life = SLIP_LIFE, leave = SLIP_LEAVE, max = SLIP_MAX } = {}) {
@@ -30,10 +31,11 @@ export function createSlipQueue({ life = SLIP_LIFE, leave = SLIP_LEAVE, max = SL
   return {
     push(item) {
       if (!item || known(item.id)) return false;
-      pending.push(item);
+      if (item.kicker) pending.unshift(item);
+      else pending.push(item);
       return true;
     },
-    tick(dt = 0) {
+    tick(dt = 0, canEnter = true) {
       const out = { enter: [], leave: [], gone: [] };
       for (const a of active) {
         a.age += dt;
@@ -50,7 +52,11 @@ export function createSlipQueue({ life = SLIP_LIFE, leave = SLIP_LEAVE, max = SL
         return true;
       });
       while (pending.length && active.length < max) {
-        const item = pending.shift();
+        const giftShowing = active.some((a) => a.item.kicker);
+        // `canEnter` false (two notes are on the stack): only a page's gift comes in
+        const at = pending.findIndex((p) => p.kicker || (canEnter && !giftShowing));
+        if (at < 0) break;
+        const item = pending.splice(at, 1)[0];
         active.push({ item, age: 0, leaving: false });
         out.enter.push(item);
       }

@@ -7,6 +7,7 @@ export function createSlips(host) {
   const queue = createSlipQueue();
   /** @type {Map<string, HTMLElement>} */
   const els = new Map();
+  let held = false; // a page or a card is up: nothing enters, nothing runs out (the slip would be gone before the page closes)
 
   function enter(item) {
     const el = document.createElement('div');
@@ -28,8 +29,13 @@ export function createSlips(host) {
     show(item) {
       queue.push(item);
     },
-    tick(dt) {
-      const r = queue.tick(dt);
+    hold(on) {
+      held = on;
+    },
+    /** `canEnter`: false while the note stack is full: a mark waits for a quieter moment (a page's gift does not). */
+    tick(dt, canEnter = true) {
+      if (held) return;
+      const r = queue.tick(dt, canEnter);
       for (const item of r.enter) enter(item);
       for (const item of r.leave) {
         const el = els.get(item.id);

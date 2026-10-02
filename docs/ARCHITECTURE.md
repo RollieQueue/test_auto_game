@@ -411,7 +411,7 @@ Biology: honey fungus (Armillaria) spreads by black rhizomorphs from an old stum
 rots them. Mycorrhiza protects its partners (a mantle around the root tips), and antagonism keeps the rival away.
 The flag is on together with threats; `?rival=0` turns it off, `?rival=1` turns it on and wakes it at once (tests,
 screenshots): `state.flags.rival` is `false`, `true` (wakes at min(chapter 2 + `B.rivalWakeDelay` = 150 s, `B.rivalWakeBy` = 420 s of
-play); with seasons a wake that falls from `B.rivalLateAutumn` (0.6) of autumn on, or in winter, waits for spring:
+play, but never sooner than `B.rivalWakeBreather` = 90 s after chapter 2 opened, and (seasons) not in the first `B.rivalWakeSeasonEdge` of a season: a page's gift, the page and the new enemy do not come in one minute); with seasons a wake that falls from `B.rivalLateAutumn` (0.6) of autumn on, or in winter, waits for spring:
 `rival.dormant`, one `rival-dormant` event) or `'now'`.
 Code: `src/sim/rival.js` (the whole rival, barriers included), `economy.js` (pay cut, mantle), `objectives.js`.
 
@@ -588,3 +588,7 @@ caches) lives in the project's ignored `.tools/` folder, never in system-wide lo
 - Randomness only through `src/core/rng.js` (seeded); world and sim must be deterministic for a seed.
 - Canvas drawing never mutates game state; sim never touches the DOM.
 - UI text in Russian.
+
+## Message flow (loop-calm)
+
+Margin notes are ranked by `src/ui/flow.js`: an alert (tone `warn`: a worm, the honey fungus, a cut thread) is never dropped and is the last to be pushed off the stack; news (observations, seasons, stages) is next; ambient notes (weather, «гриб пошёл в рост», the sugar nudge) show only when the stack is empty and not twice within 90 s; «дождь кончился»-type notes are dropped (the calendar card shows the weather). The stack holds two notes (`MAX_NOTES`). While a page, the year, the help/atlas pages or a first-encounter card (`state.ui.card` truthy) is up, `notes.hold(true)` / `slips.hold(true)` keep notes and slips waiting; when it closes every alert and the newest news come out. A page's gift slip (with a `kicker`) goes first and a mark slip waits for it and for a free note stack (`slips.tick(dt, canEnter)`).

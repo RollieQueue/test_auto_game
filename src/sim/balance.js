@@ -174,6 +174,8 @@ export const B = {
   // barrier (key 4) withers whatever lies inside it. The player's mantle (how well a tree is fed) slows the rot.
   rivalWakeDelay: 150, // s after the notebook opens chapter 2 (?rival=1 wakes it at once), but ... (45 until page 1 closed in 5 minutes instead of 13: the net needs this long to grow before page 2's rival)
   rivalWakeBy: 420, // ... no later than this many s of play, whatever chapter the player is in
+  rivalWakeBreather: 90, // ... but never sooner than this after the notebook opened chapter 2 (a page that closes at 6 min got the honey fungus 50 s later: new page, new skill and a new enemy in one minute)
+  rivalWakeSeasonEdge: 0.05, // ... nor in the first share of a season (seasons only): a season change is news enough
   rivalLateAutumn: 0.6, // from this share of autumn on (and in winter) the rival does not wake: it sleeps until spring (seasons only)
   rivalSeason: { spring: 1, summer: 0.55, autumn: 1.1, winter: 0 }, // tip speed by season (seasons only)
   rivalInfectSeason: { spring: 1, summer: 0.75, autumn: 1.15, winter: 0.15 }, // rot speed by season (seasons only)

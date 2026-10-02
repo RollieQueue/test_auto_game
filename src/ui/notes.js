@@ -10,8 +10,9 @@ import { RIVAL_BOTH, RIVAL_EVENTS, createRivalTexts } from './rival.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 import { feedNote } from './feed.js';
 import { seasonGradeNote } from './year-logic.js';
+import { AMBIENT_GAP, RANK_AMBIENT, isNoise, noteRank, releaseHeld, victimIndex } from './flow.js';
 
-export const MAX_NOTES = 3;
+export const MAX_NOTES = 2; // two at once: a third line was the moment the glade turned «сумбурной» (src/ui/flow.js)
 const SMALL_H = 720; // window height (CSS px) up to which the stack is kept small: it would cover a quarter of the glade
 export const MAX_NOTES_SMALL = 2;
 const LIFE_OLDER_SMALL = 2.4; // s an older note has left when a newer one arrives in a small window
@@ -29,6 +30,7 @@ export const smallWindow = () => typeof window !== 'undefined' && window.innerHe
 
 /** How many notes the stack shows at once for a window of height `h` CSS px (3; 2 in a short window). */
 export const noteCap = (h) => (h > 0 && h <= SMALL_H ? MAX_NOTES_SMALL : MAX_NOTES);
+const capNow = () => noteCap(typeof window !== 'undefined' ? window.innerHeight : 0);
 
 /** How many of `visible` notes to push off the stack when the newest has just come, for a window of height `h`. */
 export const notesToPush = (visible, h) => Math.max(0, visible - noteCap(h));
@@ -122,6 +124,10 @@ export function createNotes(host) {
   const active = new Map();
   let prevWeather = 'clear'; // the weather before the latest 'weather' event (the «кончился» notes name it)
   const rival = createRivalTexts(); // the honey-fungus notes, rate-limited
+  let held = false; // a page, the year or a card is up: the notes wait behind it (flow.js releaseHeld)
+  let heldNotes = []; // [{ d, rank }] in the order they came
+  let clock = 0; // s of notes.tick, for the ambient gap
+  const ambientAt = new Map(); // key -> clock of the last ambient note shown
 
   function remove(key) {
     const n = active.get(key);
@@ -138,7 +144,21 @@ export function createNotes(host) {
     if (pushed) n.el.classList.add('pushed');
   }
 
-  function push(d) {
+  function push(d, fromHold = false) {
+    if (isNoise(d)) return;
+    const rank = noteRank(d);
+    if (held && !fromHold) {
+      heldNotes = heldNotes.filter((h) => h.d.key !== d.key);
+      heldNotes.push({ d, rank });
+      return;
+    }
+    if (rank === RANK_AMBIENT) {
+      let shown = 0;
+      for (const n of active.values()) if (n.fade <= 0) shown++;
+      const last = ambientAt.get(d.key);
+      if (shown > 0 || (last !== undefined && clock - last < AMBIENT_GAP)) return;
+      ambientAt.set(d.key, clock);
+    }
     const found = active.get(d.key);
     if (found && found.fade <= 0) {
       found.count += 1;
@@ -164,6 +184,7 @@ export function createNotes(host) {
       span: d.life ?? LIFE,
       fade: 0,
       count: 1,
+      rank,
     });
 
     const small = smallWindow();
@@ -171,12 +192,12 @@ export function createNotes(host) {
     let visible = 0;
     for (const n of active.values()) if (n.fade <= 0) visible++;
     let drop = notesToPush(visible, typeof window !== 'undefined' ? window.innerHeight : 0);
-    for (const n of active.values()) {
-      if (drop <= 0) break;
-      if (n.fade <= 0) {
-        startFade(n, true);
-        drop--;
-      }
+    while (drop-- > 0) {
+      // the quietest and oldest goes first, never the note that has just come
+      const live = [...active.entries()].filter(([key, n]) => key !== d.key && n.fade <= 0);
+      const i = victimIndex(live.map(([, n]) => n.rank));
+      if (i < 0) break;
+      startFade(live[i][1], true);
     }
   }
 
@@ -186,6 +207,18 @@ export function createNotes(host) {
       active.clear();
       prevWeather = (state && state.weather && state.weather.kind) || 'clear';
       rival.reset();
+      held = false;
+      heldNotes = [];
+      ambientAt.clear();
+    },
+    /** While `on` the notes wait (alerts and the newest news come out when it goes off, the rest is dropped). */
+    hold(on) {
+      if (on === held) return;
+      held = on;
+      if (on) return;
+      const list = heldNotes;
+      heldNotes = [];
+      for (const d of releaseHeld(list, capNow())) push(d, true);
     },
     /** `skipLocal`: events with a place on the map get floating labels instead (labels.js). */
     process(state, skipLocal = false) {
@@ -203,7 +236,14 @@ export function createNotes(host) {
     say(d) {
       push(d);
     },
+    /** How many notes are on the stack and not on their way out. */
+    visible() {
+      let n = 0;
+      for (const a of active.values()) if (a.fade <= 0) n++;
+      return n;
+    },
     tick(dt) {
+      clock += dt;
       for (const [key, n] of active) {
         if (n.fade > 0) {
           n.fade -= dt;

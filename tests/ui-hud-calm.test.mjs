@@ -63,18 +63,18 @@ test('foldStep: folds after a while, opens after a shorter while, and at once un
 
 // ---- margin notes ----------------------------------------------------------------------------------------------------
 
-test('notes: three at most, two when the window is 720 high or less', () => {
-  assert.equal(MAX_NOTES, 3);
+test('notes: two at most (the loop-calm change: it was three), in a window of any height', () => {
+  assert.equal(MAX_NOTES, 2);
   assert.equal(MAX_NOTES_SMALL, 2);
-  assert.equal(noteCap(900), 3);
-  assert.equal(noteCap(721), 3);
+  assert.equal(noteCap(900), 2);
+  assert.equal(noteCap(721), 2);
   assert.equal(noteCap(720), 2);
   assert.equal(noteCap(600), 2);
-  assert.equal(noteCap(0), 3, 'a window of unknown size is a big one');
-  assert.equal(notesToPush(4, 900), 1);
+  assert.equal(noteCap(0), 2, 'a window of unknown size is a big one');
+  assert.equal(notesToPush(4, 900), 2);
   assert.equal(notesToPush(7, 720), 5);
   assert.equal(notesToPush(2, 720), 0);
-  assert.equal(notesToPush(3, 900), 0);
+  assert.equal(notesToPush(3, 900), 1);
 });
 
 // ---- refusal labels --------------------------------------------------------------------------------------------------
