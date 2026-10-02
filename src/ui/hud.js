@@ -12,6 +12,7 @@ import { createGuide } from './guide.js';
 import { buildHelp } from './help.js';
 import { createAtlas } from './atlas.js';
 import { createAtlasStore } from './atlas-store.js';
+import { createSpeciesPicker } from './species.js';
 import { calendarHtml, createCalendar } from './calendar.js';
 import { seasonNote } from './season-logic.js';
 import { buildYearPage } from './year.js';
@@ -116,6 +117,7 @@ export function createHud(root, actions) {
             <p>Под лесной поляной, в тёплом перегное, проросла одна спора. Тяни нити сквозь землю к воде и минералам, заключай союз с корнями деревьев: они заплатят тебе сахаром.</p>
             <p>Чем сильнее лес, тем сильнее ты. А над землёй вырастут грибы, и ветер разнесёт споры.</p>
           </div>
+          <div class="species"></div>
           <div class="actions">
             <button class="ink-btn primary" data-act="continue-save" type="button" hidden>Продолжить наблюдения</button>
             <button class="ink-btn primary" data-act="start" type="button">Начать наблюдения</button>
@@ -323,6 +325,7 @@ export function createHud(root, actions) {
   art.addEventListener('load', () => el.titlePage.classList.add('has-art'));
   art.addEventListener('error', () => art.remove());
   art.src = ART_URL;
+  const speciesPicker = createSpeciesPicker(q('.species'), actions);
 
   // ---- screens -----------------------------------------------------------
   const screenTokens = new WeakMap();
@@ -543,6 +546,7 @@ export function createHud(root, actions) {
     el.newBtn.hidden = !hasSave;
     el.startBtn.hidden = hasSave;
     el.titlePage.classList.toggle('has-save', hasSave);
+    speciesPicker.show(state, hasSave);
     saveFor = state;
   }
 

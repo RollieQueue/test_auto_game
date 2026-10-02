@@ -109,7 +109,7 @@
 .tape::before {
   content: '';
   position: absolute;
-  top: -0.7em;
+  top: -0.8em;
   left: 50%;
   width: 4.2em;
   height: 1.3em;
@@ -2343,4 +2343,167 @@ kbd {
 }
 .tip.warn .t-risk {
   color: var(--wax);
+}
+
+/* ------------------------------------------------------------------ title: which fungus you are (species pick) */
+
+.species {
+  margin: 0.55em auto 0;
+}
+.sp-head {
+  font: italic 400 1.08em/1.1 var(--font-serif);
+  color: rgba(58, 42, 30, 0.85);
+}
+.sp-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55em;
+  margin-top: 0.8em;
+}
+.sp-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 0.3em 0.25em 0.4em;
+  font: inherit;
+  font-family: var(--font-serif);
+  color: var(--sepia);
+  text-align: center;
+  cursor: pointer;
+  background: rgba(255, 252, 240, 0.32);
+  border: 0;
+  border-radius: 0.3em 0.5em 0.35em 0.45em / 0.45em 0.3em 0.5em 0.3em;
+  box-shadow:
+    0 0 0 1px rgba(58, 42, 30, 0.38),
+    0.05em 0.14em 0.3em rgba(40, 24, 8, 0.18);
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+.sp-card:nth-child(odd) {
+  transform: rotate(-0.7deg);
+}
+.sp-card:nth-child(even) {
+  transform: rotate(0.6deg);
+}
+.sp-card:hover {
+  background: rgba(255, 252, 240, 0.6);
+  transform: rotate(0deg) translateY(-1px);
+}
+.sp-card:focus-visible {
+  outline: 2px dashed var(--indigo);
+  outline-offset: 2px;
+}
+.sp-card.sel {
+  background: rgba(255, 250, 235, 0.85);
+  box-shadow:
+    0 0 0 1.5px rgba(168, 50, 45, 0.85),
+    0 0 0 0.22em rgba(239, 228, 204, 0.9),
+    0 0 0 calc(0.22em + 1px) rgba(168, 50, 45, 0.45),
+    0.05em 0.2em 0.4em rgba(40, 24, 8, 0.25);
+}
+.sp-pic {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 4.2em;
+  height: 3.3em;
+}
+.sp-pic img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+/* the chosen specimen is ringed in wax: an uneven ink-red oval round the picture */
+.sp-card.sel .sp-pic::after {
+  content: '';
+  position: absolute;
+  inset: -0.12em -0.1em;
+  border: 2px solid rgba(168, 50, 45, 0.78);
+  border-radius: 52% 48% 55% 45% / 48% 54% 46% 52%;
+  transform: rotate(-4deg);
+  pointer-events: none;
+}
+.sp-name {
+  margin-top: 0.15em;
+  font-size: 1.08em;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.sp-latin {
+  font-size: 0.82em;
+  font-style: italic;
+  line-height: 1.15;
+  color: rgba(58, 42, 30, 0.78);
+}
+.sp-partner {
+  margin-top: 0.15em;
+  font-size: 0.82em;
+  line-height: 1.15;
+  color: var(--indigo);
+}
+.sp-strength {
+  margin-top: 0.1em;
+  font-size: 0.78em;
+  line-height: 1.18;
+  color: rgba(58, 42, 30, 0.86);
+}
+.sp-tag {
+  position: absolute;
+  top: -0.7em;
+  left: 50%;
+  padding: 0.05em 0.5em 0.1em;
+  font: italic 400 0.76em/1.1 var(--font-serif);
+  color: #fff6e8;
+  white-space: nowrap;
+  background: rgba(168, 50, 45, 0.88);
+  border-radius: 0.5em;
+  transform: translateX(-50%) rotate(-2deg);
+  pointer-events: none;
+}
+/* the title page keeps its size with the row in it: the intro and spacing tighten a little */
+.title-page .intro p {
+  margin-bottom: 0.2em;
+}
+.title-page .actions {
+  margin-top: 0.8em;
+}
+.title-page .actions.extras {
+  margin-top: 0.55em;
+}
+.title-page .hint {
+  margin-top: 0.7em;
+}
+/* a short window (1280x720): the title page gives the species row its room by tightening its own spacing */
+@media (max-height: 800px) {
+  .title-page {
+    padding-top: 1.5em;
+    padding-bottom: 1.3em;
+  }
+  .title-page h1 {
+    font-size: 3.4em;
+  }
+  .title-page .flourish {
+    margin: 0.1em auto 0.3em;
+  }
+  .title-page .intro {
+    font-size: 1.1em;
+    line-height: 1.4;
+  }
+}
+@media (max-height: 800px) {
+  /* with a save the two big buttons stand side by side */
+  .title-page.has-save .ink-btn.primary {
+    font-size: 1.45em;
+  }
+  .title-page.has-save .actions {
+    gap: 0.9em;
+  }
 }

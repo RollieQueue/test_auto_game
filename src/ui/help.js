@@ -5,6 +5,7 @@ import * as balance from '../sim/balance.js';
 import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
 import { chapterTotal, fruitCostOf, threatsOn, trapCost } from './threats.js';
 import { barrierCostOf, rivalNumbers } from './rival.js';
+import { speciesHelp } from './species-logic.js';
 
 const FALLBACK_HORIZONS = [
   { name: 'Лесная подстилка', depth: 0, cost: 0.1 },
@@ -141,6 +142,7 @@ ${rivalSection(state)}
           <p>Дотянись нитью до кончика корня — так заключается союз. Дерево берёт из кладовых воду и минералы и платит сахаром:
           чем оно довольнее, тем щедрее. Довольное дерево растёт — росток, молодое, взрослое, вековое — и открывает новые
           корни, но и просит больше.</p>
+          <p>${esc(speciesHelp(state))}</p>
         </section>
         <section>
           <h3>Камни</h3>

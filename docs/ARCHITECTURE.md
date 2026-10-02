@@ -27,6 +27,15 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
   default; `?seasons=0` / `?threats=0` turn them off. The honey-fungus rival (`state.flags.rival`) rides with the threats;
   `?rival=0` turns it off, `?rival=1` wakes it at once. Tests that build a state with `createState` get both off
   unless they set the flags.
+- The player's fungus, `state.flags.species`: `fly_agaric` | `porcini` | `saffron_milk_cap` | `chanterelle`, anything
+  else (an old save, a test state) plays as `'common'` and changes nothing. main.js sets it in newState() from
+  `?species=`, else the last title pick (localStorage `roots-threads.species`), else the glade's matching species
+  (`matchingFungus`, chanterelle on a mixed glade); `actions.setSpecies(id)` changes it only on the title page.
+  Numbers in `B.fungi` (partner tree species, partner `pay`, and ONE of `grazer` / `spore` / `minerals` / `rot`);
+  src/sim/species.js has `fungusFx`, `partnerPay`, `matchingFungus`. economy.js multiplies partner pay and mineral
+  extraction, mushrooms.js the spores (`mushroom.species` is set at planting), threats.js the grazer share of new worms,
+  rival.js the rot speed. The title picker is src/ui/species.js (cards built with createElement + `.src`, so the dist
+  shim serves the images); its pure parts are in src/ui/species-logic.js.
 - Browser checks: `node tools/shot.mjs` drives headless Edge/Chrome over the DevTools protocol with no
   dependencies; it starts its own server for a `/path` URL and runs actions in order, e.g.
   `node tools/shot.mjs --url "/?autostart=1&seed=7" --wait 1000 --drag 717,297,760,380 --wait 2000

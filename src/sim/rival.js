@@ -9,6 +9,7 @@ import { hash32 } from '../core/rng.js';
 import { costAt, groundYAt } from '../world/query.js';
 import { B, treeFx } from './balance.js';
 import { eachNodeNear, nearestNode } from './network.js';
+import { fungusFx } from './species.js';
 
 const TAU = Math.PI * 2;
 const THINK = 0.1; // s between the steering decisions of one tip
@@ -620,6 +621,7 @@ function stepInfection(state, rival, dt) {
   const { world, events } = state;
   const c = links(rival);
   const season = infectFactor(state);
+  const rot = fungusFx(state).rot; // tough threads (chanterelle) rot slower
   const living = world.trees.reduce((n, t) => n + (t.lost ? 0 : 1), 0);
   for (const tree of world.trees) {
     if (tree.lost) continue;
@@ -632,7 +634,7 @@ function stepInfection(state, rival, dt) {
       const e = rival.edges[c.into[g.node]];
       rate += (n++ === 0 ? 1 : B.rivalExtraGrip) * (e ? 1 - e.wither : 1);
     }
-    if (n > 0) tree.infection += (rate * season * (1 - B.mantleProtect * tree.mantle) * dt) / B.rivalInfectSeconds;
+    if (n > 0) tree.infection += (rate * season * (1 - B.mantleProtect * tree.mantle) * rot * dt) / B.rivalInfectSeconds;
     else if (tree.infection > 0) tree.infection -= ((1 + B.rivalHealMantle * tree.mantle) * dt) / B.rivalHealSeconds;
     tree.infection = clamp(tree.infection, 0, living <= 1 ? B.rivalLastTree : 1);
     let lvl = rival.levels[tree.id] ?? 0;

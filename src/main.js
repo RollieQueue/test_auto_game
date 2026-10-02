@@ -9,6 +9,7 @@ import { createAudio } from './audio/index.js';
 import * as persist from './persist.js';
 import { getSettings } from './ui/settings.js';
 import { setReducedMotion } from './render/motion.js';
+import { loadChoice, parseSpecies, saveChoice, startingSpecies } from './ui/species-logic.js';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 8;
@@ -28,8 +29,12 @@ function pickSeed(value) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : Math.floor(Math.random() * 1e9) + 1;
 }
 
+// the fungus a new glade starts with: ?species=<id>, else the last pick on the title page (kept in localStorage)
+let lastSpecies = parseSpecies(params.get('species')) ?? loadChoice();
+
 function newState(seed) {
   const state = createState(pickSeed(seed));
+  state.flags.species = startingSpecies(state.world, lastSpecies);
   state.flags.seasons = SEASONS;
   state.flags.threats = THREATS;
   state.flags.rival = RIVAL;
@@ -47,6 +52,14 @@ game.actions = {
   start() {
     if (game.state.phase === 'title') game.state.phase = 'playing';
     game.audio.unlock();
+  },
+  /** The title page picks the fungus of the glade that is about to start (a game under way keeps its own). */
+  setSpecies(id) {
+    const species = parseSpecies(id);
+    if (!species) return;
+    lastSpecies = species;
+    saveChoice(species);
+    if (game.state.phase === 'title') game.state.flags.species = species;
   },
   togglePause() {
     const s = game.state;

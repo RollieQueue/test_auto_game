@@ -15,11 +15,12 @@
   // The bot plays under the live game's seasons flag, so fast-forwarded scenes match a real game.
   const seasons = window.__ffSeasons ?? Boolean(game.state.flags.seasons);
   const rival = window.__ffRival ?? false;
-  const result = playBot(game.state.seed, { maxSeconds: seconds, threats, seasons, runOn: threats, rival, barrier: window.__ffBarrier ?? 'near' });
+  const result = playBot(game.state.seed, { maxSeconds: seconds, threats, seasons, runOn: threats, rival, species: game.state.flags.species, barrier: window.__ffBarrier ?? 'near' });
   const state = result.state;
   state.flags.seasons = seasons;
   state.flags.threats = threats;
   state.flags.rival = rival;
+  state.flags.species = game.state.flags.species; // the fungus picked on the title page
   state.phase = 'playing';
   state.events.length = 0;
   game.state = state;

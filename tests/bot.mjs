@@ -133,7 +133,7 @@ function route(state, grid, isTarget) {
  * every 30 s into stats.curve), guard (false: never lay rings against worms), reaction / guardReach (how late and how
  * close the bot reacts to a worm), rival (the honey fungus: true wakes it with chapter 2, 'now' at once), barrier (with the rival: 'grip'
  * puts a barrier on every grip, 'near' also when a tip comes within `near` u (default 120) of its tree, false never: the passive bot),
- * debug }
+ * species (state.flags.species: the fungus, see src/sim/species.js; none: 'common'), debug }
  */
 export function playBot(seed, opts = {}) {
   const maxSeconds = opts.maxSeconds ?? 1200;
@@ -143,6 +143,7 @@ export function playBot(seed, opts = {}) {
   if (opts.seasons) state.flags.seasons = true;
   if (opts.threats) state.flags.threats = true;
   if (opts.rival) state.flags.rival = opts.rival;
+  if (opts.species) state.flags.species = opts.species;
   const grid = costGrid(state.world);
   const { world, net } = state;
   const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null, chapterDone: {}, traps: 0, barriers: 0, noNode: 0, curve: [], firstAt: {}, senseAt: {}, senseLead: [] };

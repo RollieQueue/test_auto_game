@@ -3,6 +3,7 @@ import { groundYAt } from '../world/query.js';
 import { B, pressure } from './balance.js';
 import { fedIndex } from './economy.js';
 import { nearestNode } from './network.js';
+import { fungusFx, fungusId } from './species.js';
 
 /** Sugar a mushroom costs now. */
 export const mushroomCost = (state) => {
@@ -51,7 +52,7 @@ export function commandFruit(state, nodeId) {
     nodeId,
     x: node.x,
     baseY,
-    species: 'common',
+    species: fungusId(state), // the player's fungus (flags.species); an old game without a pick fruits 'common'
     variant: state.sim.rng.int(0, 999),
     age: 0,
     growth: 0,
@@ -94,7 +95,7 @@ export function stepMushrooms(state, dt) {
       continue;
     }
     drawSugar(state, B.mushroomMatureSugar * P.mushMatureSugar * fx.mushSugar * dt);
-    const out = B.sporeRate * P.sporeRate * (0.5 + 1.5 * fed) * fx.spore * dt;
+    const out = B.sporeRate * P.sporeRate * (0.5 + 1.5 * fed) * fx.spore * fungusFx(m.species).spore * dt;
     m.spores += out;
     m.burst += out;
     res.spores += out;

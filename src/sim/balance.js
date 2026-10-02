@@ -59,6 +59,17 @@ export const B = {
     oak: { grow: 0.8, drinkW: 1.05, drinkM: 1.1, pay: [1, 1, 1.1, 1.5] },
     pine: { grow: 1, drinkW: 0.85, drinkM: 0.85, pay: [1, 1, 1.05, 1.1] },
   },
+  // The fungus the player is (state.flags.species, picked on the title page; src/sim/species.js): the sugar paid by its partner
+  // tree species x `pay` (partner null: every tree), plus exactly ONE strength: grazer x the share of worms that bite (bitter
+  // threads), spore x spore release of its mushrooms (big caps), minerals x mineral extraction per link (draws minerals),
+  // rot x speed of the honey fungus's rot on its trees (tough threads). 'common' (an old save, no pick) changes nothing.
+  fungi: {
+    common: { partner: null, pay: 1, grazer: 1, spore: 1, minerals: 1, rot: 1 },
+    fly_agaric: { partner: 'birch', pay: 1.3, grazer: 0.6 },
+    porcini: { partner: 'oak', pay: 1.3, spore: 1.2 },
+    saffron_milk_cap: { partner: 'pine', pay: 1.35, minerals: 1.3 },
+    chanterelle: { partner: null, pay: 1.1, rot: 0.65 },
+  },
   // Glades (world.biome): worm x spawn rate, wormSpeed x crawl speed, water x extraction per link, minerals x extraction per link.
   // The soil itself differs too (src/world/biomes.js: pockets, rocks, deposits, regeneration).
   biomes: {

@@ -6,6 +6,7 @@ import { clamp, closestOnSegment } from '../core/geom.js';
 import { costAt, groundYAt, horizonIndexAt } from '../world/query.js';
 import { B, biomeFx } from './balance.js';
 import { eachNodeNear, nearestNode, severBranch } from './network.js';
+import { fungusFx } from './species.js';
 
 const TAU = Math.PI * 2;
 const wrapPi = (a) => {
@@ -110,7 +111,7 @@ export function spawnWormAt(state, x, y) {
     senseT: 0,
     target: -1,
     sensed: false,
-    grazer: rand(th) < B.wormGrazer, // only grazers smell hyphae and bite
+    grazer: rand(th) < B.wormGrazer * fungusFx(state).grazer, // only grazers smell hyphae and bite
     scanT: rand(th) * 0.12,
     snareT: 0,
   };

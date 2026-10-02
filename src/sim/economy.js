@@ -2,6 +2,7 @@
 import { clamp } from '../core/geom.js';
 import { B, biomeFx, pressure, treeFx } from './balance.js';
 import { recheckTips } from './network.js';
+import { fungusFx, partnerPay } from './species.js';
 
 function updateCaps(state) {
   const len = state.stats.hyphaeLength;
@@ -15,6 +16,7 @@ function updateCaps(state) {
 function extract(state, dt) {
   const { world, res, cap, sim, events } = state;
   const biome = biomeFx(world);
+  const mineralFx = fungusFx(state).minerals;
   for (const w of world.water) {
     w.amount = Math.min(w.max, w.amount + w.regen * sim.fx.regen * dt);
     const links = sim.waterLinks[w.id].length;
@@ -33,7 +35,7 @@ function extract(state, dt) {
   for (const m of world.minerals) {
     const links = sim.mineralLinks[m.id].length;
     if (links === 0 || m.amount <= 0) continue;
-    const take = Math.min(Math.min(links, B.maxLinksPerDeposit) * B.mineralPerLink * biome.minerals * dt, m.amount, Math.max(0, cap.pool - res.minerals));
+    const take = Math.min(Math.min(links, B.maxLinksPerDeposit) * B.mineralPerLink * biome.minerals * mineralFx * dt, m.amount, Math.max(0, cap.pool - res.minerals));
     if (take <= 0) continue;
     m.amount -= take;
     res.minerals += take;
@@ -81,7 +83,7 @@ function stepTrees(state, dt) {
     t.health += (sat - t.health) * Math.min(1, dt / B.treeHealthTau);
     const rot = 1 - (t.infection ?? 0);
     if (mantle) t.mantle = (t.mantle ?? 0) + (sat * fac(t) - (t.mantle ?? 0)) * mk;
-    const pay = B.treePay[t.stage] * sp.pay * fac(t) * sat * fx.pay * pressure(state).treePay * (1 - B.rivalPayCut * (t.infection ?? 0)) * dt;
+    const pay = B.treePay[t.stage] * sp.pay * partnerPay(state, t) * fac(t) * sat * fx.pay * pressure(state).treePay * (1 - B.rivalPayCut * (t.infection ?? 0)) * dt;
     paid += pay;
     const intake = sim.intake[t.id];
     intake.water += takeW;
