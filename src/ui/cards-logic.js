@@ -79,13 +79,38 @@ export function pointerIn(p, rect, pad = 6) {
 
 /**
  * The look of a card from what is under it and the pointer: 'solid' (nothing there), 'pointer' (only the pointer is
- * on it: a little see-through, the world below stays workable), 'behind' (a mushroom or crown is under it: very
- * see-through), 'pointed' (both: see-through, but readable enough for a tooltip).
+ * on it: a hair see-through, the world below stays workable), 'behind' (a mushroom or crown is under it), 'pointed'
+ * (both: readable enough for a tooltip). A card never goes below MIN_CARD_OPACITY: what it hides is handled by
+ * folding it (wantFold, foldStep), not by making the numbers hard to read.
  */
 export function cardMode(cover, pointerOnCard) {
   const under = Boolean(cover) && cover.mushrooms + cover.crowns > 0;
   if (under) return pointerOnCard ? 'pointed' : 'behind';
   return pointerOnCard ? 'pointer' : 'solid';
+}
+
+export const MIN_CARD_OPACITY = 0.85; // a card is never more see-through than this (playtest 3: 0.36 was unreadable)
+/** Opacity of a card per cardMode; hud.css (.m-pointer, .m-behind, .m-pointed) carries the same numbers. */
+export const CARD_OPACITY = { solid: 1, pointer: 0.94, behind: 0.9, pointed: 0.87 };
+
+const total = (c) => (c ? c.mushrooms + c.crowns : 0);
+
+/** True when folding the resources card to its header and sugar row would free something it hides (`full`, `folded`: coverage of each rect). */
+export const wantFold = (full, folded) => total(full) > 0 && total(folded) < total(full);
+
+export const FOLD_AFTER = 1.2; // s something has to lie under the card before it folds (a passing crown does not flicker it)
+export const UNFOLD_AFTER = 0.6; // s it must be clear before it opens again
+
+/**
+ * One step of the fold: `f` = { folded, t } (t: s the wish differs from the state). The pointer on the card opens it at
+ * once (the numbers are for reading); otherwise the wish must hold for FOLD_AFTER / UNFOLD_AFTER seconds.
+ */
+export function foldStep(f, want, pointerOn, dt) {
+  if (pointerOn) return { folded: false, t: 0 };
+  if (want === f.folded) return { folded: f.folded, t: 0 };
+  const t = f.t + dt;
+  if (t >= (want ? FOLD_AFTER : UNFOLD_AFTER)) return { folded: want, t: 0 };
+  return { folded: f.folded, t };
 }
 
 /** World -> screen rect of an old stump as drawn (the cut trunk, its roots and the honey tufts round its foot). */

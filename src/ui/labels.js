@@ -3,13 +3,13 @@
 import { icons } from './icons.js';
 import { findNames } from './atlas-logic.js';
 import { THREAT_LOCAL, cutCause, threatLabel } from './threats.js';
-import { LABEL_LIFE, placeLabelY, sugarDenialSpots, nearAny } from './labels-logic.js';
+import { LABEL_LIFE, placeLabelY, sugarDenialSpots, nearAny, findRepeat, denialFamily } from './labels-logic.js';
 import { RIVAL_EVENTS, RIVAL_LOCAL, createRivalTexts } from './rival.js';
 
 const LIFE = LABEL_LIFE; // s
 const MAX_LABELS = 12;
+const ONE_CLICK = 0.1; // s: a repeat this soon after the label belongs to the same action and is not counted
 const BITE_GAP = 2.6; // s between two «укус» labels: a worm chews for a while, the label should not nag
-const MERGE_RADIUS = 70; // CSS px: a repeat this close restarts the label instead of adding another
 const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
@@ -88,15 +88,17 @@ export function createLabels(host, avoid = () => []) {
   }
 
   function spawn(d, sx, sy, view) {
-    // a repeat of the same label near the same place only counts up
-    for (const l of labels) {
-      if (l.key === d.key && Math.hypot(l.sx - sx, l.sy - sy) < MERGE_RADIUS) {
-        l.count += 1;
-        l.age = 0;
-        l.cnt.textContent = `×${l.count}`;
-        restart(l.el);
-        return;
+    // a repeat of the same label near the same place, or a second refusal of one action, only counts up
+    const same = findRepeat(labels, d.key, sx, sy);
+    if (same) {
+      // (reports of one click from several layers, in the same frame, are one refusal: they do not count up)
+      if (same.age > ONE_CLICK) {
+        same.count += 1;
+        same.cnt.textContent = `×${same.count}`;
       }
+      same.age = 0;
+      restart(same.el);
+      return;
     }
     const el = document.createElement('div');
     el.className = `lab ${d.tone || ''}`;
@@ -128,8 +130,11 @@ export function createLabels(host, avoid = () => []) {
       lastBite = -Infinity;
       rival.reset();
     },
-    /** Reads this frame's events; returns true when `view` was usable (so the note stack can skip them). */
-    process(state, view) {
+    /**
+     * Reads this frame's events; returns true when `view` was usable (so the note stack can skip them).
+     * `tipFamily`: the refusal the cursor tooltip already says (tooltipDenialFamily): no label repeats it.
+     */
+    process(state, view, tipFamily = null) {
       if (!view || !(view.scale > 0)) return false;
       const events = state.events;
       // a refusal for sugar (a mushroom, a ring, a barrier) says so with its own text; the plain «не хватает сахара» of the same click stays out
@@ -144,6 +149,7 @@ export function createLabels(host, avoid = () => []) {
         }
         const sugarDenied = ev.type === 'insufficient' && !ev.partial && nearAny(denials, ev);
         const d = RIVAL_EVENTS.has(ev.type) ? rival.label(state, ev) : describeLabel(state, ev, sugarDenied, cause);
+        if (d && tipFamily && denialFamily(d.key) === tipFamily) continue;
         if (d) spawn(d, ev.x * view.scale + view.ox, ev.y * view.scale + view.oy - 8, view);
       }
       return true;

@@ -668,9 +668,15 @@ kbd {
   transform: translateY(0.4em) rotate(var(--tilt, 0deg));
   transition-duration: 1.1s;
 }
+.note.out.pushed {
+  transition-duration: 0.3s;
+}
 @media (max-height: 720px) {
   .note.out {
     transition-duration: 0.45s;
+  }
+  .note.out.pushed {
+    transition-duration: 0.3s;
   }
 }
 .note .txt {
@@ -2258,18 +2264,118 @@ kbd {
 
 /* ------------------------------------------------------------------ cards that must not hide the game */
 
-/* a mushroom or a tree crown lies under the card: it turns see-through (hud.js updateCards); 'pointer' = only the pointer is on it */
+/* A card is never more see-through than 0.85 (cards-logic.js MIN_CARD_OPACITY, CARD_OPACITY): while something lies under it or
+   the pointer is on it only a hair of the paper shows through; the resources card folds (below) instead of fading. */
 .res-card.m-pointer,
 .obj-card.m-pointer {
-  opacity: 0.74;
+  opacity: 0.94;
 }
 .res-card.m-behind,
 .obj-card.m-behind {
-  opacity: 0.36;
+  opacity: 0.9;
 }
 .res-card.m-pointed,
 .obj-card.m-pointed {
-  opacity: 0.5;
+  opacity: 0.87;
+}
+/* the resources card folded to the season header and the sugar row, so that a mushroom or crown under its rows shows (hud.js updateCards) */
+.res-card.folded .res-row:not([data-k='sugar']) {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ the slip of an earned mark */
+
+/* a small paper slip at the foot of the glade (slips.js): icon, name and one line. It lets every click through. */
+.slips {
+  position: absolute;
+  left: 50%;
+  bottom: 1em;
+  width: 22em;
+  max-width: calc(100vw - 52em);
+  min-width: 16em;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 0.5em;
+  pointer-events: none;
+  z-index: 3;
+}
+.slip {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.5em 0.9em 0.55em 0.6em;
+  color: var(--indigo);
+  background:
+    var(--grain),
+    linear-gradient(172deg, #f6eeda, #ece0c4);
+  border-radius: 0.3em 0.55em 0.3em 0.5em / 0.5em 0.3em 0.5em 0.3em;
+  box-shadow:
+    0 0 0 1px rgba(90, 62, 36, 0.4),
+    0.06em 0.2em 0.5em rgba(14, 8, 4, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(1.6em) rotate(1.4deg);
+  transition:
+    opacity 0.4s ease,
+    transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.slip:nth-child(even) {
+  --tilt: 0.7deg;
+}
+.slip.in {
+  opacity: 1;
+  transform: translateY(0) rotate(var(--tilt, -0.8deg));
+}
+.slip.out {
+  opacity: 0;
+  transform: translateY(0.6em) rotate(var(--tilt, -0.8deg));
+  transition-duration: 0.6s;
+}
+.slip-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.6em;
+  height: 2.6em;
+  border: 1.5px solid rgba(38, 48, 74, 0.75);
+  border-radius: 0.3em 0.5em 0.35em 0.45em / 0.45em 0.3em 0.5em 0.35em;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 250, 235, 0.8), rgba(230, 216, 185, 0.7));
+}
+.slip-ico .ico {
+  width: 1.9em;
+  height: 1.9em;
+}
+.slip-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.slip-kicker {
+  font: 400 0.72em/1.1 var(--font-serif);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(58, 42, 30, 0.6);
+}
+.slip-title {
+  font: 700 1.15em/1.15 var(--font-serif);
+  color: var(--sepia);
+}
+.slip-line {
+  font: 400 1.05em/1.12 var(--font-hand);
+  color: var(--indigo);
+}
+/* «Меньше движения»: the slip appears and goes without sliding */
+.reduce-motion .slip,
+.reduce-motion .slip.out {
+  transform: rotate(var(--tilt, -0.8deg));
+  transition: opacity 0.3s ease;
+}
+@media (max-height: 720px) {
+  .slips {
+    bottom: 0.7em;
+  }
 }
 
 /* the «Гриб» tab lit up while sugar sits at its cap (a hint to spend it) */

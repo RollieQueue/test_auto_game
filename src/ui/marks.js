@@ -3,8 +3,9 @@
 import { flourish, icons } from './icons.js';
 import { MARKS, checkMarks, markById, marksModel, newTracker, noteText } from './marks-logic.js';
 import { createMarksStore } from './marks-store.js';
+import { slipOf } from './slips-logic.js';
 
-const NOTE_GAP = 3.2; // s between two marks' notes when several are earned at once
+const NOTE_GAP = 3.2; // s between two marks' notes when several are earned at once (the slips queue up by themselves: no gap)
 const NOTE_LIFE = 10;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -50,10 +51,11 @@ export function buildMarksPage(memory, kinds = {}) {
 }
 
 /**
- * The watcher. `notes` is the margin notes (notes.say), `atlasStore` the lifetime atlas (its counts feed two marks);
+ * The watcher. `slips` shows an earned mark on a paper slip (slips.js); without it `notes` is the margin notes
+ * (notes.say) the mark is said in. `atlasStore` the lifetime atlas (its counts feed two marks);
  * `storage` and `now` are for tests. `update(state, dt)` is called every frame, after the frame's events are final.
  */
-export function createMarks({ notes, atlasStore = null, storage, now } = {}) {
+export function createMarks({ notes, slips = null, atlasStore = null, storage, now } = {}) {
   const store = createMarksStore(storage, now);
   let tracker = newTracker();
   let owner = null; // the state the tracker belongs to: a new game (a new state object) starts a fresh one
@@ -68,7 +70,8 @@ export function createMarks({ notes, atlasStore = null, storage, now } = {}) {
 
   function say(id) {
     const mark = markById(id);
-    if (mark && notes) notes.say({ key: `mark:${id}`, text: noteText(mark), tone: 'good', icon: mark.icon, life: NOTE_LIFE });
+    if (mark && slips) slips.show(slipOf(mark));
+    else if (mark && notes) notes.say({ key: `mark:${id}`, text: noteText(mark), tone: 'good', icon: mark.icon, life: NOTE_LIFE });
   }
 
   return {
@@ -96,7 +99,7 @@ export function createMarks({ notes, atlasStore = null, storage, now } = {}) {
       wait -= dt;
       if (queue.length && wait <= 0) {
         say(queue.shift());
-        wait = NOTE_GAP;
+        wait = slips ? 0 : NOTE_GAP;
       }
     },
     /** What the atlas tab shows. */

@@ -41,6 +41,38 @@ export function placeLabelY(lab, others, avoid, win) {
   return fallback === null ? Math.max(h + 4, lab.y) : fallback;
 }
 
+export const MERGE_RADIUS = 70; // CSS px: a repeat this close restarts the label instead of adding another
+export const DENIAL_WINDOW = 1.6; // s: a refusal of the same kind within this time belongs to the same action, wherever it is drawn
+
+const SUGAR_KEY = /^(insufficient|denied:sugar|barrier:denied:sugar|trap:denied:sugar)/;
+
+/**
+ * Which refusal a label key is: 'sugar' for any lack of sugar (the plain «не хватает сахара», a mushroom, a ring or a
+ * barrier), the key itself for the other refusals (crowded, deep, ...), null for labels that are no refusal.
+ */
+export function denialFamily(key) {
+  if (typeof key !== 'string') return null;
+  if (SUGAR_KEY.test(key)) return 'sugar';
+  return /denied/.test(key) ? key : null;
+}
+
+/** The family of what a cursor tooltip says (hud tooltip «Не хватает сахара (нужно 20)»), null when it is no refusal. */
+export const tooltipDenialFamily = (main) => (typeof main === 'string' && /^не хватает сахара/i.test(main.trim()) ? 'sugar' : null);
+
+/**
+ * The floating label a new one at screen (sx, sy) with `key` folds into, or null. `labels`: { key, sx, sy, age } of those
+ * floating. A repeat of the same label near the same place counts up; so does a refusal of the same family while the
+ * first one is young: one action shows one refusal, whichever layer of the game reported it.
+ */
+export function findRepeat(labels, key, sx, sy) {
+  const family = denialFamily(key);
+  for (const l of labels) {
+    if (l.key === key && Math.hypot(l.sx - sx, l.sy - sy) < MERGE_RADIUS) return l;
+    if (family && denialFamily(l.key) === family && l.age < DENIAL_WINDOW) return l;
+  }
+  return null;
+}
+
 const SUGAR_DENIALS = new Set(['fruit-denied', 'trap-denied', 'barrier-denied']);
 const SAME_SPOT = 60; // world units: an «insufficient» this close to a refusal belongs to the same click
 

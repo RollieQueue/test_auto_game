@@ -9,19 +9,26 @@ import { PARTIAL_TEXT } from './labels.js';
 import { RIVAL_BOTH, RIVAL_EVENTS, createRivalTexts } from './rival.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 
-const MAX_NOTES = 4;
+export const MAX_NOTES = 3;
 const SMALL_H = 720; // window height (CSS px) up to which the stack is kept small: it would cover a quarter of the glade
-const MAX_NOTES_SMALL = 2;
+export const MAX_NOTES_SMALL = 2;
 const LIFE_OLDER_SMALL = 2.4; // s an older note has left when a newer one arrives in a small window
 const LIFE = 5.2; // seconds a note stays fully visible after its last repeat
 const SEASON_LIFE = 9; // a new season is worth reading twice
 const FADE = 1.15; // seconds of fade-out (matches the CSS transition)
 const FADE_SMALL = 0.5; // the same in a short window (hud.css, max-height: 720px)
+const FADE_PUSHED = 0.3; // a note pushed off by a newer one goes at once (hud.css .note.out.pushed): the stack never shows more than the cap for long
 
 const MINERAL_WORDS = { phosphorus: 'фосфор', nitrogen: 'азот' };
 
 /** A short window: at most two notes, and a newer note hurries the older ones off. */
 export const smallWindow = () => typeof window !== 'undefined' && window.innerHeight > 0 && window.innerHeight <= SMALL_H;
+
+/** How many notes the stack shows at once for a window of height `h` CSS px (3; 2 in a short window). */
+export const noteCap = (h) => (h > 0 && h <= SMALL_H ? MAX_NOTES_SMALL : MAX_NOTES);
+
+/** How many of `visible` notes to push off the stack when the newest has just come, for a window of height `h`. */
+export const notesToPush = (visible, h) => Math.max(0, visible - noteCap(h));
 
 const find = (list, id) => (list ? list.find((item) => item.id === id) : undefined);
 
@@ -112,11 +119,12 @@ export function createNotes(host) {
     active.delete(key);
   }
 
-  function startFade(n) {
+  function startFade(n, pushed = false) {
     if (n.fade > 0) return;
-    n.fade = smallWindow() ? FADE_SMALL : FADE;
+    n.fade = pushed ? FADE_PUSHED : smallWindow() ? FADE_SMALL : FADE;
     n.el.classList.remove('in');
     n.el.classList.add('out');
+    if (pushed) n.el.classList.add('pushed');
   }
 
   function push(d) {
@@ -149,14 +157,14 @@ export function createNotes(host) {
 
     const small = smallWindow();
     if (small) for (const [key, n] of active) if (key !== d.key && n.fade <= 0) n.life = Math.min(n.life, LIFE_OLDER_SMALL);
-    const cap = small ? MAX_NOTES_SMALL : MAX_NOTES;
     let visible = 0;
     for (const n of active.values()) if (n.fade <= 0) visible++;
+    let drop = notesToPush(visible, typeof window !== 'undefined' ? window.innerHeight : 0);
     for (const n of active.values()) {
-      if (visible <= cap) break;
+      if (drop <= 0) break;
       if (n.fade <= 0) {
-        startFade(n);
-        visible--;
+        startFade(n, true);
+        drop--;
       }
     }
   }

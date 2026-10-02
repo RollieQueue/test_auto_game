@@ -2,13 +2,14 @@
 // update() runs every frame, so every write below is guarded by a "changed?" check.
 import { icons, checkbox, flourish, capBar } from './icons.js';
 import { RESOURCES, resourceView, resourceTip, createSugarNudge } from './resources-logic.js';
-import { coverage, cardMode, pointerIn, crownRect, mushroomRect, openCardRect, stumpsUnder } from './cards-logic.js';
+import { coverage, cardMode, pointerIn, crownRect, mushroomRect, openCardRect, stumpsUnder, wantFold, foldStep } from './cards-logic.js';
 import { objectiveText } from './trees-logic.js';
 import { gladeLabel } from './glade.js';
 import { createNotes, smallWindow } from './notes.js';
 import { notesShift } from './labels-logic.js';
 import { createTooltip } from './tooltip.js';
 import { createLabels } from './labels.js';
+import { tooltipDenialFamily } from './labels-logic.js';
 import { createGuide } from './guide.js';
 import { buildHelp } from './help.js';
 import { createAtlas } from './atlas.js';
@@ -22,6 +23,7 @@ import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objective
 import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
 import { initSettingsPanel } from './settings.js';
 import { createMarks } from './marks.js';
+import { createSlips } from './slips.js';
 import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
@@ -32,6 +34,7 @@ const OBJ_REVEAL_START = 8; // s the objectives card is open at the start of a g
 const OBJ_REVEAL_TICK = 6; // s it opens when an objective is ticked off
 const OBJ_QUIET_WAKE = 12; // s the objectives card stays folded after the honey fungus woke
 const OBJ_REVEAL_STUMP = 2; // s it opens by itself at most, when open it would cover the rival's stump (it opens under the pointer as ever)
+const OBJ_REVEAL_BEHIND = 3.5; // s it opens by itself at most, when open it would cover a crown or a mushroom
 const OBJ_HOLD = 0.35; // s it stays open after the pointer moved away
 
 const nf = new Intl.NumberFormat('ru-RU');
@@ -86,6 +89,7 @@ export function createHud(root, actions) {
 
       <div class="notes" aria-live="polite"></div>
       <div class="notes-zone" aria-hidden="true"></div>
+      <div class="slips" aria-live="polite"></div>
 
       <div class="tools" role="tablist" aria-label="Инструмент">
         <button class="tool" data-tool="grow" type="button" role="tab">${icons.thread}<span>Нить</span><kbd>1</kbd></button>
@@ -219,6 +223,7 @@ export function createHud(root, actions) {
     objList: q('.obj-list'),
     notes: q('.notes'),
     notesZone: q('.notes-zone'),
+    slips: q('.slips'),
     guide: q('.guide'),
     labels: q('.labels'),
     help: q('.help-screen'),
@@ -276,7 +281,8 @@ export function createHud(root, actions) {
 
   const notes = createNotes(el.notes);
   const atlasStore = createAtlasStore();
-  const marks = createMarks({ notes, atlasStore }); // «Пометки на полях»: achievements, the atlas's second tab
+  const slips = createSlips(el.slips); // the paper slip of an earned mark
+  const marks = createMarks({ notes, slips, atlasStore }); // «Пометки на полях»: achievements, the atlas's second tab
   const atlas = createAtlas(el.atlasPage, atlasStore, marks);
   const calendar = createCalendar(q('.res-card'));
   const tooltip = createTooltip(el.tip);
@@ -298,6 +304,9 @@ export function createHud(root, actions) {
     out.push({ l: z.left, t: top, r: z.right, b: top + slot });
     return out;
   });
+  const tipMain = el.tip.querySelector('.t-main');
+  /** The refusal the cursor tooltip says right now («Не хватает сахара (нужно 20)»): the floating label would only repeat it. */
+  const tipDenial = () => (el.tip.classList.contains('show') ? tooltipDenialFamily(tipMain.textContent) : null);
   const nudge = createSugarNudge();
   const senseGate = createSenseGate();
   const guide = createGuide(el.guide, () => [
@@ -407,6 +416,11 @@ export function createHud(root, actions) {
   let objHides = false; // the card, were it open, would lie over a stump (updateCards sets it)
   let seasonIntro = false; // the first season's note was shown for this game
   let cardT = 0; // s until the cards look again at what lies under them
+  let cardAcc = 0; // s since they last looked
+  let resFold = { folded: false, t: 0 }; // the resources card folded to its header and sugar row (something lies under its rows)
+  let resFullH = 0; // px, the card's height with all its rows (measured while it is open)
+  let resFoldFs = 0; // the font size resFullH was measured at
+  let objBehind = false; // the card, were it open, would lie over a crown or a mushroom
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
   let hasSave = false;
   let savedLine = ''; // «Сохранённая поляна: …»: the glade «Продолжить наблюдения» opens (the title's own state is the new one)
@@ -450,6 +464,7 @@ export function createHud(root, actions) {
     for (const r of RESOURCES) smooth[r.k] = (state.rates && state.rates[r.k]) || 0;
     notes.reset(state);
     labels.reset();
+    slips.reset();
     tooltip.reset();
     setScreen(el.summary, false);
     setScreen(el.pauseScreen, false);
@@ -862,6 +877,7 @@ export function createHud(root, actions) {
       objHold = Math.max(0, objHold - dt);
       objQuiet = Math.max(0, objQuiet - dt);
       if (objHides) objReveal = Math.min(objReveal, OBJ_REVEAL_STUMP); // the stump at the glade's edge is not covered for long
+      else if (objBehind) objReveal = Math.min(objReveal, OBJ_REVEAL_BEHIND); // nor a crown or a mushroom
       if (state.events.some((ev) => ev.type === 'rival-wake')) {
         objQuiet = OBJ_QUIET_WAKE;
         objReveal = 0;
@@ -880,25 +896,55 @@ export function createHud(root, actions) {
   }
 
   /**
-   * The two cards must not hide the game: while a mushroom or a tree crown lies under a card it turns see-through
-   * (and a little see-through while the pointer is on it), so nothing important stays hidden.
+   * The two cards must not hide the game, and must stay readable: a card is never more than a hair see-through (while
+   * something lies under it or the pointer is on it). What the resources card hides, it frees by folding to its header and
+   * sugar row (and opens at once under the pointer); the objectives card is a header line unless open for a moment.
    */
   function updateCards(state, dt, view) {
     const live = (state.phase === 'playing' || state.phase === 'paused') && view && view.scale > 0;
     cardT -= dt;
+    cardAcc += dt;
     if (cardT > 0 && live) return;
+    const step = cardAcc;
     cardT = 0.12;
+    cardAcc = 0;
     if (live) updateNotesSpot(state, view);
     const p = state.ui.pointer;
     const pointer = Boolean(live && p && p.inside !== false);
+    const fs = parseFloat(getComputedStyle(root).fontSize) || 16;
     for (const [key, card] of [['res', el.resCard], ['obj', el.objCard]]) {
       let mode = 'solid';
       if (live) {
         const b = card.getBoundingClientRect();
-        const rect = { l: b.left, t: b.top, r: b.right, b: b.bottom };
-        mode = cardMode(coverage(state, view, rect), pointer && pointerIn(p, rect, 4));
-        if (key === 'obj') objHides = stumpsUnder(state, view, openCardRect(rect, parseFloat(getComputedStyle(root).fontSize) || 16, smallWindow())) > 0;
-      } else if (key === 'obj') objHides = false;
+        let rect = { l: b.left, t: b.top, r: b.right, b: b.bottom };
+        const onCard = pointer && pointerIn(p, rect, 4);
+        if (key === 'res') {
+          if (fs !== resFoldFs) {
+            resFoldFs = fs;
+            resFold = { folded: false, t: 0 };
+          } else if (!resFold.folded) resFullH = b.height;
+          // what the card hides is judged on its open rect and on the folded one, so a folded card does not flip back at once
+          const foldB = el.resRows.sugar.row.getBoundingClientRect().bottom + 0.6 * fs;
+          const full = resFold.folded ? { ...rect, b: rect.t + resFullH } : rect;
+          const folded = { ...rect, b: Math.min(full.b, foldB) };
+          resFold = foldStep(resFold, wantFold(coverage(state, view, full), coverage(state, view, folded)), onCard, step);
+          rect = resFold.folded ? folded : full;
+          mode = cardMode(coverage(state, view, rect), onCard);
+        } else {
+          mode = cardMode(coverage(state, view, rect), onCard);
+          const open = openCardRect(rect, fs, smallWindow());
+          objHides = stumpsUnder(state, view, open) > 0;
+          const under = coverage(state, view, open);
+          objBehind = under.crowns + under.mushrooms > 0;
+        }
+      } else if (key === 'obj') {
+        objHides = false;
+        objBehind = false;
+      } else resFold = { folded: false, t: 0 };
+      if (key === 'res' && shown.resFolded !== resFold.folded) {
+        shown.resFolded = resFold.folded;
+        card.classList.toggle('folded', resFold.folded);
+      }
       if (shown[`card.${key}`] !== mode) {
         const prev = shown[`card.${key}`];
         shown[`card.${key}`] = mode;
@@ -1082,13 +1128,14 @@ export function createHud(root, actions) {
       // events -> floating labels at their place (local) and margin notes (global), summary trigger
       // (notes first: the labels then see the stack they must keep out of)
       notes.process(state, Boolean(view && view.scale > 0));
-      labels.process(state, view);
+      labels.process(state, view, tipDenial());
       updateFinds(state);
       updateThreats(state);
       updateRival(state);
       marks.update(state, dt);
       if (phase === 'playing') updateNudge(state, dt);
       notes.tick(dt);
+      slips.tick(dt);
       labels.tick(dt);
       guide.update(state, dt, view, phase === 'playing' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen);
       // a page of observations is full: the summary opens. With chapters the sim turns to the next page afterwards.
