@@ -324,6 +324,11 @@ moves, at up to `B.feedRate` sugar/s, into the tree's growth (`B.feedGrowSeconds
 (`B.feedMantle`). A tree that needs nothing takes nothing; a frozen tree (under a barrier) waits. API `commandFeed(state, treeId)`
 ('on' | 'switch' | 'off' | false), `feedDenial`, `canFeedAny`. Events `feed-start`, `feed-stop {reason: 'player'|'lost'|'unlinked'}`,
 `feed-denied`. UI: src/ui/feed.js (tab, tooltip line, notes), resources-logic.js (where the surplus goes).
+On the scene: while `state.feed.rate > B.feedFlowMin` (0.05) `recomputeFlows` pushes one flow of kind `'feed'` from the spore
+to the fed tree's contact (`bestNode`), last, so it never crowds out a real flow at `maxFlows`; `thicken` skips it and barred
+nodes carry none. src/render/flows.js draws it as a golden glow with slow drops; src/render/feed-mark.js puts a golden drop and
+«+N/с» (src/ui/feed.js `rateText`) on the grass right of the trunk foot, clear of the rot ring and its infection label.
+`'feed'` is one of the saved flow kinds (persist-codec `FLOW_KINDS`).
 
 Stakes (src/sim/stakes.js, numbers `B.stakes`; text in src/ui/year-logic.js; all of it in `state.flags`, so a save needs no new
 field): at every `year-end` the sim stores `flags.yearGrades` (the grade of the year: parts, score 0..100, grade
