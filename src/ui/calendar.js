@@ -3,6 +3,7 @@
 // Numbers come from season-logic.js; this file is the drawing and the guarded DOM writes (it runs every frame).
 import { icons } from './icons.js';
 import { calendarModel } from './season-logic.js';
+import { gradeLine } from './year-logic.js';
 
 const INK = '#3a2a1e';
 
@@ -51,6 +52,9 @@ export function createCalendar(host) {
     sub: q('.cal-sub'),
   };
   const shown = {};
+  // the grade line of the tooltip is worked out only while the pointer is over the calendar
+  let hover = false;
+  let last = null;
 
   function set(key, value, write) {
     if (shown[key] === value) return;
@@ -58,9 +62,25 @@ export function createCalendar(host) {
     write(value);
   }
 
+  function paintTitle(m) {
+    const line = hover ? gradeLine(last) : null;
+    set('title', line ? `${m.title}\n${line}` : m.title, (t) => {
+      el.root.title = t;
+    });
+  }
+
+  const hovered = (on) => () => {
+    hover = on;
+    const m = calendarModel(last);
+    if (m) paintTitle(m);
+  };
+  el.root.addEventListener('pointerenter', hovered(true));
+  el.root.addEventListener('pointerleave', hovered(false));
+
   return {
     /** Paints the calendar for `state`; hides it when seasons are off. */
     update(state) {
+      last = state;
       const m = calendarModel(state);
       set('on', Boolean(m), (on) => {
         el.root.hidden = !on;
@@ -86,9 +106,7 @@ export function createCalendar(host) {
       set('wxi', Math.round(m.intensity * 10), (v) => {
         el.wx.style.setProperty('--wx', m.weather === 'clear' ? '1' : String(0.62 + 0.38 * (v / 10)));
       });
-      set('title', m.title, (t) => {
-        el.root.title = t;
-      });
+      paintTitle(m);
     },
   };
 }

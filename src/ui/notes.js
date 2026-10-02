@@ -9,6 +9,7 @@ import { PARTIAL_TEXT } from './labels.js';
 import { RIVAL_BOTH, RIVAL_EVENTS, createRivalTexts } from './rival.js';
 import { STAGE_WORDS, seasonNote, weatherNote } from './season-logic.js';
 import { feedNote } from './feed.js';
+import { seasonGradeNote } from './year-logic.js';
 
 export const MAX_NOTES = 3;
 const SMALL_H = 720; // window height (CSS px) up to which the stack is kept small: it would cover a quarter of the glade
@@ -16,6 +17,7 @@ export const MAX_NOTES_SMALL = 2;
 const LIFE_OLDER_SMALL = 2.4; // s an older note has left when a newer one arrives in a small window
 const LIFE = 5.2; // seconds a note stays fully visible after its last repeat
 const SEASON_LIFE = 9; // a new season is worth reading twice
+const GRADE_LIFE = 8; // the running grade of the year at a season change: read once, calmly
 const FADE = 1.15; // seconds of fade-out (matches the CSS transition)
 const FADE_SMALL = 0.5; // the same in a short window (hud.css, max-height: 720px)
 const FADE_PUSHED = 0.3; // a note pushed off by a newer one goes at once (hud.css .note.out.pushed): the stack never shows more than the cap for long
@@ -94,6 +96,10 @@ export function describeNote(state, ev, prevWeather = 'clear', cause = 'worm') {
     case 'season': {
       const n = seasonNote(ev.season);
       return n ? { key: n.key, text: n.text, tone: 'good', icon: ev.season, life: SEASON_LIFE } : null;
+    }
+    case 'season-grade': {
+      const n = seasonGradeNote(state, ev.season);
+      return n ? { ...n, life: GRADE_LIFE } : null;
     }
     case 'weather':
       return weatherNote(ev.kind, prevWeather);

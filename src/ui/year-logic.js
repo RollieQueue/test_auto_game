@@ -70,6 +70,53 @@ export function yearGrade(state, year) {
   return stored && stored.parts && stored.facts ? stored : gradeYear(state);
 }
 
+/** What a part is short of, in the genitive after «не хватает»: from the facts of the grade. */
+const MISSING = {
+  alive: 'живых деревьев',
+  allies: 'союзов',
+  growth: 'роста деревьев',
+  spores: 'спор',
+  mushrooms: 'грибов',
+  pages: 'дописанной страницы',
+  rival: 'отпора опёнку',
+};
+
+/** A part that is short of at least this many points (of 100) is named; at most MISSING_MAX of them, the biggest first. */
+const MISSING_GAP = 2;
+const MISSING_MAX = 2;
+
+/** The words of what the year so far lacks, the biggest gap first; a lost grove (the cap of the grade) comes first of all. */
+export function gradeMissing(g) {
+  const gap = (p) => p.max - p.pts;
+  let ids = g.parts.filter((p) => gap(p) >= MISSING_GAP).sort((a, b) => gap(b) - gap(a)).map((p) => p.id);
+  if (g.capped === 'lost' || g.capped === 'ruin') ids = ['alive', ...ids.filter((id) => id !== 'alive')];
+  return ids.slice(0, MISSING_MAX).map((id) => MISSING[id]);
+}
+
+/** The grade of the year under way: { grade, seal, missing: [words] }, or null with the seasons off or after the page has closed. */
+export function runningGrade(state) {
+  if (!state || !state.flags || !state.flags.seasons || pageClosed(state)) return null;
+  const g = gradeYear(state);
+  return { grade: g.grade, seal: GRADE_WORDS[g.grade].seal, missing: gradeMissing(g) };
+}
+
+/** The calendar's tooltip line: «Отметка года пока: сносно · не хватает: спор» (null with the seasons off). */
+export function gradeLine(state) {
+  const r = runningGrade(state);
+  if (!r) return null;
+  return `Отметка года пока: ${r.seal} · ${r.missing.length ? `не хватает: ${r.missing.join(', ')}` : 'всё как надо'}`;
+}
+
+const TO_SEASON = { summer: 'К лету', autumn: 'К осени', winter: 'К зиме' };
+
+/** The margin note at a season change: { key, text, tone } or null: «К зиме: сносно — не хватает спор». Calm: green when the year is fair or better, plain ink when it is poor. */
+export function seasonGradeNote(state, season) {
+  const r = TO_SEASON[season] && runningGrade(state);
+  if (!r) return null;
+  const tail = r.missing.length ? `не хватает ${r.missing.join(', ')}` : 'всё как надо';
+  return { key: `grade:${season}`, text: `${TO_SEASON[season]}: ${r.seal} — ${tail}`, tone: r.grade === 'poor' ? '' : 'good', icon: 'check' };
+}
+
 const minutes = (sec) => {
   const m = Math.max(1, Math.round(sec / 60));
   return `${m} ${ruPlural(m, 'минуту', 'минуты', 'минут')}`;

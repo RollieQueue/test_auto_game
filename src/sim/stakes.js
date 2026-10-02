@@ -1,12 +1,19 @@
 // Stakes: the grade of a year and the fair loss «страница закрыта». Pure data in state.flags (saved with the game, no codec change):
 //   flags.yearSnap   the counters at the end of the last year (what «this year» is measured from)
 //   flags.yearGrades the grades of the years that ended, newest last: { year, score, grade, ... }
+//   flags.gradeNoteAt the serial of the last season that said the running grade in a margin note (event 'season-grade')
 //   flags.noAlly     seconds the network has had no living ally (see allies)
 //   flags.pageClosed { cause: 'grove' | 'allies', time, year, chapter } once the page has closed; the sim stands still after that
 // The numbers are B.stakes in balance.js. Nothing here fires before chapter B.stakes.fromChapter.
 import { B } from './balance.js';
 
 export const GRADES = ['poor', 'fair', 'good', 'great'];
+
+/**
+ * The seasons that open with the running grade in a margin note ('season-grade' event). Not spring (a year ends there and its page
+ * speaks) and not summer (a quarter of a year in, nothing is earned yet and every grade would read «тяжело»).
+ */
+export const GRADE_NOTE_SEASONS = ['autumn', 'winter'];
 
 /** Stakes are on with threats from page `fromChapter` of the notebook on (page 1 is for learning). */
 export const stakesOn = (state) => Boolean(state.flags && state.flags.threats) && (state.chapter ?? 1) >= B.stakes.fromChapter;
@@ -130,7 +137,16 @@ function closePage(state, cause) {
  */
 export function stepStakes(state, dt) {
   const { flags, events } = state;
+  const notes = [];
   for (const ev of events) {
+    if (ev.type === 'season' && GRADE_NOTE_SEASONS.includes(ev.season)) {
+      // once per season (the serial of the season is saved, so a reload inside it never says it again)
+      const at = state.sim && state.sim.marks ? state.sim.marks.season : NaN;
+      if (!(at <= (flags.gradeNoteAt ?? -1))) {
+        if (Number.isFinite(at)) flags.gradeNoteAt = at;
+        notes.push({ type: 'season-grade', season: ev.season });
+      }
+    }
     if (ev.type !== 'year-end') continue;
     const g = gradeYear(state);
     const grades = flags.yearGrades || [];
@@ -138,6 +154,7 @@ export function stepStakes(state, dt) {
     flags.yearGrades = grades.slice(-8);
     flags.yearSnap = snapshot(state);
   }
+  events.push(...notes);
   if (!stakesOn(state) || flags.pageClosed) return;
   if (livingTrees(state) === 0) {
     closePage(state, 'grove');
