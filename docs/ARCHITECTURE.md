@@ -18,7 +18,11 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
 - `window.__game` exposes `{ state, view, sim, actions, renderer, hud, audio }` for browser automation.
 - `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit'|'trap'|'barrier')`,
   `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`, `hasSave()`, `continueSaved()` (loads the saved
-  game and plays it; returns false when there is none). Keyboard shortcuts live in the UI task.
+  game and plays it; returns false when there is none), `setVolume(0..1)`, `setReducedMotion(bool)`. Keyboard shortcuts live in the UI task.
+- Settings of the pause page (src/ui/settings.js; localStorage `roots-threads.settings.volume` / `.reduceMotion`, the
+  latter defaulting to `prefers-reduced-motion`) are applied at boot and on change: `audio.setVolume(v)` sets the master
+  gain (0.9·v²; `M` still mutes), `render/motion.js` `reducedMotion()` is read by the renderer to stop sway, falling
+  leaves, clouds, rain/snow, twinkles, the season wash, sparks and flashes. The sim never reads either.
 - Seasons with day/night (`state.flags.seasons`) and soil threats (`state.flags.threats`) are on in the game by
   default; `?seasons=0` / `?threats=0` turn them off. The honey-fungus rival (`state.flags.rival`) rides with the threats;
   `?rival=0` turns it off, `?rival=1` wakes it at once. Tests that build a state with `createState` get both off
@@ -189,6 +193,12 @@ state.weather = { kind: 'clear' | 'rain' | 'drought' | 'snow', intensity /* 0..1
 // events: { type: 'dawn' } | { type: 'dusk' } | { type: 'season', season } | { type: 'weather', kind }
 //         | { type: 'year-end', year }   (then state.flags.yearDone = true; play may continue)
 ```
+
+The day count (`clockAt(t, firstDusk)` in src/sim/clock.js): a new game records `state.flags.firstDusk = B.newGameDusk`
+(80 s), starts at first light (`B.newGameStart`, dayFrac 0.27) and stretches its first morning so the first dusk comes at
+80 s; later days last `B.daySeconds`. A save without the flag (made before this) keeps the old clock: dayFrac
+`B.startDayFrac + t / B.daySeconds` (decodeState drops the fresh state's flag before applying the saved flags).
+Seasons, weather and the night pay floor are keyed to game time `t`, not to the day count.
 
 Season rules (numbers in `src/sim/balance.js`): spring rains refill water pockets, summer drought slows
 regeneration and makes trees thirstier, autumn fruiting (mushrooms grow faster, spores ×3), winter dormancy
