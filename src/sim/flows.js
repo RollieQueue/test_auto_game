@@ -64,6 +64,14 @@ export function recomputeFlows(state, dt) {
   for (const h of net.growing) push(origin, h.lastNode, 'sugar', h.segCost[h.seg] * B.growSpeed);
   for (const m of mushrooms) push(origin, m.nodeId, 'sugar', m.mature ? B.mushroomMatureSugar : B.mushroomGrowSugar);
 
+  // Feeding a tree («Подкормка», sim/feed.js): the surplus sugar runs from the spore to the fed tree's contact. Pushed last, so it
+  // never crowds out a real flow when maxFlows is reached; it moves nothing extra, so it does not thicken the cords either.
+  const fed = state.feed;
+  if (fed && fed.rate > B.feedFlowMin) {
+    const contacts = sim.contacts[fed.treeId];
+    if (contacts && contacts.length > 0) push(origin, bestNode(net, contacts), 'feed', fed.rate);
+  }
+
   state.flows = flows;
   thicken(state, flows, dt);
 }
@@ -74,6 +82,7 @@ function thicken(state, flows, dt) {
   if (flows.length === 0) return;
   const load = new Map();
   for (const f of flows) {
+    if (f.kind === 'feed') continue;
     const p = f.path;
     for (let i = 0; i + 1 < p.length; i++) {
       const lo = net.nodes[p[i]].parent === p[i + 1] ? p[i] : p[i + 1];

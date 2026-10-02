@@ -14,7 +14,7 @@ const optional = (path) =>
   });
 // illustrations (assets/art): loaded in the background; startup waits for them only briefly, and never fails without them
 const spritesLoaded = Promise.race([loadSprites(), new Promise((ok) => setTimeout(ok, 2500))]);
-const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod, faunaMod, rivalMod] = await Promise.all([
+const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod, ambientMod, atmosMod, faunaMod, rivalMod, feedMarkMod] = await Promise.all([
   optional('./trees.js'),
   optional('./mushrooms.js'),
   optional('./deposits.js'),
@@ -26,6 +26,7 @@ const [treesMod, mushMod, depositsMod, mycMod, flowsMod, effectsMod, feedbackMod
   optional('./atmosphere.js'),
   optional('./fauna.js'),
   optional('./rival.js'),
+  optional('./feed-mark.js'),
   spritesLoaded,
 ]);
 
@@ -84,6 +85,7 @@ export function createRenderer(canvas) {
   const rival = add('rival', rivalMod?.createRival); // honey fungus: stump, rhizomorphs, rot stains, barriers (state.rival / state.barriers)
   const refs = { trees: trees?.api, mushrooms: mushrooms?.api, mycelium: mycelium?.api };
   fauna?.api.attach?.(refs);
+  const feedMark = add('feedMark', feedMarkMod?.createFeedMark); // «Подкормка»: the golden drop and «+N/с» at the fed tree's foot (state.feed)
   let modsWorld = null;
   let modsKey = '';
   let warmWorld = null;
@@ -335,6 +337,7 @@ export function createRenderer(canvas) {
     call(rival, 'drawSurface', ctx, state, t, dt); // the old stump and honey-mushroom tufts stand over the tree trunks
     call(ambient, 'draw', ctx, state, t, dt, frame);
     call(mushrooms, 'draw', ctx, state, t, dt);
+    call(feedMark, 'draw', ctx, state, t, dt, frame); // on the grass beside the fed tree's foot, clear of the rot ring and its infection mark
     call(fauna, 'drawTop', ctx, state, t, dt); // ghosts of mushrooms that wilted when their node was cut off
     call(atmos, 'drawOver', ctx, state, t, dt);
     call(feedback, 'draw', ctx, state, t, dt, frame);

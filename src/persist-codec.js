@@ -17,7 +17,7 @@ export const SAVE_VERSION = 1;
 
 const CELL = 40; // keep equal to the grid cell of src/sim/network.js (the tests compare the rebuilt grid)
 const KINDS = ['water', 'mineral', 'tree'];
-const FLOW_KINDS = ['water', 'mineral', 'sugar'];
+const FLOW_KINDS = ['water', 'mineral', 'sugar', 'feed'];
 // state.sim members that are rebuilt from the network; every other member is saved as it is.
 const DERIVED = new Set(['rng', 'cells', 'parentEdge', 'waterLinks', 'mineralLinks', 'contacts', 'tipClaimed']);
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);

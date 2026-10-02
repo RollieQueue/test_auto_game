@@ -136,6 +136,13 @@ export function applyFixture(state, opts = {}) {
   ];
   world.trees.forEach((t, i) => Object.assign(t, look[i % 3]));
 
+  // one linked tree is fed («Подкормка»): the golden flow from the spore and the mark at its foot
+  const fedLink = net.links.find((lk) => lk.kind === 'tree' && world.trees[lk.targetId]?.linked);
+  if (fedLink) {
+    state.feed = { treeId: fedLink.targetId, rate: 1.4 };
+    state.flows.push({ from: 0, to: fedLink.nodeId, kind: 'feed', rate: 1.4, path: pathUp(fedLink.nodeId).reverse() });
+  }
+
   // half-depleted deposits
   world.water.forEach((d, i) => (d.amount = d.max * [0.95, 0.6, 0.3, 0.1, 0][i % 5]));
   world.minerals.forEach((d, i) => (d.amount = d.max * [1, 0.55, 0.2, 0.7, 0.05][i % 5]));

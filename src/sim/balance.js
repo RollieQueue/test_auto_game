@@ -112,6 +112,7 @@ export const B = {
   // only from what lies above feedFrom x cap.sugar (and what the cap would throw away), at up to feedRate sugar/s.
   feedFrom: 0.8, // share of cap.sugar above which sugar may be given away; the stock is never pushed under it
   feedRate: 2, // sugar/s at most
+  feedFlowMin: 0.05, // sugar/s from which the feeding shows on the scene (a golden flow along the network, a mark at the tree's foot)
   feedGrowSeconds: 0.5, // seconds of full-health growth one fed sugar buys (x the tree's own speed): at most 2x faster
   feedMantle: 0.03, // share of the gap to a full mantle one fed sugar closes (honey fungus on)
 

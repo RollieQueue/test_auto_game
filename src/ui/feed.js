@@ -13,7 +13,7 @@ export const treeDative = (tree) => (tree && DATIVE[tree.species]) || 'дере�
 const treeName = (tree) => (tree && tree.name ? String(tree.name) : 'Дерево');
 
 /** «1,2» for a rate: one decimal below 10. */
-const rateText = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',');
+export const rateText = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',');
 
 /** The tree being fed, or null. */
 export const fedTreeOf = (state) => {

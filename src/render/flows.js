@@ -1,5 +1,5 @@
 // Flows: little glowing beads running along the hyphae. Water blue, minerals violet (phosphorus) or olive (nitrogen),
-// sugar amber. Each flow keeps only a phase; positions are walked along the node path every frame.
+// sugar amber; fed sugar («Подкормка», kind 'feed') is a slower, larger, yellower-gold pulse over a faint glowing thread. Each flow keeps only a phase; positions are walked along the node path every frame.
 import { makeCanvas, rgba } from './ink.js';
 
 const KINDS = {
@@ -7,6 +7,7 @@ const KINDS = {
   sugar: { halo: '#ffa22a', core: '#fff0bd' },
   mineral: { halo: '#a46bff', core: '#efe2ff' },
   nitrogen: { halo: '#b4ca34', core: '#f4fbb8' },
+  feed: { halo: '#ffd23a', core: '#fffbe2' }, // yellower than the sugar's amber, and drawn bigger and slower (see below)
 };
 
 const beadCache = new Map();
@@ -34,6 +35,52 @@ function bead(kind) {
     beadCache.set(kind, c);
   }
   return c;
+}
+
+/** The fed-sugar flow: a faint golden glow along the whole path and big soft drops drifting slowly, breathing in size. */
+function drawFeed(ctx, st, f, adv, night, t) {
+  const k = KINDS.feed;
+  const spacing = 64;
+  const speed = 22 + 6 * Math.sqrt(Math.max(0.05, f.rate));
+  st.off = (st.off + speed * adv) % spacing;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(st.xs[0], st.ys[0]);
+  for (let i = 1; i < st.n; i++) ctx.lineTo(st.xs[i], st.ys[i]);
+  ctx.globalAlpha = 0.2 + 0.05 * night;
+  ctx.strokeStyle = rgba(k.halo, 1);
+  ctx.lineWidth = 13;
+  ctx.stroke();
+  // a thin warm-gold thread over the glow: it stays gold where many bright sugar beads cross the same hyphae
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = '#e8a41c';
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'lighter';
+  const b = bead('feed');
+  let seg = 1;
+  for (let s = st.off; s < st.len; s += spacing) {
+    while (seg < st.n - 1 && st.cum[seg] < s) seg++;
+    const c0 = st.cum[seg - 1];
+    const c1 = st.cum[seg];
+    const u = c1 > c0 ? (s - c0) / (c1 - c0) : 0;
+    const x = st.xs[seg - 1] + (st.xs[seg] - st.xs[seg - 1]) * u;
+    const y = st.ys[seg - 1] + (st.ys[seg] - st.ys[seg - 1]) * u;
+    const edge = Math.min(1, s / 30, (st.len - s) / 30);
+    if (edge <= 0) continue;
+    const breath = 1 + 0.16 * Math.sin(t * 2.1 - s * 0.045);
+    const r = 17 * breath * (1 + 0.25 * night);
+    ctx.globalAlpha = Math.min(1, 0.8 * edge);
+    ctx.drawImage(b.halo, x - r, y - r, r * 2, r * 2);
+    const rc = 5.4 * breath;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = edge;
+    ctx.drawImage(b.core, x - rc, y - rc, rc * 2, rc * 2);
+    ctx.globalCompositeOperation = 'lighter';
+  }
 }
 
 export function createFlows() {
@@ -96,6 +143,10 @@ export function createFlows() {
         }
         if (st.n < 2 || st.len < 4) continue;
         const rate = Math.max(0.05, f.rate);
+        if (f.kind === 'feed') {
+          drawFeed(ctx, st, f, adv, night, t);
+          continue;
+        }
         const spacing = Math.max(26, Math.min(120, 120 / (1 + 1.1 * Math.sqrt(rate))));
         const speed = 34 + 16 * Math.sqrt(rate);
         st.off = (st.off + speed * adv) % spacing;
