@@ -2,6 +2,7 @@
 // Pure data in, pure data out (tested in tests/stakes.test.mjs).
 import { B } from '../sim/balance.js';
 import { allies, gradeClosed, gradeYear, pageClosed, stakesOn } from '../sim/stakes.js';
+import { isUnlocked } from '../sim/unlocks.js';
 import { ruPlural } from './threats.js';
 
 const nf = new Intl.NumberFormat('ru-RU');
@@ -35,6 +36,10 @@ const ADVICE = {
   pages: 'доведи страницу наблюдений до конца',
   rival: 'не отдавай деревья опёнку, освобождай их барьером (4)',
 };
+/** The same advice while «Подкормка» is still closed (page 1 not written yet): it names what opens the tool instead. */
+const ADVICE_LOCKED = {
+  alive: 'береги деревья от опёнка барьером (4); допиши первую страницу — она откроет подкормку (5)',
+};
 
 /** A part that is full or nearly (ratio from here on) is a reason «за». */
 const PRAISED = 0.6;
@@ -46,8 +51,8 @@ export function gradeReason(g) {
   return `за: ${good.map((p) => PRAISE[p.id](g.facts)).join(', ')}`;
 }
 
-/** «На будущий год: …»: the part that lost the most points, or what holds the grade back. */
-export function gradeNext(g) {
+/** «На будущий год: …»: the part that lost the most points, or what holds the grade back. `feedOpen` false: «Подкормка» is still locked. */
+export function gradeNext(g, feedOpen = true) {
   let id;
   if (g.capped === 'lost' || g.capped === 'ruin') id = 'alive';
   else {
@@ -55,13 +60,13 @@ export function gradeNext(g) {
     const worst = g.parts.slice().sort((a, b) => gap(b) - gap(a))[0];
     id = gap(worst) >= 0.5 ? worst.id : null;
   }
-  return id ? `На будущий год: ${ADVICE[id]}` : 'На будущий год: так держать, береги рощу';
+  return id ? `На будущий год: ${(!feedOpen && ADVICE_LOCKED[id]) || ADVICE[id]}` : 'На будущий год: так держать, береги рощу';
 }
 
-/** Everything the year page and the closed page print about a grade. */
-export function gradeLines(g) {
+/** Everything the year page and the closed page print about a grade (`state`, when given, tells whether «Подкормка» is open). */
+export function gradeLines(g, state = null) {
   const w = GRADE_WORDS[g.grade];
-  return { ...w, grade: g.grade, score: g.score, reason: gradeReason(g), next: gradeNext(g) };
+  return { ...w, grade: g.grade, score: g.score, reason: gradeReason(g), next: gradeNext(g, !state || isUnlocked(state, 'feed')) };
 }
 
 /** The grade of the year that has ended (the sim stored it at the year end: it survives a reload), else of the year so far. */
@@ -137,6 +142,9 @@ export function closedCause(state) {
 export function closedAdvice(state) {
   const c = pageClosed(state);
   if (!c) return '';
+  if (c.cause === 'grove' && !isUnlocked(state, 'feed')) {
+    return 'На будущий раз: опёнок идёт к деревьям, которым ты помогаешь; барьер (4) бережёт их корни, а дописанная первая страница откроет подкормку (5).';
+  }
   return c.cause === 'grove'
     ? 'На будущий раз: опёнок идёт к деревьям, которым ты помогаешь; барьер (4) и подкормка (5) берегут их корни.'
     : 'На будущий раз: корень дерева — единственный союзник, потерянную связь тяни заново сразу.';
@@ -154,7 +162,7 @@ export function closedStats(state) {
     length: Math.round(state.stats.hyphaeLength),
     lost: trees.filter((t) => t.lost).length,
     total: trees.length,
-    grade: gradeLines(g),
+    grade: gradeLines(g, state),
   };
 }
 

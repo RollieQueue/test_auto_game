@@ -2,11 +2,12 @@
 // the common network, as carbon goes to a mother tree in Simard's forests. Only what lies above B.feedFrom x cap.sugar moves (the
 // stock is never pushed under that line), at up to B.feedRate sugar/s. Fed sugar speeds the tree's growth and, with the honey
 // fungus on, thickens its mantle. state.feed = null | { treeId, rate } (rate: smoothed sugar/s moved, for the HUD; only treeId is
-// saved). Events: feed-start { treeId }, feed-stop { treeId, reason: 'player' | 'lost' | 'unlinked' }, feed-denied { treeId, reason }.
+// saved). Events: feed-start { treeId }, feed-stop { treeId, reason: 'player' | 'lost' | 'unlinked' }, feed-denied { treeId, reason: 'none' | 'lost' | 'unlinked' | 'locked' }.
 import { clamp } from '../core/geom.js';
 import { B, pressure, treeFx } from './balance.js';
 import { recheckTips } from './network.js';
 import { treeBarred } from './rival.js';
+import { isUnlocked } from './unlocks.js';
 
 const RATE_TAU = 2; // s: smoothing of the shown rate
 const MANTLE_FULL = 0.99; // a mantle this thick needs no more
@@ -30,9 +31,12 @@ export function fedTree(state) {
   return f ? state.world.trees[f.treeId] || null : null;
 }
 
-/** Is any tree there to feed (the tool tab is shown)? A tree that is linked and alive. */
+/** Page 1 is closed (or the notebook has no pages): the tool exists. */
+export const feedUnlocked = (state) => isUnlocked(state, 'feed');
+
+/** Is any tree there to feed (the tool tab is shown)? A tree that is linked and alive, once page 1 is closed. */
 export function canFeedAny(state) {
-  return state.world.trees.some((t) => feedDenial(state, t.id) === null);
+  return feedUnlocked(state) && state.world.trees.some((t) => feedDenial(state, t.id) === null);
 }
 
 /** Picking the fed tree again stops the feeding; another tree takes it over. Returns 'on' | 'switch' | 'off', or false when refused. */
@@ -43,7 +47,7 @@ export function commandFeed(state, treeId) {
     state.events.push({ type: 'feed-stop', treeId, reason: 'player' });
     return 'off';
   }
-  const why = feedDenial(state, treeId);
+  const why = feedUnlocked(state) ? feedDenial(state, treeId) : 'locked';
   if (why) {
     state.events.push({ type: 'feed-denied', treeId: Number.isInteger(treeId) ? treeId : -1, reason: why });
     return false;

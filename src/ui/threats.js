@@ -69,9 +69,10 @@ export function describeTrapPick(pick, cost, sugarHave) {
   }
 }
 
-/** The title of the tool tab. */
-export function trapTabTitle(cost) {
-  return `Ловчее кольцо (3): цена ${sugarWord(cost)}. Нематоды застревают в нём, а ты получаешь их минералы`;
+/** The title of the tool tab; `digest` (s) is given once page 2 is closed: the ring is ready again that soon after a catch. */
+export function trapTabTitle(cost, digest = 0) {
+  const more = digest > 0 ? `. Крепкое кольцо: после улова снова готово через ${Math.round(digest)} с` : '';
+  return `Ловчее кольцо (3): цена ${sugarWord(cost)}. Нематоды застревают в нём, а ты получаешь их минералы${more}`;
 }
 
 // ---- chapters --------------------------------------------------------------------------------------------

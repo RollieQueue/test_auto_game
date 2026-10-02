@@ -6,6 +6,8 @@ import { SEASONS, SEASON_NAMES_RU, SEASON_RULES } from './season-logic.js';
 import { chapterTotal, fruitCostOf, threatsOn, trapCost } from './threats.js';
 import { barrierCostOf, rivalNumbers } from './rival.js';
 import { speciesHelp } from './species-logic.js';
+import { isUnlocked } from '../sim/unlocks.js';
+import { pageOrdinal, unlockHelpItems } from './unlocks.js';
 
 const FALLBACK_HORIZONS = [
   { name: 'Лесная подстилка', depth: 0, cost: 0.1 },
@@ -42,6 +44,18 @@ function seasonsSection(state) {
         </section>`;
 }
 
+/** The list «Что открывает страница»: what each closed page gave (open ones plain, the rest marked). */
+function unlockList(state) {
+  const rows = unlockHelpItems(state)
+    .map((u) => {
+      const ord = pageOrdinal(u.page);
+      return `<li>За ${ord} страницу: ${u.html}.${u.open ? '' : ' <i>Ещё закрыто.</i>'}</li>`;
+    })
+    .join('');
+  return `<p>Закрытая страница открывает что-то новое:</p>
+          <ul class="help-seasons">${rows}</ul>`;
+}
+
 /** «Нематоды и кольца» and «Главы»: shown only when the soil threats are on. */
 function threatsSection(state) {
   if (!threatsOn(state)) return '';
@@ -59,6 +73,7 @@ function threatsSection(state) {
           <h3>Главы</h3>
           <p>Закончив страницу наблюдений, переверни её: на новой странице наблюдения труднее. Всего в тетради
           ${chapterTotal(state)} главы. Номер главы написан над списком наблюдений.</p>
+          ${unlockList(state)}
         </section>`;
 }
 
@@ -105,7 +120,8 @@ export function buildHelp(state) {
   const goal = Math.round(B.sporesGoal ?? 100);
   const speed = Math.round(B.growSpeed ?? 140);
   const threats = threatsOn(state);
-  const keys = KEYS.map(([a, b, text]) => {
+  const feedOpen = !(state && state.flags) || isUnlocked(state, 'feed'); // key 5 is on the page once page 1 is closed
+  const keys = KEYS.filter(([a]) => a !== '5' || feedOpen).map(([a, b, text]) => {
     const toolKeys = a === '1' && threats; // «1 2 3 нить / гриб / кольцо», «1 2 3 4 …/ барьер» with the rival
     const four = toolKeys && rivalFlag(state);
     return `<li><span class="kk"><kbd>${a}</kbd>${b ? ` <kbd>${b}</kbd>` : ''}${toolKeys ? ' <kbd>3</kbd>' : ''}${four ? ' <kbd>4</kbd>' : ''}</span><span>${toolKeys ? (four ? 'нить / гриб / кольцо / барьер' : 'нить / гриб / кольцо') : text}</span></li>`;

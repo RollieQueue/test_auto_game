@@ -2,6 +2,8 @@
 // notebook goes on: when a page is complete the next one opens (chapters 2 and 3, harder ones), and the last page
 // closes the book. state.objectives always holds the current page; state.chapter says which.
 import { B } from './balance.js';
+import { checkFinds } from './finds.js';
+import { grantUnlocks } from './unlocks.js';
 
 export const OBJECTIVES = [
   { id: 'water', text: 'Дотянуться до воды' },
@@ -209,7 +211,8 @@ export function objectiveCount(state, id) {
  * Ticks the current page. When it is complete: `all-objectives { chapter }`; with threats on, the next page opens
  * (`chapter { chapter }`, state.chapter, state.objectives) or, after the last, flags.bookDone. flags.allObjectivesDone
  * means «page 1 is complete» and stays true (without threats there is only page 1, as before); flags.pagesDone counts
- * the completed pages (threats only).
+ * the completed pages (threats only). A closed page gives something new (src/sim/unlocks.js): `unlock { key, page }` for
+ * every key the closing opened, before the next page's `chapter` event.
  */
 export function stepObjectives(state, dt = 0) {
   const { flags, events } = state;
@@ -237,6 +240,11 @@ export function stepObjectives(state, dt = 0) {
   events.push({ type: 'all-objectives', chapter: n });
   if (!chapters) return;
   flags.pagesDone = n;
+  for (const key of grantUnlocks(state, n)) {
+    events.push({ type: 'unlock', key, page: n });
+    // the wider find radius takes in what the net already touches
+    if (key === 'finds') for (const node of state.net.nodes) if (node.alive) checkFinds(state, node);
+  }
   if (n < B.chapterCount) {
     openPage(state, n + 1);
   } else {

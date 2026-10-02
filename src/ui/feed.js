@@ -21,10 +21,10 @@ export const fedTreeOf = (state) => {
   return f && state.world ? state.world.trees[f.treeId] || null : null;
 };
 
-/** The «Подкормка» tab and key 5 exist once a tree is linked (or is being fed). */
+/** The «Подкормка» tab and key 5 exist once page 1 is closed (sim.feedUnlocked) and a tree is linked (or is being fed). */
 export function feedTabShown(state) {
   if (!state || !state.world || !state.sim) return false;
-  return Boolean(state.feed) || sim.canFeedAny(state);
+  return sim.feedUnlocked(state) && (Boolean(state.feed) || sim.canFeedAny(state));
 }
 
 /** Title (tooltip) of the tool tab. */

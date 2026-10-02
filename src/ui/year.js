@@ -26,7 +26,7 @@ export function buildYearPage(state, year, extra = {}) {
   const world = (state.world && state.world.trees) || [];
   // a tree the honey fungus killed stands as a snag (world.trees keeps the order of yearStats().trees)
   const trees = s.trees.map((t, i) => `<li><span class="k">${esc(t.name)}</span><span class="v">${esc(world[i] && world[i].lost ? 'сухостой' : t.word)}</span></li>`).join('');
-  const mark = gradeLines(yearGrade(state, year));
+  const mark = gradeLines(yearGrade(state, year), state);
   return `
     <div class="stamp-seal g-${mark.grade}">${mark.seal}</div>
     <div class="overline">Тетрадь натуралиста · итог года</div>

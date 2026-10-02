@@ -9,12 +9,12 @@ import { createObjectives, stepObjectives } from './objectives.js';
 import { initTime, stepTime } from './clock.js';
 import { canTrap, commandTrap, pickTrapNode, stepThreats, trapDenial } from './threats.js';
 import { stepStakes } from './stakes.js';
-import { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUseful, fedTree } from './feed.js';
+import { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUnlocked, feedUseful, fedTree } from './feed.js';
 import { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode, stepRival } from './rival.js';
 
 export { commandGrow, estimateGrowth, canFruit, commandFruit, mushroomCost, pickFruitNode, canTrap, commandTrap, pickTrapNode, trapDenial };
 export { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode };
-export { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUseful, fedTree };
+export { canFeedAny, commandFeed, feedDenial, feedThreshold, feedUnlocked, feedUseful, fedTree };
 export { barrierEffects, raiders, treeBarred } from './rival.js';
 
 export function initSim(state) {

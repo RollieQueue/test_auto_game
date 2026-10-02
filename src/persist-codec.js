@@ -7,6 +7,7 @@ import { GENERATIONS } from './world/generate.js';
 import { createSimData, pathBetween } from './sim/network.js';
 import { restoreTime } from './sim/clock.js';
 import { rescanFinds } from './sim/finds.js';
+import { syncUnlocks } from './sim/unlocks.js';
 import { createObjectives } from './sim/objectives.js';
 
 // The payload shape did not change when the world generator got a version (`gen`, see encodeState), so the version stays:
@@ -361,6 +362,8 @@ export function decodeState(p) {
   restoreWorld(state.world, p);
   state.mushrooms = decodeValue(p.mushrooms);
   restoreFinds(state, p);
+  // a save that has no flag for a page it closed (made before pages gave something) gets the unlocks of its closed pages
+  if (syncUnlocks(state).includes('finds')) rescanFinds(state);
   state.flows = p.flows.map(([from, to, kind, rate]) => ({ from, to, kind, rate, path: pathBetween(net, from, to) }));
   sim.rng.setState(p.sim.rng);
   assignPlain(sim, decodeValue(p.sim.rest));

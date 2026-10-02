@@ -107,6 +107,7 @@ export const B = {
   // --- Finds (world.decor items touched by a hypha node; rewards by rarity 1..4, see src/content/finds.js) ---
   findRadiusBase: 8, // a node within base + perScale * decor.scale of an item discovers it
   findRadiusPerScale: 10,
+  findRadiusPage3: 1.5, // x the radius once page 3 is closed (state.flags.unlocks.finds, src/sim/unlocks.js)
   findSugar: [4, 8, 14, 24], // one-off sugar (never above the sugar cap)
   findSpores: [0, 0, 1, 3], // one-off spores: rare finds only
 
@@ -165,6 +166,7 @@ export const B = {
   trapGrowSeconds: 2.5, // s until the ring is armed
   trapCharges: 3, // worms one ring can digest before it dies
   trapDigestSeconds: 14, // s after a catch during which the ring catches nothing
+  trapDigestSecondsPage2: 7, // ... once page 2 is closed (state.flags.unlocks.trap, src/sim/unlocks.js)
   trapMinerals: 8, // minerals (nitrogen) per worm, into the pool up to its cap
 
   // --- Rival (state.flags.rival, src/sim/rival.js): the honey fungus (Armillaria). Black rhizomorphs creep from old stumps

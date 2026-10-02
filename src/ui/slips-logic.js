@@ -19,7 +19,7 @@ export const slipOf = (mark) => ({ id: mark.id, icon: mark.icon, title: mark.tit
 
 /**
  * The slips on screen. `push(item)` queues a slip ({ id, ... }; an id that is already queued or showing is ignored);
- * `tick(dt)` returns { enter, leave, gone }: the items that should appear, start leaving and be removed now. At most
+ * (an item may carry its own `life`, in seconds); `tick(dt)` returns { enter, leave, gone }: the items that should appear, start leaving and be removed now. At most
  * `max` slips are on screen (leaving ones included, so the stack never grows past it); the others wait.
  */
 export function createSlipQueue({ life = SLIP_LIFE, leave = SLIP_LEAVE, max = SLIP_MAX } = {}) {
@@ -37,13 +37,13 @@ export function createSlipQueue({ life = SLIP_LIFE, leave = SLIP_LEAVE, max = SL
       const out = { enter: [], leave: [], gone: [] };
       for (const a of active) {
         a.age += dt;
-        if (!a.leaving && a.age >= life) {
+        if (!a.leaving && a.age >= (a.item.life ?? life)) {
           a.leaving = true;
           out.leave.push(a.item);
         }
       }
       active = active.filter((a) => {
-        if (a.leaving && a.age >= life + leave) {
+        if (a.leaving && a.age >= (a.item.life ?? life) + leave) {
           out.gone.push(a.item);
           return false;
         }

@@ -28,6 +28,8 @@ import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn
 import { initSettingsPanel } from './settings.js';
 import { createMarks } from './marks.js';
 import { createSlips } from './slips.js';
+import { UNLOCK_PAGE, isUnlocked } from '../sim/unlocks.js';
+import { summaryUnlockLine, unlockSlip } from './unlocks.js';
 import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
@@ -224,6 +226,7 @@ export function createHud(root, actions) {
         <h2 data-sum="title">Поляна изучена</h2>
         <div class="sub" data-sum="sub">все наблюдения отмечены</div>
         <div class="glade-line" data-glade="summary"></div>
+        <div class="glade-line unlock-line" data-sum="unlock"></div>
         ${flourish}
         <ul class="stats">
           <li><span class="k">Споры</span><span class="v" data-s="spores"></span></li>
@@ -314,6 +317,7 @@ export function createHud(root, actions) {
     overline: q('[data-sum="overline"]'),
     title: q('[data-sum="title"]'),
     sub: q('[data-sum="sub"]'),
+    unlock: q('[data-sum="unlock"]'),
     button: q('[data-sum="button"]'),
     page: q('[data-sum="page"]'),
   };
@@ -453,6 +457,7 @@ export function createHud(root, actions) {
   let caught = 0; // worms caught and nodes lost in this game (the summary page tells them)
   let lostNodes = 0;
   let freedTrees = 0; // trees the honey fungus let go of in this game (the summary and year pages tell them)
+  let seenUnlocks = new Set(); // the unlocks (state.flags.unlocks) the player has been told of by a slip; a loaded game starts with its own
   let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
   let objHold = 0; // s the card stays open after the pointer left it
   let objQuiet = 0; // s the card stays folded after the honey fungus woke (the stump and its label must show)
@@ -491,6 +496,7 @@ export function createHud(root, actions) {
     closedOpen = false;
     pendingYear = null;
     prevChapter = chapterOf(state);
+    seenUnlocks = new Set(Object.keys((state.flags && state.flags.unlocks) || {}));
     muteDoneFlag = false;
     caught = 0;
     lostNodes = 0;
@@ -535,6 +541,7 @@ export function createHud(root, actions) {
     sumEls.overline.textContent = t.overline;
     sumEls.title.textContent = t.title;
     sumEls.sub.textContent = t.sub;
+    sumEls.unlock.textContent = summaryUnlockLine(state, completed); // what the closed page gave (empty: the line hides)
     sumEls.seal.innerHTML = t.seal;
     sumEls.button.textContent = t.button;
     sumEls.page.classList.toggle('chapter', threatsOn(state));
@@ -1102,11 +1109,16 @@ export function createHud(root, actions) {
   /** The ring tab and the «3» of the title page exist only while the soil threats are on. */
   function updateThreatTab(state) {
     const on = threatsOn(state);
-    if (shown.threats === on) return;
-    shown.threats = on;
-    el.trapTab.hidden = !on;
-    el.kbd3.hidden = !on;
-    el.trapTab.title = trapTabTitle(trapCost(balance.B));
+    if (shown.threats !== on) {
+      shown.threats = on;
+      el.trapTab.hidden = !on;
+      el.kbd3.hidden = !on;
+    }
+    const title = trapTabTitle(trapCost(balance.B), on && isUnlocked(state, 'trap') ? balance.B.trapDigestSecondsPage2 : 0); // page 2 closed: the sturdier ring
+    if (shown.trapTitle !== title) {
+      shown.trapTitle = title;
+      el.trapTab.title = title;
+    }
   }
 
   /** The barrier tab and key 4 exist once the honey fungus is awake; its title carries the price now (it can grow with the barriers standing). */
@@ -1154,6 +1166,18 @@ export function createHud(root, actions) {
     el.slipHint.textContent = slip ? slip.hint : '';
     el.slip.dataset.tone = slip ? slip.tone : '';
   }
+  /** A page that gave something new says so on a slip, once the summary (or any page) that opened with it is closed. */
+  function updateUnlocks(state) {
+    if (!threatsOn(state) || !phaseShowsSlip(state)) return;
+    const have = (state.flags && state.flags.unlocks) || {};
+    for (const key of Object.keys(UNLOCK_PAGE)) {
+      if (!have[key] || seenUnlocks.has(key)) continue;
+      seenUnlocks.add(key);
+      const item = unlockSlip(key);
+      if (item) slips.show(item);
+    }
+  }
+
   const phaseShowsSlip = (state) => state.phase === 'playing' && !yearOpen && !summaryOpen && !helpOpen && !atlasOpen;
 
   /** Counts the trees freed from the honey fungus for the summary and year pages. */
@@ -1277,6 +1301,7 @@ export function createHud(root, actions) {
         openClosed(state);
       }
       updateSlip(state);
+      updateUnlocks(state);
       if (pendingYear !== null && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen) {
         openYear(state, pendingYear);
         pendingYear = null;

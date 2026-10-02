@@ -13,6 +13,8 @@ export function createSlips(host) {
     el.className = 'slip';
     el.innerHTML = `<span class="slip-ico"></span><span class="slip-text"><span class="slip-kicker">Пометка на полях</span><b class="slip-title"></b><span class="slip-line"></span></span>`;
     el.querySelector('.slip-ico').innerHTML = icons[item.icon] || icons.mk_fruit || '';
+    if (item.kicker) el.classList.add('gift');
+    if (item.kicker) el.querySelector('.slip-kicker').textContent = item.kicker; // a page's gift: «Страница закрыта», not «Пометка на полях»
     el.querySelector('.slip-title').textContent = item.title;
     el.querySelector('.slip-line').textContent = item.line;
     host.appendChild(el);
@@ -22,7 +24,7 @@ export function createSlips(host) {
   }
 
   return {
-    /** `item`: slipOf(mark). */
+    /** `item`: slipOf(mark), or an unlock's slip (ui/unlocks.js: its own kicker and life). */
     show(item) {
       queue.push(item);
     },

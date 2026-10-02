@@ -7,6 +7,7 @@ import { costAt, groundYAt, horizonIndexAt } from '../world/query.js';
 import { B, biomeFx } from './balance.js';
 import { eachNodeNear, nearestNode, severBranch } from './network.js';
 import { fungusFx } from './species.js';
+import { trapDigestSeconds } from './unlocks.js';
 
 const TAU = Math.PI * 2;
 const wrapPi = (a) => {
@@ -353,7 +354,7 @@ function digest(state, w, trap) {
   const gained = Math.max(0, Math.min(B.trapMinerals, cap.pool - res.minerals));
   res.minerals += gained;
   trap.charges--;
-  trap.cool = B.trapDigestSeconds;
+  trap.cool = trapDigestSeconds(state);
   trap.glow = 1;
   trap.prey = null;
   sim.threat.caught++;
@@ -365,7 +366,7 @@ function stepTraps(state, dt) {
   for (let i = traps.length - 1; i >= 0; i--) {
     const t = traps[i];
     t.age += dt;
-    t.cool = Math.max(0, t.cool - dt);
+    t.cool = Math.min(Math.max(0, t.cool - dt), trapDigestSeconds(state)); // a ring that is digesting when page 2 closes speeds up at once
     t.glow = Math.max(0, t.glow - dt / 1.8);
     if (t.grow < 1) {
       t.grow = Math.min(1, t.grow + dt / B.trapGrowSeconds);
