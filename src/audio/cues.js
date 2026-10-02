@@ -85,13 +85,15 @@ export function createCues({ tone, pluck, bell, noise = () => {}, throttled, lat
       if (k > 0.9) tone(f(33), t, { gain: 0.016, attack: 0.1, decay: 1.2, lowpass: 200 });
     },
 
-    // a tree is lost: a dry crack and a low knock of wood
+    // a tree is lost: a dry crack and two low knocks of wood. The worst thing the rival does, so it sits a little above the
+    // wake and the grip (offline lab: isolated peak -17.6 dB, rms -37 dB (was -20.2 / -40.7) against -20.6 / -36.8 and -17.4 / -37.8), still well
+    // under the threat cues (severed -12.9, worm-caught -10.6).
     'tree-lost'(t) {
       if (throttled('tree-lost', 0.8) || !room(5)) return;
-      noise(t, { type: 'bandpass', freq: 2300, q: 1.6, dur: 0.03, gain: 0.05 });
-      noise(t + 0.03, { type: 'bandpass', freq: 1500, q: 1.4, dur: 0.02, gain: 0.03 });
-      tone(112, t + 0.01, { gain: 0.05, slideTo: 62, slideTime: 0.12, decay: 0.2, attack: 0.003, lowpass: 420 });
-      tone(94, t + 0.12, { gain: 0.035, slideTo: 56, slideTime: 0.1, decay: 0.16, attack: 0.003, lowpass: 380 });
+      noise(t, { type: 'bandpass', freq: 2300, q: 1.6, dur: 0.03, gain: 0.063 });
+      noise(t + 0.03, { type: 'bandpass', freq: 1500, q: 1.4, dur: 0.02, gain: 0.038 });
+      tone(112, t + 0.01, { gain: 0.066, slideTo: 62, slideTime: 0.12, decay: 0.26, attack: 0.003, lowpass: 420 });
+      tone(94, t + 0.12, { gain: 0.048, slideTo: 56, slideTime: 0.1, decay: 0.24, attack: 0.003, lowpass: 380 });
     },
 
     // a tree is freed: a soft two-note rise (C - G of the pentatonic)

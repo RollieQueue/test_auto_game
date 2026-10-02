@@ -3,22 +3,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  HEAD_NEAR,
   GROW_TIME,
   INF_BUCKETS,
   MAX_CAPS,
   barrierLook,
   cameraKey,
+  chaikin,
   clusterLook,
+  curveAt,
+  headingAlpha,
   growFrac,
   infBucket,
   infectedVitality,
+  infectionLabel,
   infectionLook,
   isLost,
   mantleOf,
   rivalCacheKey,
+  ringStrength,
   rivalParts,
+  rootGoal,
   sallowAmount,
+  smoothEdges,
   stumpsOf,
+  tipPulse,
+  tuftLayout,
   witherAlpha,
 } from '../src/render/rival-logic.js';
 import { _setSpritesForTest, getSprite, honeySprite, mushroomLook, mushroomSprite, spriteTypes, stumpSprite } from '../src/render/sprites.js';
@@ -315,4 +325,230 @@ test('the gallery fixture builds a web of about 300 segments with every field of
   assert.ok(world.trees.some((t) => t.mantle > 0.5));
   assert.equal(state.barriers.length, 2);
   assert.ok(state.ui.barrierPick.ok);
+});
+
+/* ------------------------------------------------------------------ Chaikin chains, heading, tufts, rot ring */
+
+const node = (id, x, y) => ({ id, x, y, alive: true });
+const edge = (id, a, b, alive = true) => ({ id, a, b, w: 1, alive, born: 0, wither: 0 });
+const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+
+test('chaikin: ends stay, corners are cut at 1/4 and 3/4, the polyline never leaves its hull', () => {
+  const pts = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }];
+  const one = chaikin(pts, 1);
+  assert.deepEqual(one[0], pts[0]);
+  assert.deepEqual(one[one.length - 1], pts[2]);
+  assert.deepEqual(one[1], { x: 10, y: 0 });
+  assert.deepEqual(one[2], { x: 30, y: 0 });
+  assert.deepEqual(one[3], { x: 40, y: 10 });
+  const many = chaikin(pts, 4);
+  assert.ok(many.length > one.length);
+  for (const p of many) assert.ok(p.x >= 0 && p.x <= 40 && p.y >= 0 && p.y <= 40);
+  // the right-angle corner is gone: nothing sits on the corner point any more
+  assert.ok(many.every((p) => dist(p, { x: 40, y: 0 }) > 1));
+  assert.deepEqual(chaikin([{ x: 1, y: 2 }], 3), [{ x: 1, y: 2 }]);
+  assert.equal(chaikin([], 3).length, 0);
+});
+
+test('smoothEdges: a chain is one continuous, tangent-continuous curve through rounded corners', () => {
+  // a right-angle bend: (0,0) -> (40,0) -> (40,40)
+  const nodes = [node(0, 0, 0), node(1, 40, 0), node(2, 40, 40)];
+  const edges = [edge(0, 0, 1), edge(1, 1, 2)];
+  const m = smoothEdges(nodes, edges);
+  const a = m.get(0);
+  const b = m.get(1);
+  // the two curves meet at the corner's apex, which is inside the corner (the corner itself is cut off)
+  assert.ok(dist({ x: a.x1, y: a.y1 }, { x: b.x0, y: b.y0 }) < 1e-9);
+  assert.ok(dist({ x: a.x1, y: a.y1 }, nodes[1]) > 2 && dist({ x: a.x1, y: a.y1 }, nodes[1]) < 20);
+  // ... with the same tangent on both sides (C1): the direction into the apex equals the direction out of it
+  const tin = { x: a.x1 - a.c2x, y: a.y1 - a.c2y };
+  const tout = { x: b.c1x - b.x0, y: b.c1y - b.y0 };
+  const cross = tin.x * tout.y - tin.y * tout.x;
+  assert.ok(Math.abs(cross) < 1e-6, `tangent kink ${cross}`);
+  assert.ok(tin.x * tout.x + tin.y * tout.y > 0);
+  // free ends stay on their nodes
+  assert.deepEqual([a.x0, a.y0], [0, 0]);
+  assert.deepEqual([b.x1, b.y1], [40, 40]);
+  assert.ok(a.len === 40 && b.len === 40);
+  // curveAt walks from the first apex to the second
+  assert.deepEqual(curveAt(a, 0), { x: a.x0, y: a.y0 });
+  assert.ok(dist(curveAt(a, 1), { x: a.x1, y: a.y1 }) < 1e-9);
+  assert.ok(dist(curveAt(a, 0.5), { x: a.mx, y: a.my }) < 1e-9);
+  // the whole drawn chain stays inside the hull of its nodes and never passes the cut corner
+  for (const s of [a, b]) for (let k = 0; k <= 1; k += 0.05) {
+    const p = curveAt(s, k);
+    assert.ok(p.x >= -1e-9 && p.x <= 40 + 1e-9 && p.y >= -1e-9 && p.y <= 40 + 1e-9);
+    assert.ok(dist(p, { x: 40, y: 0 }) > 2);
+  }
+});
+
+test('smoothEdges equals the limit of Chaikin: the curve through midpoints matches chaikin() of the node chain', () => {
+  const nodes = [node(0, 0, 0), node(1, 30, 10), node(2, 50, 40), node(3, 90, 45), node(4, 100, 10)];
+  const edges = [edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3), edge(3, 3, 4)];
+  const m = smoothEdges(nodes, edges);
+  const curve = [];
+  for (const e of edges) for (let k = 0; k < 1; k += 0.01) curve.push(curveAt(m.get(e.id), k));
+  const ref = chaikin(nodes, 6);
+  // every point of the reference lies within ~1 u of the exact curve (the ends differ: Chaikin keeps the end nodes)
+  for (const p of ref.slice(8, -8)) {
+    const d = Math.min(...curve.map((q) => dist(p, q)));
+    assert.ok(d < 1, `reference point off the curve by ${d}`);
+  }
+});
+
+test('smoothEdges: forks join the parent with the straightest child, dead edges and missing nodes are left out', () => {
+  // parent 0->1, children 1->2 (straight on) and 1->3 (a sharp turn back)
+  const nodes = [node(0, 0, 0), node(1, 40, 0), node(2, 80, 5), node(3, 20, 30)];
+  const edges = [edge(0, 0, 1), edge(1, 1, 2), edge(2, 1, 3)];
+  const m = smoothEdges(nodes, edges);
+  const par = m.get(0);
+  const straight = m.get(1);
+  const turn = m.get(2);
+  assert.ok(dist({ x: par.x1, y: par.y1 }, { x: straight.x0, y: straight.y0 }) < 1e-9, 'joined with the straight child');
+  assert.deepEqual([turn.x0, turn.y0], [40, 0], 'the sharp child leaves from the node itself');
+  // a node with a dead edge only has the alive ones to pair with
+  const dead = smoothEdges(nodes, [edge(0, 0, 1), edge(1, 1, 2, false)]);
+  assert.equal(dead.has(1), false);
+  assert.deepEqual([dead.get(0).x1, dead.get(0).y1], [40, 0]);
+  // missing nodes, garbage rows, self loops
+  const bad = smoothEdges([node(0, 0, 0), null, { id: 1, x: NaN, y: 0 }], [null, edge(0, 0, 9), edge(1, 0, 1), edge(2, 0, 0)]);
+  assert.equal(bad.size, 0);
+  assert.equal(smoothEdges(undefined, undefined).size, 0);
+});
+
+test('rootGoal picks the sim\'s root tip: linked first, held ones skipped, shallow preferred, target x/y win', () => {
+  const tree = { id: 3, stage: 2, baseY: 300, lost: false, tips: [{ x: 100, y: 400, minStage: 0 }, { x: 200, y: 320, minStage: 0 }, { x: 150, y: 330, minStage: 3 }] };
+  const tip = { x: 190, y: 330, target: { kind: 'tree', id: 3 } };
+  const g = rootGoal(tip, tree);
+  assert.deepEqual([g.x, g.y], [200, 320], 'the nearest one the tree has grown');
+  assert.ok(Math.abs(g.d - Math.hypot(10, 10)) < 1e-9);
+  // held by a grip: the next one
+  assert.deepEqual([rootGoal(tip, tree, { grips: [{ treeId: 3, tip: 1 }] }).x], [100]);
+  // linked tips win over nearer unlinked ones
+  assert.deepEqual([rootGoal(tip, tree, { claimed: new Set(['3:0']) }).x], [100]);
+  // the sim may publish its own goal
+  assert.deepEqual(rootGoal({ ...tip, target: { kind: 'tree', id: 3, x: 5, y: 6 } }, tree), { x: 5, y: 6, d: Math.hypot(185, 324) });
+  assert.equal(rootGoal(tip, { ...tree, lost: true }), null);
+  assert.equal(rootGoal(null, tree), null);
+  assert.equal(rootGoal(tip, null), null);
+  assert.equal(rootGoal({ x: NaN, y: 1 }, tree), null);
+  assert.equal(rootGoal(tip, { id: 3, stage: 0, tips: [] }), null);
+});
+
+test('heading: shown inside 150 u only, fading in; the tip pulse is slow and still under reduced motion', () => {
+  assert.equal(HEAD_NEAR, 150);
+  assert.equal(headingAlpha(150), 0);
+  assert.equal(headingAlpha(400), 0);
+  assert.equal(headingAlpha(NaN), 0);
+  assert.equal(headingAlpha(100), 1);
+  assert.equal(headingAlpha(20), 1);
+  let prev = 0;
+  for (let d = 150; d >= 100; d -= 5) {
+    const a = headingAlpha(d);
+    assert.ok(a >= prev - 1e-12 && a >= 0 && a <= 1);
+    prev = a;
+  }
+  assert.ok(headingAlpha(140) > 0 && headingAlpha(140) < 1);
+  assert.equal(tipPulse(12.3, 4, true), 0.5);
+  assert.equal(tipPulse(99, 1, true), 0.5);
+  let lo = 1;
+  let hi = 0;
+  for (let t = 0; t < 8; t += 0.05) {
+    const p = tipPulse(t, 2);
+    lo = Math.min(lo, p);
+    hi = Math.max(hi, p);
+    assert.ok(p >= 0 && p <= 1);
+  }
+  assert.ok(lo < 0.05 && hi > 0.95, 'it swings the whole range');
+  assert.notEqual(tipPulse(1, 1), tipPulse(1, 2), 'a phase per tip');
+  // slow: less than one full swing per 3 s
+  const crossings = [];
+  for (let t = 0; t < 12; t += 0.01) if (tipPulse(t, 0) > 0.5 !== tipPulse(t + 0.01, 0) > 0.5) crossings.push(t);
+  assert.ok(crossings.length <= 8);
+});
+
+test('tuftLayout: caps spread over a flat band around the foot, deterministic, never one column', () => {
+  const hash = (a, b) => (Math.imul(a + 1, 2654435761) ^ Math.imul(b + 7, 40503)) >>> 0;
+  for (const n of [1, 2, 3, 5, 7]) {
+    const c = { id: 4, n, x: 100, y: 200, age: 30 };
+    const caps = tuftLayout(c, hash);
+    assert.equal(caps.length, n);
+    assert.deepEqual(caps, tuftLayout(c, hash));
+    for (const cap of caps) {
+      assert.ok(Number.isFinite(cap.dx + cap.dy + cap.scale + cap.lean));
+      assert.ok(cap.scale > 0.4 && cap.scale < 1.2);
+      assert.ok(Math.abs(cap.dy) <= 7, 'a band, not a pile');
+      assert.ok(Math.abs(cap.dx) <= 12 + n * 4.5 + 1e-9);
+    }
+    if (n >= 3) {
+      const xs = caps.map((q) => q.dx).sort((p, q) => p - q);
+      const gaps = xs.slice(1).map((v, i) => v - xs[i]);
+      assert.ok(Math.min(...gaps) > 2, `caps stack in a column: ${gaps}`);
+      assert.ok(xs[xs.length - 1] - xs[0] > 20, 'spread out sideways');
+    }
+  }
+  // count and spread override the cluster's own size
+  const wide = tuftLayout({ id: 1, n: 7 }, hash, 3, 40);
+  assert.equal(wide.length, 3);
+  assert.ok(wide.every((q) => Math.abs(q.dx) <= 40));
+  assert.ok(tuftLayout({ id: 1, n: 7 }, hash).some((q) => q.row === 0) && tuftLayout({ id: 9, n: 7 }, hash).length === 7);
+  assert.equal(tuftLayout(null, hash).length, 1);
+});
+
+test('infection mark and rot ring strength', () => {
+  assert.equal(infectionLabel(0.4), '40 %');
+  assert.equal(infectionLabel(0.43), '45 %');
+  assert.equal(infectionLabel(0), '5 %');
+  assert.equal(infectionLabel(1), '95 %');
+  assert.equal(infectionLabel(NaN), '5 %');
+  assert.equal(infectionLabel(0.04), '5 %');
+  assert.ok(ringStrength(0, 0) >= 0.1 && ringStrength(0, 0) < 0.2, 'a new grip already shows a little');
+  assert.ok(ringStrength(10, 0.5) > ringStrength(0, 0.5));
+  assert.ok(ringStrength(10, 0.9) > ringStrength(10, 0.1));
+  for (const [age, inf] of [[-5, 2], [1e9, 1e9], [NaN, NaN], [3, -1]]) {
+    const s = ringStrength(age, inf);
+    assert.ok(s >= 0 && s <= 1);
+  }
+});
+
+test('the renderer draws the full fixture web (smoothed cords, tips, heading, rot rings, tufts) without throwing, and caches it', async () => {
+  const rival = await rivalApi();
+  // the fake Path2D of the other tests lacks the calls the heading and the «!» use
+  globalThis.Path2D = class {
+    moveTo() {}
+    lineTo() {}
+    quadraticCurveTo() {}
+    closePath() {}
+    ellipse() {}
+  };
+  const world = generateWorld(7);
+  const state = { world, ui: {}, events: [], time: 0, flags: {} };
+  applyRivalFixture(state, { edges: 120 });
+  const tree = world.trees[0];
+  const near = tree.tips[0];
+  const r = state.rival;
+  r.tips.push({ id: 90, node: r.nodes.length - 1, x: near.x - 60, y: near.y, dir: 0, target: { kind: 'tree', id: tree.id }, speed: 6 });
+  r.ver++;
+  const { ctx, log } = recorder();
+  rival.reset(world);
+  assert.doesNotThrow(() => {
+    for (let i = 0; i < 4; i++) {
+      state.time += 0.05;
+      rival.drawSoil(ctx, state, 1 + i * 0.05, 0.05);
+      rival.drawSurface(ctx, state, 1 + i * 0.05, 0.05);
+      rival.drawFx(ctx, state, 1 + i * 0.05, 0.05);
+    }
+  });
+  assert.ok(log.length > 20);
+  // all edges are mature, so one repaint made the cache and the later frames only blit it
+  const rebuilds = rival.stats.rebuilds;
+  assert.ok(rebuilds >= 1 && rebuilds <= 2, `rebuilds ${rebuilds}`);
+  rival.drawSoil(ctx, state, 2, 0.05);
+  assert.equal(rival.stats.rebuilds, rebuilds, 'a steady frame repaints nothing');
+  // a new node (ver bump) repaints it: the corner at the old end is rounded now
+  r.nodes.push({ id: r.nodes.length, x: 300, y: 400, alive: true, born: 0 });
+  r.edges.push({ id: r.edges.length, a: r.nodes.length - 2, b: r.nodes.length - 1, w: 1, alive: true, born: -9, wither: 0 });
+  r.ver++;
+  rival.drawSoil(ctx, state, 2.05, 0.05);
+  assert.equal(rival.stats.rebuilds, rebuilds + 1);
 });

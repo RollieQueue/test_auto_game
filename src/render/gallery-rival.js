@@ -7,6 +7,8 @@
 //   ?events=1        fires rival-wake, rival-cut, tree-lost, tree-freed, barrier-placed and rival-fruit after 2.5 s (&at=ms)
 //   ?mode=bench      frame cost of rival.js at ?n=300 segments (window.__bench, also shown on the page)
 //   ?mode=zoom       the scene at 2.2x around the stump and the web (&zx=, &zy= centre in world units)
+//   ?mode=cords      the cords alone on a soil board at 100 % (left) and 50 % (right): right-angle turns smoothed, a fork, tips, a heading path
+//   ?inf=0,0.4,0.8,1 the four trees' infection left to right (default 0, 0.3, 0.7, lost = 1); grips and rot rings follow
 //   ?seed=7 &dpr=1 &edges=300 &stumpart=1 (use decor.stump.1 / mushroom.honey.N from the manifest when it has them)
 import { createState } from '../state.js';
 import { createRenderer } from './index.js';
@@ -31,7 +33,58 @@ function makeState(pick) {
   applyRivalFixture(state, { edges: edgesN, pick: pick || q.get('pick') || 'ok', time: q.get('t') ? Number(q.get('t')) : 100 });
   if (q.get('tool')) state.ui.tool = q.get('tool');
   if (q.get('nolink') === '1') for (const t of state.world.trees) t.linked = false;
+  if (q.get('inf')) applyInfection(state, q.get('inf').split(',').map(Number));
+  addHeadingTip(state);
   return state;
+}
+
+/** ?inf=a,b,c,d: the trees left to right get these infections (1 = lost); every infected tree gets a grip, a cluster when it is rotten. */
+function applyInfection(state, list) {
+  const trees = state.world.trees.slice().sort((a, b) => a.x - b.x);
+  const r = state.rival;
+  trees.slice(0, 4).forEach((t, i) => {
+    const v = Number.isFinite(list[i]) ? list[i] : 0;
+    Object.assign(t, { infection: v, lost: v >= 1, mantle: v >= 1 ? 0 : t.mantle });
+    r.grip = r.grip.filter((g) => g.treeId !== t.id);
+    r.clusters = r.clusters.filter((c) => c.treeId !== t.id);
+    if (v > 0 && v < 1) {
+      const tp = t.tips[Math.min(1, t.tips.length - 1)];
+      let best = 0;
+      let bd = Infinity;
+      for (const n of r.nodes) {
+        const d = Math.hypot(n.x - tp.x, n.y - tp.y);
+        if (d < bd) {
+          bd = d;
+          best = n.id;
+        }
+      }
+      r.grip.push({ treeId: t.id, node: best, x: tp.x, y: tp.y, since: state.time - 40, tip: 0 });
+    }
+    if (v >= 0.4) r.clusters.push({ id: 20 + i, treeId: t.id, x: t.x + (i % 2 ? 16 : -16), y: t.baseY, n: 5 + (i % 3), age: 30 });
+  });
+}
+
+/** One more tip, 100 u from a root point of the first tree (not held, not linked), so the dashed heading path shows. */
+function addHeadingTip(state) {
+  const r = state.rival;
+  const tree = state.world.trees.slice().sort((a, b) => a.x - b.x)[0];
+  const tp = tree.tips[Math.min(2, tree.tips.length - 1)];
+  const near = (n) => Math.hypot(n.x - tp.x, n.y - tp.y);
+  const from = r.nodes.reduce((b, n) => (near(n) < near(b) ? n : b), r.nodes[0]);
+  const ang = Math.atan2(from.y - tp.y, from.x - tp.x);
+  const tx = tp.x + Math.cos(ang) * 100;
+  const ty = tp.y + Math.sin(ang) * 100;
+  let prev = from.id;
+  const steps = 5;
+  for (let i = 1; i <= steps; i++) {
+    const k = i / steps;
+    const id = r.nodes.length;
+    r.nodes.push({ id, x: from.x + (tx - from.x) * k, y: from.y + (ty - from.y) * k, alive: true, born: state.time - 300 });
+    r.edges.push({ id: r.edges.length, a: prev, b: id, w: 1.2, alive: true, born: state.time - 300, wither: 0 });
+    prev = id;
+  }
+  r.tips.push({ id: 77, node: prev, x: tx + Math.cos(ang + Math.PI) * 5, y: ty + Math.sin(ang + Math.PI) * 5, dir: ang + Math.PI, target: { kind: 'tree', id: tree.id }, speed: 6 });
+  r.ver++;
 }
 
 /* ------------------------------------------------------------------ bench */
@@ -105,6 +158,102 @@ async function bench() {
   document.body.append(pre);
 }
 
+/* ------------------------------------------------------------------ cords: the rhizomorph at 100 % and 50 % */
+
+/** A synthetic web on a soil-coloured board, painted twice by the real rival.js: at scale 1 (left) and 0.5 (right), next to a
+ *  brown root and a glowing white-gold thread, with right-angle turns, a fork and tips (one near its target, one far). */
+function cords() {
+  const state = makeState();
+  const W = Math.round(1600 * dpr);
+  const H = Math.round(900 * dpr);
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const nodes = [];
+  const edges = [];
+  const add = (x, y) => (nodes.push({ id: nodes.length, x, y, alive: true, born: -50 }), nodes.length - 1);
+  const chain = (pts, from = null) => {
+    let prev = from;
+    for (const [x, y] of pts) {
+      const id = add(x, y);
+      if (prev !== null) edges.push({ id: edges.length, a: prev, b: id, w: 1.2, alive: true, born: -50, wither: 0 });
+      prev = id;
+    }
+    return prev;
+  };
+  // 1. box-like right-angle turns, the way the sim's steering used to leave them
+  const boxEnd = chain([[20, 40], [80, 40], [140, 40], [140, 90], [140, 140], [80, 140], [80, 190], [150, 190], [220, 190], [220, 130], [220, 70], [290, 70], [340, 70]]);
+  // 2. a fork: a side branch leaves the third node of the second chain
+  const secondStart = nodes.length;
+  const fork = chain([[60, 250], [110, 270], [160, 262], [215, 285], [270, 270]]);
+  chain([[210, 320], [225, 360], [270, 380], [320, 372]], secondStart + 2);
+  // 3. a long winding cord towards a tree: its tip is about 90 u from the root point
+  const long = chain([[20, 430], [60, 440], [110, 420], [160, 430], [215, 455], [265, 440], [300, 450], [340, 470]]);
+  const far = chain([[400, 40], [440, 70], [470, 110], [500, 130], [515, 160]]);
+  const tree = { id: 7, species: 'birch', stage: 3, x: 560, baseY: 380, health: 1, infection: 0, lost: false, tips: [{ x: 410, y: 480, minStage: 0 }, { x: 600, y: 560, minStage: 0 }] };
+  const tips = [
+    { id: 11, node: long, x: nodes[long].x + 8, y: nodes[long].y + 4, dir: 0.4, target: { kind: 'tree', id: 7 }, speed: 6 },
+    { id: 12, node: far, x: nodes[far].x + 6, y: nodes[far].y + 6, dir: 1.1, target: { kind: 'tree', id: 7 }, speed: 6 },
+    { id: 13, node: boxEnd, x: nodes[boxEnd].x + 8, y: nodes[boxEnd].y, dir: 0, target: null, speed: 6 },
+    { id: 14, node: fork, x: nodes[fork].x + 6, y: nodes[fork].y - 2, dir: 0, target: null, speed: 0 },
+  ];
+  state.world = { ...state.world, trees: [tree], stumps: [] };
+  state.rival = { awake: true, nodes, edges, tips, grip: [], clusters: [], spores: 0, ver: 1, rs: 1 };
+  state.barriers = [];
+  state.ui.tool = 'grow';
+  state.time = 100;
+  const panel = (x0, scale) => {
+    const ra = createRival();
+    ra.reset(state.world);
+    ra.setScale(dpr * scale);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0 * dpr, 0, 800 * dpr, H);
+    ctx.clip();
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, (x0 + 20) * dpr, 40 * dpr);
+    // soil board
+    const g = ctx.createLinearGradient(0, 0, 0, 560);
+    g.addColorStop(0, '#2a1b13');
+    g.addColorStop(1, '#3a281c');
+    ctx.fillStyle = g;
+    ctx.fillRect(-20 / scale, -40 / scale, 800 / scale, 900 / scale);
+    // a brown tree root (what the cord must not be mistaken for) and a glowing player thread
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#7b5a37';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(360, 230);
+    ctx.bezierCurveTo(420, 260, 450, 330, 520, 340);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(430, 300);
+    ctx.bezierCurveTo(470, 380, 410, 430, 410, 480);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,236,170,0.35)';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(380, 120);
+    ctx.bezierCurveTo(440, 180, 520, 160, 600, 250);
+    ctx.stroke();
+    ctx.strokeStyle = '#fff3cc';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ra.drawSoil(ctx, state, 5, 1 / 60);
+    ra.drawSurface(ctx, state, 5, 1 / 60);
+    ra.drawFx(ctx, state, 5, 1 / 60);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#f2e8cf';
+    ctx.font = '15px Georgia, serif';
+    ctx.fillText(scale === 1 ? '100 %' : '50 %', x0 + 20, 24);
+    ctx.restore();
+  };
+  panel(0, 1);
+  panel(800, 0.5);
+  window.__game = { state };
+  document.title = 'cords done';
+}
+
 /* ------------------------------------------------------------------ scene */
 
 async function scene() {
@@ -169,4 +318,5 @@ function fire(state) {
 }
 
 if (mode === 'bench') bench();
+else if (mode === 'cords') cords();
 else scene();

@@ -113,3 +113,210 @@ export function clusterLook(c) {
 
 /** Manifest group and type of the rival's illustrations (ids decor.stump.N, mushroom.honey.N). */
 export const RIVAL_SPRITES = { stump: ['decor', 'stump'], honey: ['mushroom', 'honey'] };
+
+/* ------------------------------------------------------------------ smooth chains (Chaikin) */
+
+/**
+ * Chaikin corner cutting of a polyline: every round replaces each corner by two points at 1/4 and 3/4 of its two edges, the
+ * ends stay put. Its limit is the quadratic B-spline through the edge midpoints, which smoothEdges() draws exactly.
+ */
+export function chaikin(pts, iterations = 2) {
+  let cur = pts.map((p) => ({ x: p.x, y: p.y }));
+  for (let it = 0; it < iterations && cur.length > 2; it++) {
+    const out = [cur[0]];
+    for (let i = 0; i < cur.length - 1; i++) {
+      const a = cur[i];
+      const b = cur[i + 1];
+      out.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 }, { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+    }
+    out.push(cur[cur.length - 1]);
+    cur = out;
+  }
+  return cur;
+}
+
+const PAIR_MAX_DOT = 0.35; // a fork joins its parent edge with the straightest child only when that child is no sharper than this
+
+/**
+ * The drawn curve of every alive edge, as two quadratic pieces a -> m -> b: the chains of edges are Chaikin-smoothed, so a
+ * path turns through a rounded bend instead of a corner (no box-like loops). A node with exactly two alive edges rounds its
+ * corner; at a fork the parent edge is joined with the straightest child (the others leave sharply); ends and tips stay put.
+ * Returns Map(edge id -> { x0, y0, c1x, c1y, mx, my, c2x, c2y, x1, y1, len }); edges whose nodes are missing are left out.
+ */
+export function smoothEdges(nodes, edges) {
+  const byId = new Map();
+  for (const n of nodes || []) if (n && Number.isFinite(n.x + n.y)) byId.set(n.id, n);
+  const at = new Map();
+  const alive = [];
+  for (const e of edges || []) {
+    if (!e || e.alive === false || !byId.has(e.a) || !byId.has(e.b) || e.a === e.b) continue;
+    alive.push(e);
+    for (const id of [e.a, e.b]) {
+      const l = at.get(id);
+      if (l) l.push(e);
+      else at.set(id, [e]);
+    }
+  }
+  const far = (e, id) => byId.get(e.a === id ? e.b : e.a);
+  const unit = (n, o) => {
+    const dx = o.x - n.x;
+    const dy = o.y - n.y;
+    const d = Math.hypot(dx, dy) || 1;
+    return { x: dx / d, y: dy / d };
+  };
+  const partner = new Map(); // `${node}|${edge}` -> the edge it is joined with at that node
+  const join = (id, e1, e2) => {
+    partner.set(`${id}|${e1.id}`, e2);
+    partner.set(`${id}|${e2.id}`, e1);
+  };
+  for (const [id, list] of at) {
+    if (list.length < 2) continue;
+    const n = byId.get(id);
+    if (list.length === 2) {
+      join(id, list[0], list[1]);
+      continue;
+    }
+    const parent = list.find((e) => e.b === id);
+    if (!parent) continue;
+    const dp = unit(n, far(parent, id));
+    let best = null;
+    let bestDot = PAIR_MAX_DOT;
+    for (const e of list) {
+      if (e === parent || e.a !== id) continue;
+      const d = unit(n, far(e, id));
+      const dot = d.x * dp.x + d.y * dp.y;
+      if (dot < bestDot) {
+        bestDot = dot;
+        best = e;
+      }
+    }
+    if (best) join(id, parent, best);
+  }
+  /** Where the path passes node `id` on edge `e`: the apex of the rounded corner, or the node itself. */
+  const apex = (e, id, here, other) => {
+    const pe = partner.get(`${id}|${e.id}`);
+    const m = { x: (here.x + other.x) / 2, y: (here.y + other.y) / 2 };
+    if (!pe) return { x: here.x, y: here.y, m };
+    const p = far(pe, id);
+    const pm = { x: (here.x + p.x) / 2, y: (here.y + p.y) / 2 };
+    return { x: (pm.x + 2 * here.x + m.x) / 4, y: (pm.y + 2 * here.y + m.y) / 4, m };
+  };
+  const out = new Map();
+  for (const e of alive) {
+    const A = byId.get(e.a);
+    const B = byId.get(e.b);
+    const pa = apex(e, e.a, A, B);
+    const pb = apex(e, e.b, B, A);
+    const m = pa.m;
+    out.set(e.id, {
+      x0: pa.x,
+      y0: pa.y,
+      c1x: (A.x + m.x) / 2,
+      c1y: (A.y + m.y) / 2,
+      mx: m.x,
+      my: m.y,
+      c2x: (m.x + B.x) / 2,
+      c2y: (m.y + B.y) / 2,
+      x1: pb.x,
+      y1: pb.y,
+      len: Math.hypot(B.x - A.x, B.y - A.y),
+    });
+  }
+  return out;
+}
+
+/** The point at k (0..1) along a smoothEdges() curve (its two quadratic pieces take 0..0.5 and 0.5..1). */
+export function curveAt(s, k) {
+  const kk = clamp(k, 0, 1);
+  const first = kk < 0.5;
+  const u = first ? kk * 2 : kk * 2 - 1;
+  const [p0x, p0y, cx, cy, p2x, p2y] = first ? [s.x0, s.y0, s.c1x, s.c1y, s.mx, s.my] : [s.mx, s.my, s.c2x, s.c2y, s.x1, s.y1];
+  const v = 1 - u;
+  return { x: v * v * p0x + 2 * v * u * cx + u * u * p2x, y: v * v * p0y + 2 * v * u * cy + u * u * p2y };
+}
+
+/* ------------------------------------------------------------------ heading of a tip */
+
+export const HEAD_NEAR = 150; // u: a tip this close to its target root point shows where it is heading
+
+/**
+ * The root tip a rhizomorph at a tip is heading for: the same choice as the sim (not held yet, linked ones first, then the
+ * nearest, shallow preferred). `tip.target.x/y` win when the sim publishes them. { x, y, d } or null.
+ */
+export function rootGoal(tip, tree, opts = {}) {
+  if (!tip || !tree || tree.lost || !Number.isFinite(tip.x + tip.y)) return null;
+  const t = tip.target;
+  if (t && Number.isFinite(t.x) && Number.isFinite(t.y)) return { x: t.x, y: t.y, d: Math.hypot(t.x - tip.x, t.y - tip.y) };
+  const rows = Array.isArray(tree.tips) ? tree.tips : [];
+  const grips = Array.isArray(opts.grips) ? opts.grips : [];
+  const claimed = opts.claimed && typeof opts.claimed.has === 'function' ? opts.claimed : null;
+  let best = null;
+  let bestScore = Infinity;
+  let bestLinked = false;
+  for (let i = 0; i < rows.length; i++) {
+    const tp = rows[i];
+    if (!tp || !Number.isFinite(tp.x + tp.y) || num(tp.minStage) > num(tree.stage)) continue;
+    if (grips.some((g) => g && g.treeId === tree.id && g.tip === i)) continue;
+    const linked = !!(claimed && claimed.has(`${tree.id}:${i}`));
+    if (bestLinked && !linked) continue;
+    const d = Math.hypot(tp.x - tip.x, tp.y - tip.y);
+    const score = d + 0.35 * Math.max(0, tp.y - num(tree.baseY, tp.y));
+    if (score < bestScore || (linked && !bestLinked)) {
+      bestScore = score;
+      bestLinked = linked;
+      best = { x: tp.x, y: tp.y, d };
+    }
+  }
+  return best;
+}
+
+/** Opacity 0..1 of the dashed heading path for a tip `d` units from its goal: it fades in over the last 50 u before HEAD_NEAR. */
+export function headingAlpha(d) {
+  if (!Number.isFinite(d) || d >= HEAD_NEAR) return 0;
+  return smooth((HEAD_NEAR - d) / 50);
+}
+
+/** Slow pulse 0..1 of a tip's bulb (period about 3.4 s, a phase per tip); constant 0.5 when motion is reduced. */
+export function tipPulse(t, id, reduced = false) {
+  return reduced ? 0.5 : 0.5 + 0.5 * Math.sin(num(t) * 1.85 + num(id) * 1.7);
+}
+
+/* ------------------------------------------------------------------ honey tufts and the rot ring */
+
+/**
+ * The caps (or `count` clumps) of one honey cluster spread around the trunk foot over a band of half width `spread`: offsets (u)
+ * from the cluster point, scale, lean and mirroring.
+ * Spread over a flat band (wider than deep), a back row smaller and higher, never stacked in one column. Deterministic per
+ * cluster id through `hashFn(a, b) -> uint` (core/rng hash32).
+ */
+export function tuftLayout(c, hashFn, count = 0, spread = 0) {
+  const n = count > 0 ? Math.round(count) : clusterLook(c).n;
+  const h = (i, k) => (hashFn(num(c && c.id), i * 11 + k) % 1000) / 1000;
+  const caps = [];
+  const half = spread > 0 ? spread : 12 + n * 4.5; // half width of the band
+  for (let i = 0; i < n; i++) {
+    const u = (i + 0.5 + (h(i, 1) - 0.5) * 0.6) / n - 0.5; // -0.5..0.5 along the band
+    const row = h(i, 3) < 0.38 ? 1 : 0; // 1 = a second row behind (smaller, a little higher)
+    caps.push({
+      dx: u * 2 * half,
+      dy: row ? -(3 + 3 * h(i, 4)) : 1.5 * h(i, 4),
+      scale: (row ? 0.7 : 0.9) * (0.82 + 0.36 * h(i, 5)),
+      flip: h(i, 6) < 0.5,
+      lean: (h(i, 8) - 0.5) * 0.3 + u * 0.35,
+      row,
+    });
+  }
+  caps.sort((a, b) => (a.row !== b.row ? b.row - a.row : a.dx - b.dx)); // the back row first
+  return caps;
+}
+
+/** The label of an infection mark at the trunk foot: «40 %», rounded to 5, never 0 or 100 while a tree is held. */
+export function infectionLabel(inf) {
+  const p = Math.round(clamp(num(inf), 0, 1) * 20) * 5;
+  return `${clamp(p, 5, 95)} %`;
+}
+
+/** Strength 0..1 of the rot ring at a gripped trunk foot: it grows with the grip's age, a little with infection. */
+export function ringStrength(age, inf) {
+  return clamp(smooth(num(age) / 6) * (0.55 + 0.45 * clamp(num(inf), 0, 1)) + 0.1, 0, 1);
+}

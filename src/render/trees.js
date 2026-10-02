@@ -4,9 +4,9 @@
 import { makeCanvas, glowSprite, noise1, mulberry, mix, catmull, smooth01 } from './ink.js';
 import { resample } from '../core/geom.js';
 import { buildModel, STAGE_H } from './trees-model.js';
-import { trunkSteps, crownSteps, snagSteps } from './trees-paint.js';
+import { trunkSteps, crownSteps, snagSteps, infectionSteps } from './trees-paint.js';
 import { reducedMotion } from './motion.js';
-import { infBucket, infectedVitality, sallowAmount, isLost, mantleOf, INF_BUCKETS } from './rival-logic.js';
+import { infBucket, infectedVitality, isLost, mantleOf, INF_BUCKETS } from './rival-logic.js';
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -500,20 +500,10 @@ export function createTrees() {
       crown = makeSprite(2, 2, 1, 1, 1); // a snag has no crown: an empty sprite to fade the old one into
     } else {
       crown = makeSprite(b.w, b.h, pf, b.ax, b.ay);
-      // honey fungus: an infected crown thins (the painter's own vitality) and turns sallow
-      steps.push(...crownSteps(crown.ctx, model, infectedVitality(bucket / BUCKETS, ib), crown.cw, crown.ch, season || undefined));
-      if (ib > 0) {
-        steps.push(() => {
-          const g = crown.ctx;
-          g.save();
-          g.setTransform(1, 0, 0, 1, 0, 0);
-          g.globalCompositeOperation = 'source-atop';
-          g.globalAlpha = sallowAmount(ib);
-          g.fillStyle = '#d2b240';
-          g.fillRect(0, 0, crown.cw, crown.ch);
-          g.restore();
-        });
-      }
+      // honey fungus: an infected crown thins (the painter's own vitality), then browns, gets dead leaves and holes
+      const vit = infectedVitality(bucket / BUCKETS, ib);
+      steps.push(...crownSteps(crown.ctx, model, vit, crown.cw, crown.ch, season || undefined));
+      steps.push(...infectionSteps(crown.ctx, model, ib, vit, season || undefined, crown.cw, crown.ch));
     }
     return { stage, bucket, ib, lost, season, fadeDur: HEALTH_FADE, fadeSeason: false, px, model, trunk, crown, steps, ctxs: trunk === reuseTrunk ? [crown.ctx] : [trunk.ctx, crown.ctx], i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1 };
   }

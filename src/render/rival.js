@@ -13,18 +13,18 @@ import { PAL, blobPoly, glowSprite, granulate, inkStroke, makeCanvas, makeSprite
 import { hash32 } from '../core/rng.js';
 import { honeySprite, levelFor, stumpSprite } from './sprites.js';
 import { STAGE_H } from './trees-model.js';
-import { GROW_TIME, barrierLook, clamp, clusterLook, growFrac, hasRival, num, cameraKey, rivalParts, stumpsOf, witherAlpha } from './rival-logic.js';
+import { GROW_TIME, barrierLook, clamp, clusterLook, growFrac, hasRival, num, cameraKey, rivalParts, stumpsOf, witherAlpha, smoothEdges, curveAt, rootGoal, headingAlpha, tipPulse, tuftLayout, infectionLabel, ringStrength, isLost } from './rival-logic.js';
+import { reducedMotion } from './motion.js';
 
 const TAU = Math.PI * 2;
 const MAX_FX = 320;
 const WAX = '#c9443b'; // sealing wax, the same red as the other tools' «denied» marks
 const CHALK = '#f6f0e0';
-const LACE_BODY = '#140c08'; // rhizomorph: black-brown
-const LACE_CORE = '#33200f';
-const LACE_RIM = 'rgba(232,198,146,0.4)'; // a warm rim so the black lace reads on dark soil
-const LACE_SHINE = 'rgba(246,220,172,0.8)';
-const TIP_CREAM = '#fff1c9';
-const BASE_W = 5; // world units: a rhizomorph is clearly thicker than the player's hyphae (1.75 – 4.3)
+const LACE_BODY = '#0a0605'; // rhizomorph: near-black, glossy
+const LACE_RIM = 'rgba(236,214,170,0.36)'; // a pale outline so the black cord reads on dark soil and in small sheets
+const LACE_GLOSS = 'rgba(124,138,160,0.42)'; // the cool sheen of a wet cord
+const LACE_SHINE = 'rgba(255,247,226,0.9)'; // the thin highlight along the light side
+const BASE_W = 7; // world units: a step thicker than tree roots (1.5 – 4) and the player's hyphae (1.75 – 4.3)
 
 const lerp = (a, b, k) => a + (b - a) * k;
 const smoothUp = (u) => smooth01(u);
@@ -32,9 +32,10 @@ const smoothUp = (u) => smooth01(u);
 export function createRival() {
   let px = 1;
   let world = null;
-  const shapes = new Map(); // edge id -> { ax, ay, cx, cy, bx, by, w }
+  const shapes = new Map(); // edge id -> smoothEdges() curve + w
   const nodeIndex = { src: null, n: -1, map: new Map() };
-  const cache = { canvas: null, key: '', baked: new Set(), world: null, rival: null };
+  const cache = { canvas: null, key: '', baked: new Set(), world: null, rival: null, stamp: -1 };
+  const curves = { rival: null, ver: -2, nodes: -1, edges: -1, stamp: 0 }; // the stamp of the smoothed shapes
   const sprites = new Map(); // key -> sprite (stain, honey tuft, stump, barrier ring)
   const fx = [];
   let seq = 1;
@@ -62,95 +63,103 @@ export function createRival() {
     return nodeIndex.map.get(id) || null;
   }
 
-  /** The curve of one edge: a gentle seeded bow, so the web does not look ruled. null while a node is missing. */
+  /**
+   * The curve of one edge. The chains are Chaikin-smoothed (rival-logic smoothEdges: a node with two edges rounds its corner,
+   * a fork joins the parent with the straightest child), so every shape depends on its neighbours and the whole set is made
+   * again when rival.ver (nodes or edges added, an edge died) or the edge count changes. null for a dead edge or a missing node.
+   */
   function shapeOf(rival, e) {
-    let s = shapes.get(e.id);
-    if (s) return s;
-    const a = nodeOf(rival, e.a);
-    const b = nodeOf(rival, e.b);
-    if (!a || !b || !Number.isFinite(a.x + a.y + b.x + b.y)) return null;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const bow = ((hash32(e.id, 17) % 1000) / 1000 - 0.5) * 0.16 * len;
-    const w = clamp(BASE_W + 1.1 * (num(e.w, 1) - 1), BASE_W, 7.5);
-    s = { ax: a.x, ay: a.y, bx: b.x, by: b.y, cx: (a.x + b.x) / 2 - (dy / len) * bow, cy: (a.y + b.y) / 2 + (dx / len) * bow, w, len };
-    shapes.set(e.id, s);
-    return s;
+    const ver = Number.isFinite(rival.ver) ? rival.ver : -1;
+    if (curves.rival !== rival || curves.ver !== ver || curves.nodes !== rival.nodes.length || curves.edges !== rival.edges.length) {
+      shapes.clear();
+      for (const [id, s] of smoothEdges(rival.nodes, rival.edges)) shapes.set(id, s);
+      for (const q of rival.edges) {
+        const s = q && shapes.get(q.id);
+        if (s) s.w = clamp(BASE_W + 1.2 * (num(q.w, 1) - 1), BASE_W, 9);
+      }
+      Object.assign(curves, { rival, ver, nodes: rival.nodes.length, edges: rival.edges.length, stamp: curves.stamp + 1 });
+    }
+    return shapes.get(e.id) || null;
   }
 
-  const bez = (s, k) => {
-    const u = 1 - k;
-    return { x: u * u * s.ax + 2 * u * k * s.cx + k * k * s.bx, y: u * u * s.ay + 2 * u * k * s.cy + k * k * s.by };
-  };
+  const bez = curveAt;
 
   /** Add the part 0..f of an edge to a Path2D. */
   function addEdge(path, s, f = 1) {
-    path.moveTo(s.ax, s.ay);
+    path.moveTo(s.x0, s.y0);
     if (f >= 0.999) {
-      path.quadraticCurveTo(s.cx, s.cy, s.bx, s.by);
+      path.quadraticCurveTo(s.c1x, s.c1y, s.mx, s.my);
+      path.quadraticCurveTo(s.c2x, s.c2y, s.x1, s.y1);
       return;
     }
-    const steps = 4;
+    const steps = 6;
     for (let i = 1; i <= steps; i++) {
       const p = bez(s, (f * i) / steps);
       path.lineTo(p.x, p.y);
     }
   }
 
-  /** The four layers of a glossy bootlace along a path: rim, black body, brown core, thin highlight on the light side. */
-  function strokeLace(g, path, w, alpha = 1) {
+  /** The layers of a glossy near-black cord along a path: pale outline, black body, cool sheen, a thin highlight on the light side. */
+  function strokeLace(g, path, w, alpha = 1, butt = false) {
     g.save();
-    g.lineCap = 'round';
     g.lineJoin = 'round';
     g.globalAlpha *= alpha;
+    g.lineCap = butt ? 'butt' : 'round';
     g.strokeStyle = LACE_RIM;
-    g.lineWidth = w + 2;
+    g.lineWidth = w + 2.8;
     g.stroke(path);
+    g.lineCap = 'round';
     g.strokeStyle = LACE_BODY;
     g.lineWidth = w;
     g.stroke(path);
-    g.strokeStyle = LACE_CORE;
-    g.lineWidth = w * 0.52;
-    g.translate(-w * 0.06, -w * 0.08);
+    g.strokeStyle = LACE_GLOSS;
+    g.lineWidth = w * 0.34;
+    g.translate(-w * 0.1, -w * 0.14);
     g.stroke(path);
     g.strokeStyle = LACE_SHINE;
-    g.lineWidth = Math.max(0.55, w * 0.15);
-    g.translate(-w * 0.2, -w * 0.22);
+    g.lineWidth = Math.max(0.7, w * 0.12);
+    g.translate(-w * 0.12, -w * 0.12);
     g.stroke(path);
+    g.restore();
+  }
+
+  /** Several width classes of cords, one layer at a time across all of them, so an outline never lies over a neighbour's body. */
+  function strokeLaces(g, map, butt = false) {
+    if (!map.size) return;
+    g.save();
+    g.lineJoin = 'round';
+    const layer = (style, widthOf, dx, dy, cap) => {
+      g.strokeStyle = style;
+      g.lineCap = cap;
+      for (const [w, p] of map) {
+        g.save();
+        g.translate(dx * w, dy * w);
+        g.lineWidth = widthOf(w);
+        g.stroke(p);
+        g.restore();
+      }
+    };
+    layer(LACE_RIM, (w) => w + 2.8, 0, 0, butt ? 'butt' : 'round');
+    layer(LACE_BODY, (w) => w, 0, 0, 'round');
+    layer(LACE_GLOSS, (w) => w * 0.34, -0.1, -0.14, 'round');
+    layer(LACE_SHINE, (w) => Math.max(0.7, w * 0.12), -0.22, -0.26, 'round');
     g.restore();
   }
 
   /* ------------------------------------------------------------------ the web: cache + live parts */
 
   const bucketPath = (map, s, f = 1) => {
-    const k = Math.round(s.w * 2) / 2;
+    const k = Math.round(s.w);
     let p = map.get(k);
     if (!p) map.set(k, (p = new Path2D()));
     addEdge(p, s, f);
   };
 
-  /** Take edges that started to wither (or died) out of the cache: erase their stroke where they lie. */
-  function erase(g, list) {
-    const path = new Path2D();
-    let wmax = 0;
-    for (const s of list) {
-      addEdge(path, s);
-      wmax = Math.max(wmax, s.w);
-    }
-    g.save();
-    g.globalCompositeOperation = 'destination-out';
-    g.lineCap = 'butt';
-    g.lineWidth = wmax + 3.2;
-    g.strokeStyle = '#000';
-    g.stroke(path);
-    g.restore();
-  }
-
   /**
-   * The static edges live in a screen-sized canvas that is cleared only when the camera, the canvas, the world or the
-   * rival object changes (rivalCacheKey without ver). Edges that finished growing are added to it as they mature, so a
-   * ver bump costs a few strokes, not a repaint; edges that wither or die are erased from it in place.
+   * The mature edges (alive, grown in, not withering) live in a screen-sized canvas. It is cleared and painted again, layer by
+   * layer, whenever the camera, the canvas, the world or the rival object changes, an edge matures, starts to wither or dies,
+   * or a node is added (the curves are smoothed along chains: rivalCacheKey stamps all that). Between those events a frame
+   * costs one blit; growing edges, withering edges, tips and the heading are drawn live over it.
    */
   function drawWeb(ctx, state, rival, t) {
     const parts = rivalParts(state);
@@ -164,51 +173,46 @@ export function createRival() {
       cache.key = '';
     }
     const g = cache.canvas.getContext('2d');
-    if (cache.key !== key || cache.rival !== rival || cache.world !== state.world) {
-      g.setTransform(1, 0, 0, 1, 0, 0);
-      g.clearRect(0, 0, W, H);
-      cache.key = key;
-      cache.rival = rival;
-      cache.world = state.world;
-      cache.baked.clear();
-      stats.rebuilds++;
-    }
-    g.setTransform(m.a, 0, 0, m.d, m.e, m.f);
-
-    const add = new Map(); // width -> Path2D: edges that finished growing since the last frame
+    const mature = [];
     const live = new Map(); // growing in now
-    const gone = [];
     const wither = [];
     let nLive = 0;
     for (const e of parts.edges) {
-      if (!e) continue;
-      const baked = cache.baked.has(e.id);
-      const wv = num(e.wither);
-      if (!e.alive || wv > 0) {
-        if (baked) {
-          cache.baked.delete(e.id);
-          const sh = shapes.get(e.id);
-          if (sh) gone.push(sh);
-        }
-        if (e.alive) wither.push(e);
+      if (!e || !e.alive) continue;
+      if (num(e.wither) > 0) {
+        wither.push(e);
         continue;
       }
-      if (baked) continue;
       const sh = shapeOf(rival, e);
       if (!sh) continue;
       const f = growFrac(state.time, e.born);
-      if (f >= 1) {
-        bucketPath(add, sh);
-        cache.baked.add(e.id);
-      } else {
+      if (f >= 1) mature.push([e, sh]);
+      else {
         bucketPath(live, sh, smooth01(f));
         nLive++;
       }
     }
-    if (gone.length) erase(g, gone);
-    if (add.size) {
-      for (const [w, p] of add) strokeLace(g, p, w);
-      stats.bakes++;
+    let dirty = false;
+    if (cache.key !== key || cache.rival !== rival || cache.world !== state.world) {
+      cache.key = key;
+      cache.rival = rival;
+      cache.world = state.world;
+      dirty = true;
+    }
+    if (cache.stamp !== curves.stamp || cache.baked.size !== mature.length || mature.some(([e]) => !cache.baked.has(e.id))) dirty = true;
+    if (dirty) {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, W, H);
+      g.setTransform(m.a, 0, 0, m.d, m.e, m.f);
+      const all = new Map();
+      cache.baked.clear();
+      for (const [e, sh] of mature) {
+        bucketPath(all, sh);
+        cache.baked.add(e.id);
+      }
+      strokeLaces(g, all);
+      cache.stamp = curves.stamp;
+      stats.rebuilds++;
     }
     stats.baked = cache.baked.size;
     stats.live = nLive;
@@ -218,13 +222,13 @@ export function createRival() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(cache.canvas, 0, 0);
     ctx.setTransform(m);
-    for (const [w, p] of live) strokeLace(ctx, p, w);
+    strokeLaces(ctx, live, true);
     if (wither.length) drawWithering(ctx, rival, wither, t);
     drawTips(ctx, state, rival, parts.tips, t);
     ctx.restore();
   }
 
-  /** Withering edges: the black lace turns grey, breaks into dashes and crumbles away as `wither` rises. */
+  /** Withering edges: the black cord turns grey, breaks into dashes and crumbles away as `wither` rises. */
   function drawWithering(ctx, rival, list, t) {
     ctx.save();
     ctx.lineCap = 'round';
@@ -258,45 +262,134 @@ export function createRival() {
     ctx.restore();
   }
 
-  /** Growing tips: the lace runs from the last node to the head, ending in a short pale, softly glowing point. */
+  /** The sealing-wax «!» at the end of a heading path (the same hand as the worm's warning in fauna.js, a little smaller). */
+  function paintBang(ctx, x, y, pulse) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1 + 0.06 * pulse, 1 + 0.06 * pulse);
+    ctx.fillStyle = 'rgba(20,10,4,0.4)';
+    ctx.beginPath();
+    ctx.arc(0, -1.5, 9.5, 0, TAU);
+    ctx.fill();
+    const bar = new Path2D();
+    bar.moveTo(-2.6, -9);
+    bar.quadraticCurveTo(0, -10.2, 2.6, -9);
+    bar.lineTo(1.1, 1.5);
+    bar.lineTo(-1.1, 1.5);
+    bar.closePath();
+    const dot = new Path2D();
+    dot.ellipse(0, 5, 1.8, 1.7, 0, 0, TAU);
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = CHALK;
+    ctx.stroke(bar);
+    ctx.stroke(dot);
+    ctx.fillStyle = '#b3342a';
+    ctx.fill(bar);
+    ctx.fill(dot);
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = PAL.sepia;
+    ctx.stroke(bar);
+    ctx.stroke(dot);
+    ctx.restore();
+  }
+
+  /**
+   * Where a tip is heading, once it is within HEAD_NEAR of the root point it wants: a dashed sealing-wax path with a dashed ring
+   * and a «!» on the root, like the worm's warning. The goal comes from rival-logic rootGoal (the sim's own choice).
+   */
+  function drawHeading(ctx, state, rival, tip, t, startR) {
+    const list = state.world && state.world.trees;
+    if (!tip.target || !Array.isArray(list)) return;
+    const tree = list.find((q) => q && q.id === tip.target.id);
+    const goal = rootGoal(tip, tree, { grips: rival.grip, claimed: state.sim && state.sim.tipClaimed });
+    if (!goal) return;
+    const a = headingAlpha(goal.d);
+    if (a <= 0.01 || goal.d < 9) return;
+    const ux = (goal.x - tip.x) / goal.d;
+    const uy = (goal.y - tip.y) / goal.d;
+    const sx = tip.x + ux * (startR + 3);
+    const sy = tip.y + uy * (startR + 3);
+    const ex = goal.x - ux * 7;
+    const ey = goal.y - uy * 7;
+    const still = reducedMotion();
+    const sag = goal.d * 0.06 * Math.sin(num(tip.id) * 1.9) + (still ? 0 : 1.4 * Math.sin(t * 2.1 + num(tip.id)));
+    const cx = (sx + ex) / 2 - uy * sag;
+    const cy = (sy + ey) / 2 + ux * sag;
+    const pulse = still ? 0 : Math.sin(t * 3 + num(tip.id));
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.lineCap = 'round';
+    ctx.setLineDash([5.5, 4.5]);
+    ctx.lineDashOffset = -t * 9;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(cx, cy, ex, ey);
+    ctx.lineWidth = 4.2;
+    ctx.strokeStyle = 'rgba(14,8,4,0.45)';
+    ctx.stroke();
+    ctx.lineWidth = 2.3;
+    ctx.strokeStyle = WAX;
+    ctx.stroke();
+    ctx.setLineDash([2.5, 3]);
+    ctx.lineDashOffset = t * 6;
+    ctx.beginPath();
+    ctx.arc(goal.x, goal.y, 8 + 0.8 * pulse, 0, TAU);
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    paintBang(ctx, goal.x, goal.y - 17, pulse);
+    ctx.restore();
+  }
+
+  /**
+   * Growing tips: the cord runs from the last node to the head and ends in a dark, glossy bulb that swells and shrinks slowly
+   * (still when motion is reduced) with a faint pale ring spreading from it. Nothing glows, so it is never mistaken for the
+   * player's threads.
+   */
   function drawTips(ctx, state, rival, tips, t) {
     if (!tips.length) return;
+    const reduced = reducedMotion();
     ctx.save();
     ctx.lineCap = 'round';
     for (const tip of tips) {
       if (!tip || !Number.isFinite(tip.x) || !Number.isFinite(tip.y)) continue;
       const n = nodeOf(rival, tip.node);
-      let hx = tip.x;
-      let hy = tip.y;
-      if (n && Number.isFinite(n.x + n.y)) {
-        const len = Math.hypot(hx - n.x, hy - n.y);
-        if (len > 0.5) {
-          const p = new Path2D();
-          p.moveTo(n.x, n.y);
-          p.lineTo(hx, hy);
-          strokeLace(ctx, p, BASE_W * 0.92);
-          // the pale growing end
-          const k = Math.min(1, 9 / len);
-          ctx.strokeStyle = rgba(TIP_CREAM, 0.88);
-          ctx.lineWidth = BASE_W * 0.7;
-          ctx.beginPath();
-          ctx.moveTo(lerp(hx, n.x, k), lerp(hy, n.y, k));
-          ctx.lineTo(hx, hy);
-          ctx.stroke();
-        }
+      const hx = tip.x;
+      const hy = tip.y;
+      if (n && Number.isFinite(n.x + n.y) && Math.hypot(hx - n.x, hy - n.y) > 0.5) {
+        const p = new Path2D();
+        p.moveTo(n.x, n.y);
+        p.lineTo(hx, hy);
+        strokeLace(ctx, p, BASE_W, 1, true);
       }
-      const ph = num(tip.id) * 1.7;
-      const pulse = 0.5 + 0.5 * Math.sin(t * 3.2 + ph);
-      ctx.globalCompositeOperation = 'lighter';
-      const r = 8 + 3 * pulse;
-      ctx.globalAlpha = 0.5 + 0.2 * pulse;
-      ctx.drawImage(glowSprite('#ffe6a8', 40), hx - r, hy - r, r * 2, r * 2);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = TIP_CREAM;
+      const pulse = tipPulse(t, tip.id, reduced);
+      const r = BASE_W * (0.74 + 0.2 * pulse);
+      // a pale ring spreading from the bulb, so the head can be found at a glance in a small picture
+      const ph = reduced ? 0.45 : (t * 0.3 + num(tip.id) * 0.37) % 1;
+      ctx.lineWidth = 1.3;
+      ctx.strokeStyle = rgba('#eed6aa', (reduced ? 0.3 : 0.42) * (1 - ph));
       ctx.beginPath();
-      ctx.arc(hx, hy, BASE_W * 0.58, 0, TAU);
+      ctx.arc(hx, hy, r + 2 + ph * 9, 0, TAU);
+      ctx.stroke();
+      // the bulb: outline, ink, sheen, highlight
+      ctx.fillStyle = LACE_RIM;
+      ctx.beginPath();
+      ctx.arc(hx, hy, r + 1.7, 0, TAU);
       ctx.fill();
+      ctx.fillStyle = LACE_BODY;
+      ctx.beginPath();
+      ctx.arc(hx, hy, r, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = LACE_GLOSS;
+      ctx.beginPath();
+      ctx.ellipse(hx - r * 0.28, hy - r * 0.32, r * 0.42, r * 0.3, -0.6, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = LACE_SHINE;
+      ctx.beginPath();
+      ctx.arc(hx - r * 0.38, hy - r * 0.42, Math.max(0.7, r * 0.15), 0, TAU);
+      ctx.fill();
+      drawHeading(ctx, state, rival, tip, t, r);
     }
     ctx.restore();
   }
@@ -553,33 +646,110 @@ export function createRival() {
     });
   }
 
+  /**
+   * Honey-mushroom tufts spread around the trunk foot (rival-logic tuftLayout: a flat band, a smaller back row, no column).
+   * The illustrated sprite is already a small clump, so two or three of them stand about the trunk; the ink fallback paints
+   * one cap per mushroom.
+   */
   function drawClusters(ctx, state, clusters) {
     for (const c of clusters) {
       if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
       const look = clusterLook(c);
       const k = 0.3 + 0.7 * look.grow;
       const art = honeySprite(num(c.id));
+      const tree = treeOf(state, c.treeId);
+      // the cluster sits where the sim put it, pulled towards the trunk so the tufts stand around the foot
+      const cx = tree && Number.isFinite(tree.x) ? tree.x + (c.x - tree.x) * 0.3 : c.x;
       ctx.save();
       ctx.globalAlpha = Math.min(1, 0.2 + look.grow * 1.2);
-      ctx.translate(c.x, c.y);
+      ctx.translate(cx, c.y);
       if (art) {
-        // an illustration per cap, a tuft of up to five around the trunk foot
-        const caps = Math.min(look.n, 5);
-        const s = (art.worldSize / art.h) * k;
-        const lv = levelFor(art, art.h * s * px);
-        for (let i = 0; i < caps; i++) {
-          const u = caps === 1 ? 0 : (i / (caps - 1) - 0.5) * 2;
-          const sc = s * (0.78 + 0.22 * (1 - Math.abs(u))) * (hash32(num(c.id), i) & 1 ? 1 : 0.92);
+        const clumps = clamp(Math.ceil(look.n / 2.4), 2, 3);
+        const layout = tuftLayout(c, hash32, clumps, 15 + clumps * 8.5);
+        const base = (art.worldSize / art.h) * k * 0.82;
+        for (let i = 0; i < layout.length; i++) {
+          const cap = layout[i];
+          const a2 = honeySprite(num(c.id) + i * 5 + 1) || art;
+          const s = base * cap.scale;
+          const lv = levelFor(a2, a2.h * s * px);
           ctx.save();
-          ctx.translate(u * 11 * k, -1.5 * (1 - Math.abs(u)));
-          if (i & 1) ctx.scale(-1, 1);
-          ctx.drawImage(lv.src, -art.anchor.x * sc, -art.anchor.y * sc, art.w * sc, art.h * sc);
+          ctx.translate(cap.dx * k, cap.dy * k);
+          ctx.rotate(cap.lean * 0.5);
+          if (cap.flip) ctx.scale(-1, 1);
+          ctx.drawImage(lv.src, -a2.anchor.x * s, -a2.anchor.y * s, a2.w * s, a2.h * s);
           ctx.restore();
         }
       } else {
-        const sp = honeyInk(look.n, hash32(num(c.id), 9) % 3);
-        ctx.scale(k, k);
-        ctx.drawImage(sp.canvas, -sp.ax, -sp.ay, sp.w, sp.h);
+        const layout = tuftLayout(c, hash32, look.n, 12 + look.n * 4.5);
+        const sp = honeyInk(1, hash32(num(c.id), 9) % 3);
+        for (const cap of layout) {
+          ctx.save();
+          ctx.translate(cap.dx * k, cap.dy * k);
+          ctx.scale(k * cap.scale * (cap.flip ? -1 : 1), k * cap.scale);
+          ctx.drawImage(sp.canvas, -sp.ax, -sp.ay, sp.w, sp.h);
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  /* ------------------------------------------------------------------ rot ring at a gripped trunk foot */
+
+  /**
+   * While a rhizomorph holds a root of a tree: a dark rot stain and a dashed rust ring round the trunk foot, and a small
+   * «40 %» ink mark of how far the infection has come. The root-level stain (drawGrips) shows where; this shows who.
+   */
+  function drawRotRings(ctx, state, t) {
+    const grips = rivalParts(state).grip;
+    if (!grips.length) return;
+    const trees = state.world && state.world.trees;
+    if (!Array.isArray(trees)) return;
+    const still = reducedMotion();
+    const seen = new Set();
+    for (const gp of grips) {
+      if (!gp || seen.has(gp.treeId)) continue;
+      seen.add(gp.treeId);
+      const tree = trees.find((q) => q && q.id === gp.treeId);
+      if (!tree || isLost(tree) || !Number.isFinite(tree.x) || !Number.isFinite(tree.baseY)) continue;
+      const inf = clamp(num(tree.infection), 0, 1);
+      const age = Math.max(0, num(state.time) - num(gp.since, num(state.time)));
+      const k = ringStrength(age, inf);
+      const stage = clamp(Math.round(num(tree.stage, 2)), 0, 3);
+      const rx = 17 + 7 * stage + (still ? 0 : 0.8 * Math.sin(t * 0.9 + num(tree.id)));
+      const ry = rx * 0.3;
+      ctx.save();
+      ctx.translate(tree.x, tree.baseY + 3);
+      ctx.globalAlpha = 0.5 * k;
+      ctx.fillStyle = 'rgba(36,18,7,0.7)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx * 1.12, ry * 1.2, 0, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.9 * k;
+      ctx.lineCap = 'round';
+      ctx.setLineDash([7, 5]);
+      ctx.lineDashOffset = still ? 0 : -t * 2.5;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
+      ctx.lineWidth = 4.4;
+      ctx.strokeStyle = 'rgba(236,214,170,0.4)';
+      ctx.stroke();
+      ctx.lineWidth = 2.4;
+      ctx.strokeStyle = '#5a2c10';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (inf >= 0.04) {
+        ctx.globalAlpha = Math.min(1, k * 1.2);
+        ctx.font = 'italic 600 13px "Palatino Linotype", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 3.4;
+        ctx.strokeStyle = 'rgba(246,238,216,0.92)';
+        const label = infectionLabel(inf);
+        ctx.strokeText(label, 0, ry + 13);
+        ctx.fillStyle = '#5a2c10';
+        ctx.fillText(label, 0, ry + 13);
       }
       ctx.restore();
     }
@@ -902,6 +1072,7 @@ export function createRival() {
     reset(w) {
       world = w || null;
       shapes.clear();
+      curves.rival = null;
       sprites.clear();
       nodeIndex.src = null;
       cache.key = '';
@@ -924,11 +1095,12 @@ export function createRival() {
       drawBarriers(ctx, state, t);
     },
     /** On the ground line, over the trees: stumps and honey-mushroom tufts. */
-    drawSurface(ctx, state) {
+    drawSurface(ctx, state, t = 0) {
       if (!ctx || !hasRival(state)) return;
       const px0 = ctx.getTransform().a;
       if (px0 > 0 && Math.abs(px0 / px - 1) > 0.02) this.setScale(px0);
       for (const s of stumpsOf(state)) drawStump(ctx, s);
+      drawRotRings(ctx, state, t);
       drawClusters(ctx, state, rivalParts(state).clusters);
     },
     /** Topmost: the barrier tool's cursor and the event effects. */

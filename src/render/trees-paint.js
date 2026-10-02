@@ -20,6 +20,7 @@ import {
   grainTilesOf,
 } from './ink.js';
 import { makeLimb } from './trees-model.js';
+import { infectionLook, snagKeep, snagWidths, snagSpires } from './infection-look.js';
 
 const SEP = PAL.sepia;
 const TAU = Math.PI * 2;
@@ -1268,6 +1269,21 @@ function bareCrownSteps(ctx, m, vis, pal, v, oak) {
   return steps;
 }
 
+/** The lobes of a leafy crown that are drawn at vitality v (sparser and drooping when weak), sorted from the top down. */
+function visibleLobes(m, v) {
+  const sparse = 0.3 + 0.7 * v;
+  const vis = m.lobes
+    .filter((l) => (l.ring === 1 && v > 0.25) || l.k <= sparse + 0.04 || l.ring < 0.3)
+    .map((l) => {
+      const dx = (l.x - m.cx) / (m.rx || 1);
+      const droop = (1 - v) * (m.H * 0.05) * (0.3 + Math.abs(dx));
+      const sc = 0.88 + 0.12 * v;
+      return { ...l, y: l.y + droop, rx: l.rx * sc, ry: l.ry * (sc + (1 - v) * 0.1) };
+    });
+  vis.sort((a, b) => a.y - b.y);
+  return vis;
+}
+
 /**
  * Crown painting as an ordered list of steps (vitality v in 0..1; W, H = canvas size in device px for granulation).
  * `season` (optional): 'spring' | 'summer' | 'autumn' | 'winter'; undefined and 'summer' paint the original crown.
@@ -1290,15 +1306,7 @@ export function crownSteps(ctx, m, v, W, H, season) {
       steps.push(() => chunk.forEach((t, q) => pineTuft(ctx, t, pal, rng, m.seed + 7 * (i + q + 1), v, sz, ss === 'winter')));
     }
   } else {
-    const vis = m.lobes
-      .filter((l) => (l.ring === 1 && v > 0.25) || l.k <= sparse + 0.04 || l.ring < 0.3)
-      .map((l) => {
-        const dx = (l.x - m.cx) / (m.rx || 1);
-        const droop = (1 - v) * (m.H * 0.05) * (0.3 + Math.abs(dx));
-        const sc = 0.88 + 0.12 * v;
-        return { ...l, y: l.y + droop, rx: l.rx * sc, ry: l.ry * (sc + (1 - v) * 0.1) };
-      });
-    vis.sort((a, b) => a.y - b.y);
+    const vis = visibleLobes(m, v);
     if (ss === 'winter') return bareCrownSteps(ctx, m, vis, pal, v, sp === 'oak');
     if (sp === 'oak') steps.push(...oakCrownSteps(ctx, m, vis, pal, v, W, H, ss === 'spring'));
     else vis.forEach((l, idx) => steps.push(...birchLobeSteps(ctx, l, vis, pal, rng, m.seed + 13 * (idx + 1), v, sz)));
@@ -1337,19 +1345,327 @@ export function crownSteps(ctx, m, v, W, H, season) {
   return steps;
 }
 
+/* ------------------------------------------------------------------ honey-fungus infection on a crown */
+
+/** The painted crown as ellipses to sample (leafy lobes, or pine tufts), with their summed area. */
+function crownShapes(m, v) {
+  const list =
+    m.species === 'pine'
+      ? m.tufts.filter((t) => t.leader || t.k <= 0.3 + 0.7 * v + 0.04).map((t) => ({ x: t.x, y: t.y + (1 - v) * 3, rx: t.r * 1.7, ry: t.r * 0.78, rot: 0 }))
+      : visibleLobes(m, v);
+  let area = 0;
+  for (const l of list) area += Math.PI * l.rx * l.ry;
+  return { list, area };
+}
+
+/** A random point inside a random shape, shapes weighted by their area. */
+function spotIn(shapes, rng) {
+  const { list, area } = shapes;
+  let u = rng() * area;
+  let l = list[list.length - 1];
+  for (const c of list) {
+    u -= Math.PI * c.rx * c.ry;
+    if (u <= 0) {
+      l = c;
+      break;
+    }
+  }
+  const a = rng() * TAU;
+  const r = Math.sqrt(rng()) * 0.92;
+  const ex = Math.cos(a) * l.rx * r;
+  const ey = Math.sin(a) * l.ry * r;
+  const cr = Math.cos(l.rot || 0);
+  const sr = Math.sin(l.rot || 0);
+  return { x: l.x + ex * cr - ey * sr, y: l.y + ex * sr + ey * cr, l };
+}
+
+/** A leaf outline appended to the current path (no beginPath): from (x, y) len along ang. */
+function leafOutline(ctx, x, y, ang, len, wid) {
+  const ca = Math.cos(ang);
+  const sa = Math.sin(ang);
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + ca * len * 0.45 - sa * wid, y + sa * len * 0.45 + ca * wid, x + ca * len, y + sa * len);
+  ctx.quadraticCurveTo(x + ca * len * 0.45 + sa * wid, y + sa * len * 0.45 - ca * wid, x, y);
+}
+
+/**
+ * Honey fungus on a painted crown, as extra steps after crownSteps (same contract): a rust wash over the leaves, dark
+ * dying patches, dead brown leaves (rusty needle streaks on a pine) and, last, gaps and speckles erased out of the
+ * crown so the branches show through. `ib` is the infection bucket (rival-logic infBucket); 0 paints nothing, so a
+ * healthy crown stays exactly as it was. Everything is drawn from `m.seed` with streams that do not depend on the
+ * bucket, so the speckles of one step are the first speckles of the next. `v` is the vitality the crown was painted with.
+ */
+export function infectionSteps(ctx, m, ib, v, season, W, H) {
+  const P = infectionLook(ib, m.species, season);
+  if (!P.active) return [];
+  const steps = [];
+  const pine = m.species === 'pine';
+  const shapes = crownShapes(m, v);
+  if (!shapes.list.length) return steps;
+  const sc = clamp(Math.sqrt((m.rx || 40) * (m.ry || 40)) / 62, 0.55, 1.2);
+  const area = shapes.area * 0.62; // the shapes overlap
+
+  if (P.wash > 0) {
+    steps.push(() => {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = P.wash;
+      ctx.fillStyle = P.color;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    });
+  }
+
+  if (P.blotches > 0) {
+    steps.push(() => {
+      const brng = mulberry(m.seed ^ 0x2b71);
+      const dark = pine ? '#6a3a1e' : '#4a2c16';
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      for (let i = 0; i < P.blotches; i++) {
+        const p = spotIn(shapes, brng);
+        const r = Math.max(10, (m.rx || 40) * rr(brng, 0.2, 0.36));
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+        g.addColorStop(0, rgba(dark, P.blotchAlpha));
+        g.addColorStop(0.6, rgba(dark, P.blotchAlpha * 0.55));
+        g.addColorStop(1, rgba(dark, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+      }
+      ctx.restore();
+    });
+  }
+
+  const nDead = Math.min(260, Math.round((P.dead * area) / 1000));
+  if (nDead > 0) {
+    const drng = mulberry(m.seed ^ 0x5d1e);
+    const tones = pine ? ['#8f4f26', '#a8643a', '#6e3a1e'] : ['#7a4f26', '#9a6a30', '#5b3a1d', '#a87a3a'];
+    for (let i = 0; i < nDead; i += 40) {
+      const n = Math.min(40, nDead - i);
+      steps.push(() => {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-atop';
+        for (let q = 0; q < n; q++) {
+          const p = spotIn(shapes, drng);
+          const col = tones[Math.floor(drng() * tones.length)];
+          const ang = rr(drng, 0, TAU);
+          if (pine) {
+            // a streak of dead needles
+            const ln = rr(drng, 6, 11) * sc;
+            ctx.beginPath();
+            for (let k = 0; k < 4; k++) {
+              const a = ang + rr(drng, -0.5, 0.5);
+              ctx.moveTo(p.x, p.y);
+              ctx.lineTo(p.x + Math.cos(a) * ln, p.y + Math.sin(a) * ln);
+            }
+            ctx.lineWidth = 0.9;
+            ctx.strokeStyle = rgba(col, 0.85);
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            leafOutline(ctx, p.x, p.y, ang, rr(drng, 4.5, 7.5) * sc * (0.7 + 0.1 * m.stage), 1.9 * sc);
+            ctx.fillStyle = rgba(col, 0.88);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      });
+    }
+  }
+
+  // the erased part: dead branch tips without leaves (a gap with a bare twig spray in it), then thin foliage: clusters of
+  // small leaf-shaped speckles taken out of the crown
+  const gapArea = 190 * sc * sc;
+  const nGap = Math.min(40, Math.round((P.cover * 0.45 * area) / gapArea));
+  if (nGap > 0) {
+    const grng = mulberry(m.seed ^ 0x77c3);
+    for (let i = 0; i < nGap; i += 8) {
+      const n = Math.min(8, nGap - i);
+      steps.push(() => {
+        const at = [];
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
+        ctx.beginPath();
+        for (let q = 0; q < n; q++) {
+          const p = spotIn(shapes, grng);
+          const len = rr(grng, 12, 22) * sc;
+          const rot = rr(grng, 0.2, 1.3) * (grng() < 0.5 ? -1 : 1); // slanting, either way
+          at.push({ x: p.x, y: p.y, len, rot });
+          // the leaves along the twig are gone
+          for (let k = 0; k < 11; k++) {
+            const u = rr(grng, -0.6, 0.6) * len;
+            const off = rr(grng, -0.3, 0.3) * len * 0.5;
+            leafOutline(ctx, p.x + Math.cos(rot) * u - Math.sin(rot) * off, p.y + Math.sin(rot) * u + Math.cos(rot) * off, rr(grng, 0, TAU), rr(grng, 3.5, 6.2) * sc, rr(grng, 1.3, 2.1) * sc);
+          }
+        }
+        ctx.fill();
+        ctx.restore();
+        if (P.bare) return; // a bare crown is all twigs already
+        at.forEach((g, q) => {
+          const ca = Math.cos(g.rot);
+          const sa = Math.sin(g.rot);
+          const a = { x: g.x - ca * g.len * 0.55, y: g.y - sa * g.len * 0.55 };
+          const b = { x: g.x + ca * g.len * 0.05, y: g.y + sa * g.len * 0.05 + 0.6 };
+          const e = { x: g.x + ca * g.len * 0.58, y: g.y + sa * g.len * 0.58 + 1.5 };
+          const sd = m.seed + 61 * (i + q + 1);
+          inkStroke(ctx, [a, b, e], { w: 1, color: '#33210f', alpha: 0.88, taperStart: 0.12, taperEnd: 0.6, tremor: 0.12, seed: sd, step: 2 });
+          for (const [f, side] of [[0.45, -1], [0.7, 1]]) {
+            const o = { x: lerp(a.x, e.x, f), y: lerp(a.y, e.y, f) };
+            const ln = g.len * rr(grng, 0.2, 0.3);
+            inkStroke(ctx, [o, { x: o.x + (ca * 0.5 + sa * side * 0.85) * ln, y: o.y + (sa * 0.5 - ca * side * 0.85) * ln }], { w: 0.65, color: '#33210f', alpha: 0.82, taperStart: 0.1, taperEnd: 0.8, tremor: 0.1, seed: sd + f * 10, step: 2 });
+          }
+        });
+      });
+    }
+  }
+  const nSpk = Math.min(600, Math.round((P.cover * 0.55 * area) / (7 * sc * sc)));
+  if (nSpk > 0) {
+    const srng = mulberry(m.seed ^ 0x39b5);
+    for (let i = 0; i < nSpk; i += 60) {
+      const n = Math.min(60, nSpk - i);
+      steps.push(() => {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        let c = null;
+        const leaves = [];
+        for (let q = 0; q < n; q++) {
+          if (!c || q % 4 === 0) c = spotIn(shapes, srng);
+          leaves.push([c.x + rr(srng, -7, 7) * sc, c.y + rr(srng, -6, 6) * sc, rr(srng, 0, TAU), rr(srng, 3.2, 5.8) * sc, rr(srng, 1.2, 2) * sc]);
+        }
+        [0.5, 0.72, 0.9].forEach((a, L) => {
+          ctx.fillStyle = `rgba(0,0,0,${a})`;
+          ctx.beginPath();
+          for (let q = L; q < n; q += 3) leafOutline(ctx, ...leaves[q]);
+          ctx.fill();
+        });
+        ctx.restore();
+      });
+    }
+  }
+  return steps;
+}
+
 /* ------------------------------------------------------------------ snag: a tree the honey fungus has killed */
 
 const SNAG = {
-  oak: { fill: '#85735c', shade: '#3b2f25', light: '#c2b08c' },
-  birch: { fill: '#b7b0a2', shade: '#4a443d', light: '#e3ddcd' },
-  pine: { fill: '#80664f', shade: '#392a20', light: '#bd9d78' },
+  oak: { fill: '#7a6953', shade: '#2f241b', light: '#b7a582', furrow: '#1a110b', ridge: '#a39172' },
+  birch: { fill: '#d3ccbd', shade: '#7a746a', light: '#f5f1e6', furrow: '#1e1611', ridge: '#ffffff' },
+  pine: { fill: '#8a6755', shade: '#35251d', light: '#bf9f88', furrow: '#2b1a12', ridge: '#b08d76' },
 };
-const SNAG_BARE = '#d4c6a2'; // bare wood where the bark has gone
+const SNAG_BARE = '#d8cbaa'; // bare wood where the bark has gone and in the splinters
+const SNAG_BARE_SHADE = '#a8946c';
 const SNAG_PEEL = '#5b4a3b'; // the underside of a peeling strip of bark
+const SNAG_DARK = '#1f150e'; // the shadowed break, a hollow
+
+/** A point on a ribbon: fractional index f (0..n-1) and lateral u (-1 left .. 1 right). */
+function ribAt(rb, f, u = 0) {
+  const i = clamp(Math.floor(f), 0, rb.n - 2);
+  const t = clamp(f - i, 0, 1);
+  const cx = lerp(rb.C[i].x, rb.C[i + 1].x, t);
+  const cy = lerp(rb.C[i].y, rb.C[i + 1].y, t);
+  const px = lerp(rb.P[i].x, rb.P[i + 1].x, t);
+  const py = lerp(rb.P[i].y, rb.P[i + 1].y, t);
+  const hw = lerp(rb.hw[i], rb.hw[i + 1], t);
+  return { x: cx + px * hw * u, y: cy + py * hw * u, hw, px, py, cx, cy };
+}
+
+function clipRibbon(ctx, rb) {
+  ctx.beginPath();
+  ctx.moveTo(rb.L[0].x, rb.L[0].y);
+  for (let i = 1; i < rb.n; i++) ctx.lineTo(rb.L[i].x, rb.L[i].y);
+  for (let i = rb.n - 1; i >= 0; i--) ctx.lineTo(rb.R[i].x, rb.R[i].y);
+  ctx.closePath();
+  ctx.clip();
+}
+
+/** Plated bark of an old pine: irregular rows of rough plates (every other row shifted), dark cracks between them. */
+function barkPlates(ctx, rb, rng, pal) {
+  const rowH = clamp(rb.hw[Math.floor(rb.n / 2)] * 1.15, 4.5, 9.5);
+  const top = rb.C[rb.n - 1].y;
+  let y = rb.C[0].y - rowH * 0.3;
+  let r = 0;
+  while (y > top + 2) {
+    const h = rowH * rr(rng, 0.7, 1.35);
+    const f = clamp(((rb.C[0].y - y) / (rb.C[0].y - top)) * (rb.n - 1), 0, rb.n - 1.001);
+    const hw = ribAt(rb, f).hw;
+    const cols = Math.max(2, Math.round(hw / 2.1));
+    const off = (r % 2 ? 0.5 : 0) + rr(rng, -0.15, 0.15);
+    for (let c = -1; c <= cols; c++) {
+      const u0 = ((c + off + rr(rng, -0.12, 0.12)) / cols) * 2 - 1;
+      const u1 = ((c + off + 1 + rr(rng, -0.12, 0.12)) / cols) * 2 - 1;
+      const a = ribAt(rb, f, u0 + 0.04);
+      const b = ribAt(rb, f, u1 - 0.04);
+      const y0 = -h * rr(rng, 0.9, 1.1);
+      const poly = [
+        { x: a.x + rr(rng, -0.6, 0.6), y: y + y0 * rr(rng, 0.9, 1.1) },
+        { x: lerp(a.x, b.x, 0.5), y: y + y0 + rr(rng, -1, 0.5) },
+        { x: b.x + rr(rng, -0.6, 0.6), y: y + y0 * rr(rng, 0.8, 1.1) },
+        { x: b.x + rr(rng, -0.5, 0.5), y: y + rr(rng, -0.3, 0.4) },
+        { x: lerp(a.x, b.x, 0.45), y: y + rr(rng, -0.2, 0.8) },
+        { x: a.x + rr(rng, -0.5, 0.5), y: y + rr(rng, -0.3, 0.4) },
+      ];
+      ctx.beginPath();
+      tracePath(ctx, poly, true, false);
+      const tone = rng();
+      ctx.fillStyle = rgba(tone < 0.4 ? pal.light : tone < 0.75 ? pal.fill : pal.shade, 0.16 + 0.3 * rng());
+      ctx.fill();
+      ctx.lineWidth = rr(rng, 0.5, 1.1);
+      ctx.strokeStyle = rgba(pal.furrow, 0.3 + 0.45 * rng());
+      ctx.stroke();
+    }
+    y -= h;
+    r++;
+  }
+}
+
+/** A broken limb: the first part of a limb, a pale jagged break at its end. */
+function limbStub(ctx, L, k, wScale, minW, seed, rng, pal) {
+  const pts = L.pts.slice(0, k);
+  const ws = L.w.slice(0, k).map((w) => Math.max(minW, w * wScale));
+  const rb = ribbon(pts, ws, seed, 0.2);
+  fillBand(ctx, rb.L, rb.R, pal.fill, 0.97, 0.5, 0.3);
+  const [a, b] = lateral(rb, 0.1, 1.0);
+  fillBand(ctx, a, b, pal.shade, 0.55, 0.4, 0.3);
+  const [c, d] = lateral(rb, -1.0, -0.45);
+  fillBand(ctx, c, d, pal.light, 0.3, 0.4, 0.3);
+  edges(ctx, rb, 1, SEP, seed + 3, 0.85);
+  const e = rb.C[rb.n - 1];
+  const dir = Math.atan2(rb.C[rb.n - 1].y - rb.C[Math.max(0, rb.n - 3)].y, rb.C[rb.n - 1].x - rb.C[Math.max(0, rb.n - 3)].x);
+  const hw = rb.hw[rb.n - 1];
+  // splintered end: a few short pale spikes along the direction of the limb
+  const nSp = 3;
+  const ca = Math.cos(dir);
+  const sa = Math.sin(dir);
+  const at = (u, h) => ({ x: e.x + ca * h - sa * hw * u, y: e.y + sa * h + ca * hw * u });
+  const poly = [at(-1, -1)];
+  for (let i = 0; i < nSp; i++) {
+    poly.push(at(-1 + (2 * (i + 0.5)) / nSp, rr(rng, 0.4, 1.3) * hw * 0.9 + 1));
+    poly.push(at(-1 + (2 * (i + 1)) / nSp, rr(rng, 0.1, 0.35) * hw));
+  }
+  poly.push(at(1, -1));
+  ctx.beginPath();
+  tracePath(ctx, poly, true, false);
+  ctx.fillStyle = rgba(SNAG_BARE, 0.97);
+  ctx.fill();
+  ctx.lineWidth = 0.9;
+  ctx.strokeStyle = rgba(SEP, 0.9);
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  // the dark hollow of the break
+  ctx.fillStyle = rgba(SNAG_DARK, 0.55);
+  ctx.beginPath();
+  ctx.ellipse(e.x + ca * 0.5, e.y + sa * 0.5, Math.max(0.8, hw * 0.28), Math.max(0.8, hw * 0.55), dir + Math.PI / 2, 0, TAU);
+  ctx.fill();
+}
 
 /**
- * A dead tree as painting steps (same contract as trunkSteps): the lower part of the trunk still stands in weathered grey
- * wood, bark peels off in strips, a few limbs are broken stubs, and the top ends in a jagged break. No crown.
+ * A dead tree as painting steps (same contract as trunkSteps): a broken trunk, shorter than the living one and thicker
+ * for its height, in the bark of its species (papery white birch with dark lenticels and peeling strips, deeply furrowed
+ * oak, plated reddish pine). Bark has peeled off in places, two or three limbs are short broken stubs, the top is a jagged
+ * break of pale spires of different heights over a dark hollow, and a hollow or a bracket fungus sits on the stem.
+ * No crown. The painting is deterministic from the model's seed.
  */
 export function snagSteps(ctx, m, W, H) {
   const steps = [];
@@ -1357,86 +1673,156 @@ export function snagSteps(ctx, m, W, H) {
   const sp = SNAG[m.species] ? m.species : 'oak';
   const pal = SNAG[sp];
   const T = m.trunk;
-  const n = Math.max(4, Math.round(T.pts.length * clamp(0.5 + 0.2 * rng(), 0.45, 0.72)));
+  const n = Math.max(5, Math.min(T.pts.length, Math.round(T.pts.length * snagKeep(sp, rng()))));
   const pts = T.pts.slice(0, n);
-  const ws = T.w.slice(0, n);
+  const ws = snagWidths(T.w, T.w0, n);
   const topY = pts[n - 1].y;
   const hold = { rb: null };
+  const seed = m.seed;
   steps.push(() => groundHatch(ctx, T.w0, rng));
-  // broken limb stubs on the standing part
-  const stubs = m.limbs.filter((L) => L.pts.length > 3 && L.w0 >= 1.6 && L.pts[0].y > topY + 8).sort((a, b) => b.w0 - a.w0).slice(0, 3);
-  stubs.forEach((L, i) => {
-    steps.push(() => {
-      const k = Math.max(3, Math.round(L.pts.length * (0.2 + 0.22 * rng())));
-      const rb = ribbon(L.pts.slice(0, k), L.w.slice(0, k), m.seed + 700 + i, 0.2);
-      fillBand(ctx, rb.L, rb.R, SNAG_PEEL, 0.95);
-      edges(ctx, rb, 1, SEP, m.seed + 710 + i, 0.8);
-      const e = rb.C[rb.n - 1];
-      ctx.fillStyle = rgba(SNAG_BARE, 0.95);
-      ctx.beginPath();
-      ctx.ellipse(e.x, e.y, Math.max(1.2, rb.hw[rb.n - 1]), Math.max(0.9, rb.hw[rb.n - 1] * 0.6), 0.4, 0, TAU);
-      ctx.fill();
+  // the root flare of an oak is still there
+  if (m.butt && m.butt.length) {
+    m.butt.forEach((L, i) => {
+      steps.push(() => {
+        const rb = ribbon(L.pts, L.w, seed + 600 + i, 0.2);
+        fillBand(ctx, rb.L, rb.R, pal.fill, 0.97, 0.5, 0.3);
+        const [a, b] = lateral(rb, 0.1, 1.0);
+        fillBand(ctx, a, b, pal.shade, 0.55, 0.4, 0.3);
+        edges(ctx, rb, 1.1, SEP, seed + 610 + i, 0.88);
+      });
     });
+  }
+  // broken limbs on the standing part: the biggest ones, cut short
+  const wide = sp === 'birch' ? 1.7 : sp === 'pine' ? 1.5 : 1;
+  const stubs = m.limbs
+    .filter((L) => L.pts.length > 3 && L.w0 >= 1.2 && (L.depth || 1) <= 1 && L.pts[0].y > topY - 6 && L.pts[0].y < -T.w0 * 0.8)
+    .sort((a, b) => b.w0 - a.w0)
+    .slice(0, 3 + (rng() < 0.4 ? 1 : 0));
+  stubs.forEach((L, i) => {
+    const k = Math.max(4, Math.round(L.pts.length * (sp === 'oak' ? 0.16 + 0.2 * rng() : 0.1 + 0.14 * rng())));
+    steps.push(() => limbStub(ctx, L, k, wide, 2.4, seed + 700 + i, rng, pal));
   });
   // the standing trunk
   steps.push(() => {
-    const rb = ribbon(pts, ws, m.seed + 99, 0.4);
+    const rb = ribbon(pts, ws, seed + 99, 0.4);
     hold.rb = rb;
-    fillBand(ctx, rb.L, rb.R, pal.fill, 0.96, 0.6, 0.35);
-    const [a, b] = lateral(rb, 0.1, 1.0);
+    fillBand(ctx, rb.L, rb.R, pal.fill, 0.97, 0.6, 0.35);
+    const [a, b] = lateral(rb, 0.15, 1.0);
     fillBand(ctx, a, b, pal.shade, 0.6, 0.5, 0.3);
-    const [c, d] = lateral(rb, -1.0, -0.4);
-    fillBand(ctx, c, d, pal.light, 0.4, 0.5, 0.3);
-    // the lower trunk is darker (damp, rot)
+    const [c, d] = lateral(rb, -1.0, -0.45);
+    fillBand(ctx, c, d, pal.light, 0.42, 0.5, 0.3);
+    // the lower trunk is darker (damp, rot), and the stem darkens under the break
     const [e, f] = lateral(rb, -1, 1);
     const cut = Math.max(3, Math.round(rb.n * 0.28));
-    fillBand(ctx, e.slice(0, cut), f.slice(0, cut), '#1c140e', 0.22, 0.4, 0.3);
+    fillBand(ctx, e.slice(0, cut), f.slice(0, cut), '#1c140e', 0.24, 0.4, 0.3);
+    const top = Math.max(2, Math.round(rb.n * 0.1));
+    fillBand(ctx, e.slice(rb.n - top), f.slice(rb.n - top), '#1c140e', 0.2, 0.4, 0.3);
   });
+  // bark texture
   steps.push(() => {
     const rb = hold.rb;
     ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(rb.L[0].x, rb.L[0].y);
-    for (let i = 1; i < rb.n; i++) ctx.lineTo(rb.L[i].x, rb.L[i].y);
-    for (let i = rb.n - 1; i >= 0; i--) ctx.lineTo(rb.R[i].x, rb.R[i].y);
-    ctx.closePath();
-    ctx.clip();
+    clipRibbon(ctx, rb);
+    if (sp === 'oak') {
+      // deep dark furrows with pale ridges between them
+      furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 0.7, 16, 80)), minLen: 14, maxLen: 55, wMin: 1, wMax: 2.7, color: pal.furrow, aLo: 0.55, aHi: 0.96, uLo: -0.92, uHi: 0.96, bias: 1.0, ticks: 0.12 });
+      furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 0.35, 8, 40)), minLen: 10, maxLen: 38, wMin: 0.8, wMax: 1.5, color: pal.ridge, aLo: 0.22, aHi: 0.5, uLo: -0.9, uHi: 0.5 });
+    } else if (sp === 'pine') {
+      barkPlates(ctx, rb, rng, pal);
+      furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 0.5, 6, 30)), minLen: 16, maxLen: 50, wMin: 0.6, wMax: 1.1, color: pal.furrow, aLo: 0.3, aHi: 0.6, bias: 1.0 });
+    } else {
+      // birch: a dark rough base, the horizontal lenticel dashes along the whole stem, a few long pale grains
+      furrows(ctx, rb, rng, { count: 11, minLen: 5, maxLen: 14, wMin: 0.9, wMax: 1.9, color: pal.furrow, uLo: -0.8, uHi: 0.8, aLo: 0.5, aHi: 0.9, yFrom: 0, yTo: 0.2 });
+      birchMarks(ctx, rb, rng, 1.3);
+      birchMarks(ctx, rb, rng, 1.0);
+      furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 0.5, 5, 22)), minLen: 12, maxLen: 40, wMin: 0.5, wMax: 0.9, color: '#8a8478', uLo: 0.1, uHi: 0.95, aLo: 0.3, aHi: 0.6 });
+    }
     // long dry cracks along the grain
-    furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 2.4, 8, 60)), minLen: 14, maxLen: 60, wMin: 0.5, wMax: 1.3, color: '#241a12', aLo: 0.4, aHi: 0.9, bias: 1.0, ticks: 0.1 });
+    furrows(ctx, rb, rng, { count: Math.round(clamp(T.w0 * 0.8, 4, 24)), minLen: 14, maxLen: 60, wMin: 0.5, wMax: 1.1, color: '#241a12', aLo: 0.3, aHi: 0.75, bias: 1.0, ticks: 0.1 });
     // bare wood where the bark came off
-    for (let q = 0; q < 3 + m.stage; q++) {
-      const i = Math.floor(rr(rng, 0.1, 0.8) * (rb.n - 1));
+    const bare = sp === 'birch' ? 1 : 1 + (m.stage > 1 ? 1 : 0);
+    for (let q = 0; q < bare; q++) {
+      const f = rr(rng, 0.12, 0.75) * (rb.n - 1);
       const side = rng() < 0.5 ? -1 : 1;
-      const hw = rb.hw[i];
-      const x = rb.C[i].x + rb.P[i].x * hw * side * rr(rng, 0.1, 0.5);
-      const ry = rr(rng, 8, 22);
+      const c = ribAt(rb, f, side * rr(rng, 0.1, 0.5));
+      const ry = rr(rng, 7, 17);
+      const blob = blobPoly(c.x, c.y, Math.max(1.4, c.hw * rr(rng, 0.14, 0.28)), ry, seed + 800 + q, { n: 11, jitter: 0.4, rot: 0.05 * side });
       ctx.fillStyle = rgba(SNAG_BARE, 0.78);
       ctx.beginPath();
-      ctx.ellipse(x, rb.C[i].y, Math.max(1.5, hw * rr(rng, 0.25, 0.5)), ry, 0.05 * side, 0, TAU);
+      tracePath(ctx, blob, true, false);
       ctx.fill();
-      inkStroke(ctx, [{ x: x - hw * 0.1, y: rb.C[i].y - ry * 0.8 }, { x: x + hw * 0.08 * side, y: rb.C[i].y }, { x: x, y: rb.C[i].y + ry * 0.8 }], { w: 0.8, color: '#3b2c1f', alpha: 0.7, taperStart: 0.3, taperEnd: 0.3, seed: 900 + q, step: 2 });
+      ctx.lineWidth = 0.9;
+      ctx.strokeStyle = rgba('#3b2c1f', 0.6);
+      ctx.stroke();
+      inkStroke(ctx, [{ x: c.x - c.hw * 0.1, y: c.y - ry * 0.8 }, { x: c.x + c.hw * 0.08 * side, y: c.y }, { x: c.x, y: c.y + ry * 0.8 }], { w: 0.8, color: '#3b2c1f', alpha: 0.7, taperStart: 0.3, taperEnd: 0.3, seed: 900 + q, step: 2 });
     }
     ctx.restore();
+  });
+  // a hollow and a bracket fungus on the stem
+  steps.push(() => {
+    const rb = hold.rb;
+    const side = rng() < 0.5 ? -1 : 1;
+    if (rng() < (sp === 'birch' ? 0.4 : 0.85)) {
+      const p = ribAt(rb, rr(rng, 0.42, 0.72) * (rb.n - 1), side * rr(rng, 0.0, 0.25));
+      const rx = Math.max(2, p.hw * rr(rng, 0.2, 0.3));
+      const ry = rx * rr(rng, 1.4, 2.1);
+      ctx.fillStyle = rgba(pal.light, 0.5);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 0.8, rx * 1.2, ry * 1.1, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = rgba(SNAG_DARK, 0.96);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, rx, ry, 0, 0, TAU);
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = rgba(SEP, 0.9);
+      ctx.stroke();
+    }
+    if (rng() < (sp === 'birch' ? 0.65 : 0.45)) {
+      const f = rr(rng, 0.2, 0.5) * (rb.n - 1);
+      const p = ribAt(rb, f, -side * 0.97);
+      const w = Math.max(4, p.hw * rr(rng, 0.7, 1.05));
+      const dir = -side; // out of the stem, on the side opposite the hollow
+      const x = p.x;
+      const y = p.y;
+      ctx.beginPath();
+      ctx.moveTo(x, y - w * 0.2);
+      ctx.quadraticCurveTo(x + dir * w * 0.9, y - w * 0.3, x + dir * w * 1.05, y + w * 0.12);
+      ctx.quadraticCurveTo(x + dir * w * 0.5, y + w * 0.36, x, y + w * 0.3);
+      ctx.closePath();
+      ctx.fillStyle = rgba(sp === 'birch' ? '#ddd1b4' : '#c8a46c', 0.97);
+      ctx.fill();
+      ctx.lineWidth = 0.9;
+      ctx.strokeStyle = rgba(SEP, 0.9);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + dir * w * 0.08, y + w * 0.3);
+      ctx.quadraticCurveTo(x + dir * w * 0.55, y + w * 0.36, x + dir * w * 1.0, y + w * 0.14);
+      ctx.strokeStyle = rgba('#5b3f26', 0.85);
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      inkStroke(ctx, [{ x: x + dir * w * 0.1, y: y - w * 0.08 }, { x: x + dir * w * 0.6, y: y - w * 0.12 }, { x: x + dir * w * 0.95, y: y + w * 0.04 }], { w: 0.6, color: '#8c6d44', alpha: 0.7, taperStart: 0.2, taperEnd: 0.4, seed: 940, step: 2 });
+    }
   });
   // strips of bark peeling away from the edges
   steps.push(() => {
     const rb = hold.rb;
-    const count = 4 + m.stage * 2;
+    const count = (sp === 'birch' ? 5 : 2) + m.stage;
     for (let q = 0; q < count; q++) {
-      const i = Math.floor(rr(rng, 0.1, 0.9) * (rb.n - 1));
+      const i = Math.floor(rr(rng, 0.08, 0.92) * (rb.n - 1));
       const side = rng() < 0.5 ? -1 : 1;
       const hw = rb.hw[i];
       if (hw < 1.6) continue;
       const bx = rb.C[i].x + rb.P[i].x * hw * side * 0.95;
       const by = rb.C[i].y;
-      const len = rr(rng, 9, 24);
-      const out = hw * 0.4 + rr(rng, 3, 8);
+      const len = rr(rng, 9, sp === 'birch' ? 26 : 20);
+      const out = hw * 0.12 + rr(rng, 2, 4.5);
       ctx.beginPath();
       ctx.moveTo(bx, by - len * 0.5);
       ctx.quadraticCurveTo(bx + side * out * 1.1, by - len * 0.15, bx + side * out * 0.55, by + len * 0.5);
       ctx.quadraticCurveTo(bx + side * out * 0.15, by + len * 0.1, bx, by + len * 0.5);
       ctx.closePath();
-      ctx.fillStyle = rgba(SNAG_PEEL, 0.92);
+      ctx.fillStyle = rgba(sp === 'birch' ? '#e3dbc7' : SNAG_PEEL, 0.94); // birch bark is pale paper outside and dark inside
       ctx.fill();
       ctx.lineWidth = 0.8;
       ctx.strokeStyle = rgba(SEP, 0.8);
@@ -1444,37 +1830,65 @@ export function snagSteps(ctx, m, W, H) {
       ctx.beginPath();
       ctx.moveTo(bx + side * 0.4, by - len * 0.3);
       ctx.quadraticCurveTo(bx + side * out * 0.6, by, bx + side * out * 0.3, by + len * 0.35);
-      ctx.strokeStyle = rgba(pal.light, 0.6);
+      ctx.strokeStyle = rgba(sp === 'birch' ? SNAG_PEEL : pal.light, 0.6);
       ctx.stroke();
     }
-    edges(ctx, rb, clamp(0.9 + T.w0 * 0.05, 1, 2.2), SEP, m.seed + 5, 0.9);
+    edges(ctx, rb, clamp(0.9 + T.w0 * 0.05, 1.1, 2.4), SEP, seed + 5, 0.9);
   });
-  // the jagged break at the top
+  // the jagged break at the top: a dark hollow with pale spires of different heights standing around it
   steps.push(() => {
     const rb = hold.rb;
     const c = rb.C[rb.n - 1];
     const hw = rb.hw[rb.n - 1];
-    const k = 5 + Math.floor(rng() * 3);
+    const k = clamp(Math.round(hw * 0.7), 4, 7);
+    const hts = snagSpires(hw, k, rng);
     const lean = rng() < 0.5 ? -1 : 1;
-    const poly = [{ x: c.x - hw, y: c.y + 1.5 }];
-    for (let i = 0; i <= k; i++) {
-      const u = -1 + (2 * i) / k;
-      const tall = rr(rng, 0.35, 1) * (0.6 + hw * 0.5) * (1 + 0.5 * lean * u);
-      poly.push({ x: c.x + hw * u, y: c.y - (i % 2 ? tall * 0.45 : tall) * 1.8 });
+    // spires, shortest first, tallest last so it stands in front
+    // the break is slanted: on one side it goes down the trunk, so the pale wood of the break shows there
+    const low = hts.map((h, i) => Math.pow(lean > 0 ? 1 - (i + 0.5) / k : (i + 0.5) / k, 1.4));
+    const tall = hts.indexOf(Math.max(...hts));
+    for (let i = 0; i < k; i++) hts[i] *= lerp(1, 0.55, low[i]);
+    const order = hts.map((h, i) => i).sort((a, b) => hts[a] - hts[b]);
+    const x0s = hts.map((h, i) => c.x - hw + (2 * hw * (i + 0.5)) / k);
+    for (const i of order) {
+      const x0 = x0s[i];
+      const sw = ((hw * 2) / k) * (i === tall ? 1.7 : 1);
+      const h = hts[i];
+      const base = c.y + 2 + low[i] * Math.min(hw * 0.9, 12);
+      const tipx = x0 + lean * sw * rr(rng, 0.0, 0.5) + rr(rng, -0.3, 0.3) * sw;
+      const left = { x: x0 - sw * 0.78, y: base };
+      const right = { x: x0 + sw * 0.78, y: base };
+      const tip = { x: tipx, y: c.y - h };
+      const mid1 = { x: lerp(left.x, tip.x, 0.55) + rr(rng, -0.6, 0.6), y: lerp(left.y, tip.y, 0.55) };
+      const mid2 = { x: lerp(right.x, tip.x, 0.5) + rr(rng, -0.6, 0.6), y: lerp(right.y, tip.y, 0.5) };
+      ctx.beginPath();
+      tracePath(ctx, [left, mid1, tip, mid2, right], true, false);
+      ctx.fillStyle = rgba(SNAG_BARE, 0.98);
+      ctx.fill();
+      // the shaded right side of the spire
+      ctx.beginPath();
+      tracePath(ctx, [{ x: lerp(left.x, right.x, 0.5), y: base }, tip, mid2, right], true, false);
+      ctx.fillStyle = rgba(SNAG_BARE_SHADE, 0.7);
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = rgba(SEP, 0.92);
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      // the grain of the wood, up the spire
+      inkStroke(ctx, [{ x: lerp(x0, tip.x, 0.1), y: base - 1 }, { x: lerp(x0, tip.x, 0.55), y: lerp(base, tip.y, 0.5) }, { x: tip.x, y: tip.y + 1.5 }], { w: 0.6, color: '#3b2c1f', alpha: 0.65, taperStart: 0.2, taperEnd: 0.5, seed: 950 + i, step: 2 });
     }
-    poly.push({ x: c.x + hw, y: c.y + 1.5 });
+    // the shadowed hollow of the break: dark between the walls, so the spires stand out of it
+    const dk = [{ x: c.x - hw * 0.62, y: c.y + 3 + low[0] * Math.min(hw * 0.9, 12) * 0.6 }];
+    for (let i = 0; i < k; i++) {
+      const x = x0s[i];
+      if (x < c.x - hw * 0.6 || x > c.x + hw * 0.6) continue;
+      dk.push({ x: x - hw / k, y: c.y - hts[i] * 0.15 }, { x, y: c.y - hts[i] * rr(rng, 0.35, 0.6) });
+    }
+    dk.push({ x: c.x + hw * 0.62, y: c.y + 3 + low[k - 1] * Math.min(hw * 0.9, 12) * 0.6 });
     ctx.beginPath();
-    tracePath(ctx, poly, true, false);
-    ctx.fillStyle = rgba(SNAG_BARE, 0.96);
+    tracePath(ctx, dk, true, false);
+    ctx.fillStyle = rgba(SNAG_DARK, 0.9);
     ctx.fill();
-    ctx.lineWidth = 1.1;
-    ctx.strokeStyle = rgba(SEP, 0.92);
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-    for (let i = 0; i < 4; i++) {
-      const x = c.x + hw * rr(rng, -0.8, 0.8);
-      inkStroke(ctx, [{ x, y: c.y - rr(rng, 3, 9) }, { x: x + rr(rng, -0.5, 0.5), y: c.y + rr(rng, 1, 5) }], { w: 0.7, color: '#3b2c1f', alpha: 0.7, taperStart: 0.2, taperEnd: 0.5, seed: 950 + i, step: 2 });
-    }
   });
   steps.push(() => granulate(ctx, W, H, 0.12, 0.45));
   return steps;
