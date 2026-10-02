@@ -48,7 +48,10 @@ test('the real project builds into one file covering every reachable module', ()
   const out = path.join(tmp, 'real', 'bundle.html');
   const stats = build({ root: ROOT, out, warn: (m) => assert.fail(`unexpected build warning: ${m}`) });
   assert.ok(stats.bytes < 20 * 1024 * 1024);
-  const { html, map, sources } = readBundle(out);
+  const { html, map, sources, assets } = readBundle(out);
+  assert.deepEqual(stats.workers, ['src/render/world-worker.js'], 'the world-layer worker is folded into the page');
+  assert.ok('assets/fonts/OldStandard-Italic.woff2' in assets, 'the worker letters the plate with the italic: it needs its own copy');
+  assert.match(html, /<script type="application\/json" id="rnt-workers">/);
 
   for (const rel of reachableFromMain()) assert.ok(`@rnt/${rel}` in map, `${rel} missing from the import map`);
   for (const [name, code] of Object.entries(sources)) {
@@ -150,7 +153,7 @@ test('a small project: modules, optional imports, CSS urls, embedded assets, lic
   assert.ok(!/<div id="file-warning"/.test(html));
 });
 
-test('runtime shim: embedded files resolve, other assets fail quietly, Worker is hidden', async () => {
+test('runtime shim: embedded files resolve, other assets fail quietly, a Worker without an embedded script is refused', async () => {
   const dir = makeProject();
   const out = path.join(tmp, 'mini', 'dist', 'shim.html');
   build({ root: dir, out, warn: () => {} });
@@ -204,6 +207,7 @@ test('runtime shim: embedded files resolve, other assets fail quietly, Worker is
   assert.equal(img.src, 'data:,');
   img.src = 'https://example.org/p.png';
   assert.equal(img.src, 'https://example.org/p.png');
-  assert.equal(window.Worker, undefined);
+  assert.equal(typeof window.Worker, 'function');
+  assert.throws(() => new window.Worker(new URL('rnt://app/src/render/world-worker.js')), /no worker/, 'the renderer falls back to the main thread');
   assert.deepEqual([...window.__bundle.missing], ['assets/art/nope.webp']);
 });

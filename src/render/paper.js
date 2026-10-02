@@ -1,8 +1,30 @@
 // Paper: the sheet everything is painted on, plus the page finish (grain, foxing, vignette) painted over the top.
 import { PAL, granulate, inkStroke, mulberry, rgba, noise1, seedOf, subSeed } from './ink.js';
 
+const GRAIN_PIXELS = 24000; // pixels in one granulate() band: its pattern fill is the costly part of the paper
+
+/** granulate() over the whole canvas, one band of rows per step (a rect clip at whole pixels: the same pixels as one fill). */
+function* granulateSteps(ctx, w, h, amount, light) {
+  const rows = Math.max(8, Math.floor(GRAIN_PIXELS / Math.max(1, w)));
+  for (let y = 0; y < h; y += rows) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // the clip is in device pixels, whatever transform the caller left
+    ctx.beginPath();
+    ctx.rect(0, y, w, Math.min(rows, h - y));
+    ctx.clip();
+    granulate(ctx, w, h, amount, light);
+    ctx.restore();
+    yield;
+  }
+}
+
 /** Warm paper with tonal clouds, fibres and foxing, in device pixels of a w x h canvas. */
 export function paintPaper(ctx, w, h, seed, dpr = 1) {
+  for (const _ of paintPaperSteps(ctx, w, h, seed, dpr));
+}
+
+/** paintPaper as a generator: one yield per small unit of work, so a caller can spread it over frames (see world-layer.js). */
+export function* paintPaperSteps(ctx, w, h, seed, dpr = 1) {
   const rng = mulberry(subSeed(seed, 'paper'));
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -22,7 +44,9 @@ export function paintPaper(ctx, w, h, seed, dpr = 1) {
     g.addColorStop(1, `rgba(${c},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    if (i % 3 === 2) yield;
   }
+  yield;
 
   // Fibres: short curved hairs, dark and pale.
   const n = Math.round((w * h) / (9000 * dpr * dpr));
@@ -39,7 +63,9 @@ export function paintPaper(ctx, w, h, seed, dpr = 1) {
     ctx.lineWidth = (0.4 + rng() * 0.5) * dpr;
     ctx.strokeStyle = rng() < 0.62 ? `rgba(110,82,50,${0.05 + rng() * 0.08})` : `rgba(255,252,238,${0.2 + rng() * 0.25})`;
     ctx.stroke();
+    if (i % 400 === 399) yield;
   }
+  yield;
 
   // Foxing: brownish age spots with a darker speck at the heart.
   for (let i = 0; i < 16; i++) {
@@ -60,14 +86,18 @@ export function paintPaper(ctx, w, h, seed, dpr = 1) {
     }
   }
   ctx.restore();
-  granulate(ctx, w, h, 0.07, 0.9);
+  yield* granulateSteps(ctx, w, h, 0.07, 0.9);
 }
 
 /** Final pass over everything painted: grain, vignette, yellowed page edge, a hair-line frame. */
 export function paintFinish(ctx, w, h, dpr = 1) {
+  for (const _ of paintFinishSteps(ctx, w, h, dpr));
+}
+
+export function* paintFinishSteps(ctx, w, h, dpr = 1) {
+  yield* granulateSteps(ctx, w, h, 0.075, 0.6);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  granulate(ctx, w, h, 0.075, 0.6);
 
   // Vignette: warm sepia darkening toward the corners.
   const cx = w / 2;

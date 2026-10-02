@@ -6,15 +6,22 @@
 //    (import.meta.url is rewritten at build time to "rnt://app/<module path>").
 //    A project path under assets/ that is not embedded fails quietly (synthetic 404 / empty image) instead of
 //    asking the file:// scheme, which browsers refuse with console errors.
-// 2. Module workers cannot load the bundle's modules (workers get no import map), so Worker is hidden: the
-//    renderer's own capability check (`typeof Worker !== 'undefined'`) then takes the main-thread path.
+// 2. Module workers cannot load the bundle's modules (workers get no import map, and blob: module workers are
+//    refused on file://). The build folds each worker's module graph into ONE classic script (<script
+//    type="application/json" id="rnt-workers">: { "src/render/world-worker.js": "<script text>" }); `new Worker(url)`
+//    for such a URL starts it from a blob: URL, with a fetch() that serves the embedded assets. Any other Worker URL
+//    throws, so the caller falls back to the main thread as before.
 (function () {
   'use strict';
   var VIRTUAL = 'rnt://app/';
   var ASSETS = {};
+  var ASSETS_TEXT = '{}'; // the same JSON, handed to a worker as is (a JSON text is also a JS expression)
   try {
     var node = document.getElementById('rnt-assets');
-    if (node) ASSETS = JSON.parse(node.textContent || '{}');
+    if (node) {
+      ASSETS_TEXT = node.textContent || '{}';
+      ASSETS = JSON.parse(ASSETS_TEXT);
+    }
   } catch (err) {
     console.warn('[bundle] cannot read the embedded assets', err);
   }
@@ -151,10 +158,65 @@
   }
 
   // workers -----------------------------------------------------------------
-  try {
-    Object.defineProperty(window, 'Worker', { value: undefined, configurable: true, writable: true });
-  } catch (err) {
-    window.Worker = undefined;
+  // Runs inside the worker, before the bundled script: the worker has no page shim, so its fetch() of an embedded
+  // file (sprites, fonts) is answered from the same asset map. Self-contained: it travels as source text.
+  function workerPrelude(ASSETS) {
+    var VIRTUAL = 'rnt://app/';
+    var realFetch = self.fetch;
+    self.fetch = function (input) {
+      var s = typeof input === 'string' ? input : input && (input.href || input.url);
+      if (typeof s !== 'string' || s.indexOf(VIRTUAL) !== 0) return realFetch.apply(self, arguments);
+      var key = s.slice(VIRTUAL.length).replace(/[?#].*$/, '');
+      try {
+        key = decodeURIComponent(key);
+      } catch (err) {
+        /* keep as is */
+      }
+      if (!Object.prototype.hasOwnProperty.call(ASSETS, key)) {
+        return Promise.resolve(new Response(null, { status: 404, statusText: 'not embedded in this bundle' }));
+      }
+      var bin = atob(ASSETS[key][1]);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return Promise.resolve(new Response(bytes, { status: 200, headers: { 'content-type': ASSETS[key][0] } }));
+    };
+  }
+
+  var RealWorker = window.Worker;
+  var workerScripts = null;
+  var workerBlobs = {};
+  function embeddedWorker(key) {
+    if (workerScripts === null) {
+      workerScripts = {};
+      try {
+        var tag = document.getElementById('rnt-workers');
+        if (tag) workerScripts = JSON.parse(tag.textContent || '{}');
+      } catch (err) {
+        console.warn('[bundle] cannot read the embedded workers', err);
+      }
+    }
+    return key !== null && Object.prototype.hasOwnProperty.call(workerScripts, key) ? workerScripts[key] : null;
+  }
+
+  function BundledWorker(url, options) {
+    var script = embeddedWorker(keyOf(url));
+    if (typeof RealWorker !== 'function' || script === null) throw new Error('this bundle has no worker for ' + url);
+    var key = keyOf(url);
+    var blobUrl = workerBlobs[key];
+    if (!blobUrl) {
+      var prelude = '(' + workerPrelude.toString() + ')(' + ASSETS_TEXT + ');\n';
+      blobUrl = workerBlobs[key] = URL.createObjectURL(new Blob([prelude, script], { type: 'text/javascript' }));
+    }
+    // a classic worker: the folded script has no import/export
+    return new RealWorker(blobUrl, options && options.name ? { name: options.name } : undefined);
+  }
+  if (typeof RealWorker === 'function') {
+    BundledWorker.prototype = RealWorker.prototype;
+    try {
+      Object.defineProperty(window, 'Worker', { value: BundledWorker, configurable: true, writable: true });
+    } catch (err) {
+      window.Worker = BundledWorker;
+    }
   }
 
   window.__bundle = { assets: Object.keys(ASSETS), missing: missing };

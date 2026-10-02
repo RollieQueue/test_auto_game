@@ -22,8 +22,14 @@ opened by double-click from `file://` (Edge/Chrome; no server, no network). Opti
   document-relative paths (`assets/art/x.webp`) and `rnt://app/…` URLs to the embedded bytes; a project path under
   `assets/` that is not embedded gets a synthetic 404 / an empty image (no console error); anything else passes
   through. `window.__bundle = { assets, missing }` is there for debugging.
-- **Workers.** Workers cannot see the import map, so the shim sets `window.Worker = undefined`; the renderer's check
-  `typeof Worker !== 'undefined'` then selects main-thread painting of the world layer deterministically.
+- **Workers.** A worker cannot see the import map, and Chrome refuses a module worker from a `blob:` URL on a `file://`
+  page. So every `new Worker(new URL('./x.js', import.meta.url), …)` entry is folded, with the modules it imports, into
+  ONE classic script (`tools/build/worker-bundle.mjs`; only plain `import { a } from` / `export function|const` syntax,
+  no cycles, no `export let`: anything else is a build error) and embedded in
+  `<script type="application/json" id="rnt-workers">`. `window.Worker` becomes a wrapper: for such a URL it starts a classic
+  worker from a `blob:` URL, with a prelude that gives it a `fetch()` over the same asset map (sprites, the italic font:
+  files a worker names with `new URL('…', import.meta.url)` stay embedded even when the CSS inlines them); for any other URL
+  it throws, so the caller (the renderer) falls back to the main thread.
 - **Page.** The `file://` warning (div + script) is removed; query parameters (`?seed=`, `?seasons=1`, `?autostart=1`)
   work as served. OFL font licences are kept in an HTML comment at the top.
 
@@ -32,7 +38,8 @@ opened by double-click from `file://` (Edge/Chrome; no server, no network). Opti
 - Reference modules by relative string literals ending in `.js`; do not build module paths dynamically.
 - Load project files with `fetch('assets/…')`, `new Image().src = 'assets/…'`, `new URL('…', import.meta.url)`; other
   loaders (CSS `background` set from JS, `<audio src>`, `FontFace(url)`, `new Worker(url)`) are not intercepted.
-- Keep the capability check `typeof Worker !== 'undefined'` before creating workers.
+- Create workers as `new Worker(new URL('./x.js', import.meta.url), { type: 'module' })` inside `try`, keep the main-thread
+  fallback, and have a worker load files with `fetch(new URL('…', import.meta.url))` (not `FontFace(url)` or `importScripts`).
 - Use `//` and `/* */` comments freely (they are stripped), but regex literals after `)` / `}` ambiguities are decided
   by a small scanner (`tools/build/scan.mjs`); `tests/build.test.mjs` and a browser run catch a misread.
 

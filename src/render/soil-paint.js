@@ -10,13 +10,21 @@ const SQ = (n) => n * n;
  * gently waving lower edge. env: { topY, botY, x0, x1, step, mul, seed }.
  */
 export function paintTones(ctx, world, look, env) {
+  for (const _ of paintTonesSteps(ctx, world, look, env));
+}
+
+// The three painters below also exist as generators (…Steps) that yield between washes and features: the world-layer
+// painter spreads them over frames; the plain functions above and below simply run them to the end.
+export function* paintTonesSteps(ctx, world, look, env) {
   const { topY, botY, x0, x1, step, mul, seed } = env;
   const hs = world.horizons;
-  hs.forEach((h, i) => {
+  for (let i = 0; i < hs.length; i++) {
+    const h = hs[i];
     const tones = look.layers && look.layers[h.id] && look.layers[h.id].tones;
-    if (!tones) return;
+    if (!tones) continue;
     const so = seedOf(seed + i * 31);
-    tones.forEach((t, ti) => {
+    for (let ti = 0; ti < tones.length; ti++) {
+      const t = tones[ti];
       const top = [];
       const bot = [];
       const s0 = Math.floor(x0 / step) * step;
@@ -28,12 +36,17 @@ export function paintTones(ctx, world, look, env) {
         bot.push({ x, y: ty + bh * wave(t.to, ti * 3 + 1) + (t.to >= 1 ? 4 : 0) });
       }
       wash(ctx, top.concat(bot.reverse()), { color: mul(t.color), alpha: t.alpha, layers: 3, ragged: 3.2, edge: 0.25, edgeW: 1.6, seed: seed + i * 101 + ti * 13 + 5, comp: 'multiply' });
-    });
-  });
+      yield;
+    }
+  }
 }
 
 /** Everything that goes under the depth veil and the texture: broad washes. */
 export function paintUnder(ctx, feats, env) {
+  for (const _ of paintUnderSteps(ctx, feats, env));
+}
+
+export function* paintUnderSteps(ctx, feats, env) {
   const { mul, avoid } = env;
   for (const f of feats) {
     switch (f.kind) {
@@ -64,6 +77,7 @@ export function paintUnder(ctx, feats, env) {
       default:
         break;
     }
+    yield;
   }
 }
 
@@ -85,6 +99,10 @@ function tonguePoly(f) {
 
 /** Fine ink details, over the generic texture. env: { mul, avoid, look } */
 export function paintDetails(ctx, feats, env) {
+  for (const _ of paintDetailsSteps(ctx, feats, env));
+}
+
+export function* paintDetailsSteps(ctx, feats, env) {
   const { avoid } = env;
   for (const f of feats) {
     switch (f.kind) {
@@ -115,6 +133,7 @@ export function paintDetails(ctx, feats, env) {
       default:
         break;
     }
+    yield;
   }
 }
 

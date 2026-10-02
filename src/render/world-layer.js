@@ -2,8 +2,8 @@
 // painted once per world and view into a canvas of device resolution. Shared by the world-layer worker (the usual
 // path, so the page never freezes while it paints) and the main thread (fallback when workers are unavailable).
 // Worker-safe: no DOM access here or in the modules it uses.
-import { paintPaper, paintFinish } from './paper.js';
-import { paintTerrain } from './terrain.js';
+import { paintPaperSteps, paintFinishSteps } from './paper.js';
+import { paintTerrainSteps } from './terrain.js';
 import { drawDecor } from './decor.js';
 
 /**
@@ -12,8 +12,48 @@ import { drawDecor } from './decor.js';
  * undefined or '' gives the unseasonal look, which is the summer one.
  */
 export function paintWorldLayer(g, w, h, world, view, season) {
+  for (const _ of paintSteps(g, w, h, world, view, season));
+}
+
+/**
+ * The same painting in slices, for the main thread (the worker paints in one go): step(budgetMs) works until the budget
+ * is spent and returns true once the plate is finished. `g` must belong to the painter until then: units of work share
+ * its state (transform, clips). The result is exactly paintWorldLayer's.
+ * `flush` (optional) is called after every unit so that a canvas which rasterises lazily has paid for the unit by the time
+ * the clock is read, e.g. () => g.getImageData(0, 0, 1, 1) on a software canvas; without it the budget only covers the
+ * recording of the drawing commands.
+ *   painter.done, painter.units (units run), painter.maxUnitMs (the longest one: what a frame can be stretched by)
+ */
+export function createWorldPainter(g, w, h, world, view, season, flush = null) {
+  const run = paintSteps(g, w, h, world, view, season);
+  const painter = {
+    done: false,
+    units: 0,
+    maxUnitMs: 0,
+    step(budgetMs = 6) {
+      if (painter.done) return true;
+      const t0 = performance.now();
+      let t = t0;
+      do {
+        if (run.next().done) {
+          painter.done = true;
+          return true;
+        }
+        flush?.();
+        painter.units++;
+        const now = performance.now();
+        if (now - t > painter.maxUnitMs) painter.maxUnitMs = now - t;
+        t = now;
+      } while (t - t0 < budgetMs);
+      return false;
+    },
+  };
+  return painter;
+}
+
+function* paintSteps(g, w, h, world, view, season) {
   const s = view.scale * view.dpr;
-  paintPaper(g, w, h, world.seed, view.dpr);
+  yield* paintPaperSteps(g, w, h, world.seed, view.dpr);
   g.setTransform(s, 0, 0, s, view.ox * view.dpr, view.oy * view.dpr);
   const ext = {
     x0: -view.ox / view.scale,
@@ -28,7 +68,7 @@ export function paintWorldLayer(g, w, h, world, view, season) {
     ...world.rocks.map((d) => ({ x: d.x, y: d.y, r: d.r * 1.5 })),
   ];
   const avoid = (x, y, m) => avoidList.some((a) => Math.hypot(x - a.x, y - a.y) < a.r + m * 0.4);
-  paintTerrain(g, world, ext, { avoid, cssUnit: 1 / view.scale, season });
+  yield* paintTerrainSteps(g, world, ext, { avoid, cssUnit: 1 / view.scale, season });
   for (const d of world.decor) {
     try {
       drawDecor(g, d, { seed: world.seed, px: s });
@@ -36,8 +76,9 @@ export function paintWorldLayer(g, w, h, world, view, season) {
       console.error('[render:decor]', err);
       fallbackDecor(g, d);
     }
+    yield;
   }
-  paintFinish(g, w, h, view.dpr);
+  yield* paintFinishSteps(g, w, h, view.dpr);
 }
 
 function fallbackDecor(g, d) {

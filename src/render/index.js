@@ -1,9 +1,13 @@
 // Renderer: an old naturalist's plate. The static world (paper, sky, soil, rocks, curiosities) is painted once into a
 // cached layer, off the main thread in a worker when the browser allows it; living things (roots, deposits, mycelium,
 // flows, trees, mushrooms, feedback, effects) are drawn every frame from sprites and incremental caches.
+// No frame ever paints or uploads a whole plate: a worker paints it, or the main thread paints it in slices of a few
+// milliseconds into a software canvas; either way the finished plate crosses into a page canvas in bands, a couple per
+// frame (plate-bands.js), and the old plate (or the blank paper) stays on show meanwhile.
 // Public API: createRenderer(canvas) -> { resize(view), draw(state, view, dt) }.
 import { PAL, makeCanvas } from './ink.js';
-import { paintWorldLayer } from './world-layer.js';
+import { createWorldPainter } from './world-layer.js';
+import { cutBands, closeBands } from './plate-bands.js';
 import { loadSprites, onSpritesReady, spritesReady } from './sprites.js';
 
 const optional = (path) =>
@@ -34,15 +38,19 @@ const REBUILD_DELAY = 0.2; // seconds the window size must stay put before the w
 const WORKER_TIMEOUT = 20; // seconds before a silent worker is given up for main-thread painting
 const REVEAL = 0.5; // seconds a freshly painted plate takes to come up out of the blank paper
 const SEASON_FADE = 20; // seconds an old season's plate takes to dissolve into the new one (test knob: globalThis.__seasonFade)
+const FADE_STEP = 0.5; // seconds between re-mixed pictures of that dissolve: one blit per frame in between instead of two
+const PAINT_BUDGET = 6; // ms of main-thread plate painting per frame (twice that while only blank paper is on show)
+const FONT_WAIT = 0.6; // seconds a main-thread plate waits for the notebook italic, so that it is painted once, not twice
+const BANDS_PER_FRAME = 2; // bands of a finished plate copied into the page's canvas per frame
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d', { alpha: false });
-  const layer = { canvas: null, world: null, key: '', vkey: '', season: '', dirty: false, born: -1, bare: false };
+  const layer = { canvas: null, world: null, key: '', vkey: '', season: '', dirty: false, born: -1, bare: false, path: '', fonts: true };
   // a plate painted before the illustrations arrived is painted again once they have
   onSpritesReady(() => {
     if (layer.bare) layer.dirty = true;
   });
-  let fade = null; // season change: { from: the old plate's canvas, at } while it dissolves into layer.canvas
+  let fade = null; // season change: { from: the old plate's canvas, at, mix, mixK } while it dissolves into layer.canvas
   let changedAt = 0; // real time of the last size change
   let lastKey = '';
   const profile = {};
@@ -55,13 +63,29 @@ export function createRenderer(canvas) {
   let job = null; // the request in flight: { id, key, world, at }
   let jobSeq = 0;
 
-  // the plate lettering uses the notebook fonts; a main-thread layer is repainted once they have loaded
+  // the plate lettering uses the notebook fonts. The worker loads its own copy; a main-thread plate waits briefly for the
+  // page's one (see request) and is repainted only if it still had to be lettered without it
+  let fontsReady = false; // the italic has loaded, or will never
+  let firstDrawAt = -1;
+  const fontLoaded = () => {
+    try {
+      return !document.fonts || document.fonts.check('italic 15px "Old Standard TT"');
+    } catch {
+      return true;
+    }
+  };
   try {
-    document.fonts?.load('italic 15px "Old Standard TT"').then(() => {
-      if (!worker) layer.dirty = true;
-    });
+    document.fonts.load('italic 15px "Old Standard TT"').then(
+      () => {
+        fontsReady = true;
+        if (layer.canvas && layer.path === 'main' && !layer.fonts) layer.dirty = true;
+      },
+      () => {
+        fontsReady = true;
+      },
+    );
   } catch {
-    /* no font API: the fallback serif is fine */
+    fontsReady = true; // no font API: the fallback serif is fine
   }
 
   // Optional modules: each one is isolated so a failure in one never kills the frame loop.
@@ -139,9 +163,11 @@ export function createRenderer(canvas) {
     if (c) c.width = c.height = 0;
   }
 
-  /** The plate's look at this instant while a season fade runs: the old plate under the new at progress k. */
-  function bakeFade(k) {
-    const c = makeCanvas(layer.canvas.width, layer.canvas.height);
+  /** The plate's look at this instant while a season fade runs: the old plate under the new at progress k (into `into`, if it fits). */
+  function bakeFade(k, into = null) {
+    const fits = into && into.width === layer.canvas.width && into.height === layer.canvas.height;
+    if (into && !fits) free(into);
+    const c = fits ? into : makeCanvas(layer.canvas.width, layer.canvas.height);
     const g = c.getContext('2d', { alpha: false });
     g.drawImage(fade.from, 0, 0, c.width, c.height);
     g.globalAlpha = k * k * (3 - 2 * k);
@@ -149,7 +175,7 @@ export function createRenderer(canvas) {
     return c;
   }
 
-  function install(c, world, key, vkey, season, bare = false) {
+  function install(c, world, key, vkey, season, bare = false, path = 'main', fonts = true) {
     const fresh = layer.world !== world;
     const prev = layer.canvas;
     const dur = globalThis.__seasonFade ?? SEASON_FADE;
@@ -159,11 +185,13 @@ export function createRenderer(canvas) {
       const from = fade ? bakeFade(Math.min(1, (now - fade.at) / dur)) : prev;
       if (fade) {
         free(fade.from);
+        free(fade.mix);
         free(prev);
       }
-      fade = { from, at: now };
+      fade = { from, at: now, mix: null, mixK: -1 };
     } else {
       free(fade?.from);
+      free(fade?.mix);
       free(prev);
       fade = null;
     }
@@ -173,8 +201,11 @@ export function createRenderer(canvas) {
     layer.vkey = vkey;
     layer.season = season;
     layer.bare = bare;
+    layer.path = path;
+    layer.fonts = fonts;
     layer.dirty = false;
     if (fresh) layer.born = performance.now() / 1000;
+    stats.worldPaints = (stats.worldPaints || 0) + 1;
   }
 
   function publish() {
@@ -199,25 +230,19 @@ export function createRenderer(canvas) {
       worker = new Worker(new URL('./world-worker.js', import.meta.url), { type: 'module' });
       worker.onmessage = (e) => {
         const msg = e.data || {};
-        if (!job || msg.id !== job.id) return; // superseded
+        if (!job || msg.id !== job.id) {
+          closeBands(msg.bands); // superseded
+          return;
+        }
         const done = job;
         job = null;
-        if (msg.error || !msg.bitmap) {
-          giveUpWorker(msg.error || 'no bitmap');
+        if (msg.error || !msg.bands?.length) {
+          closeBands(msg.bands);
+          giveUpWorker(msg.error || 'no bands');
           layer.dirty = true;
           return;
         }
-        // copy into a regular canvas once, so the per-frame blit reads a texture that already lives on the GPU
-        const c = makeCanvas(msg.bitmap.width, msg.bitmap.height);
-        c.getContext('2d', { alpha: false }).drawImage(msg.bitmap, 0, 0);
-        msg.bitmap.close?.();
-        install(c, done.world, done.key, done.vkey, done.season, !msg.sprites);
-        stats.worldBuildMs = Math.round(msg.ms);
-        stats.worldSeason = done.season;
-        (stats.worldBuildBySeason ||= {})[done.season || 'none'] = stats.worldBuildMs;
-        stats.worldPath = 'worker';
-        stats.worldWaitMs = Math.round((performance.now() / 1000 - done.at) * 1000);
-        publish();
+        receive({ ...done, bands: msg.bands, ms: msg.ms, bare: !msg.sprites, path: 'worker', fonts: true });
       };
       worker.onerror = (e) => {
         giveUpWorker(e?.message || 'error');
@@ -229,19 +254,101 @@ export function createRenderer(canvas) {
     return worker;
   }
 
-  function paintSync(state, view, key, vkey, season) {
+  /**
+   * Main-thread painting, in slices: into a software canvas (the drawing is rasterised as it is recorded, so a slice's
+   * time is real; a GPU canvas would only record commands and pay in whichever frame flushes it).
+   */
+  let painting = null; // { painter, c, world, key, vkey, season, w, h, at, spent }
+  function startPaint(state, view, key, vkey, season, at) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const c = makeCanvas(w, h);
+    const g = c.getContext('2d', { alpha: false, willReadFrequently: true });
+    const v = { scale: view.scale, ox: view.ox, oy: view.oy, cssW: view.cssW, cssH: view.cssH, dpr: view.dpr };
+    const painter = createWorldPainter(g, w, h, state.world, v, season, () => g.getImageData(0, 0, 1, 1));
+    painting = { painter, c, world: state.world, key, vkey, season, w, h, at, spent: 0 };
+  }
+
+  function cancelPaint() {
+    if (painting) free(painting.c);
+    painting = null;
+  }
+
+  function advancePaint(budget) {
+    const p = painting;
     const t0 = performance.now();
-    const c = makeCanvas(canvas.width, canvas.height);
-    paintWorldLayer(c.getContext('2d', { alpha: false }), canvas.width, canvas.height, state.world, view, season);
-    install(c, state.world, key, vkey, season, !spritesReady());
-    stats.worldBuildMs = Math.round(performance.now() - t0);
-    stats.worldSeason = season;
-    (stats.worldBuildBySeason ||= {})[season || 'none'] = stats.worldBuildMs;
-    stats.worldPath = 'main';
+    const done = p.painter.step(budget);
+    p.spent += performance.now() - t0;
+    stats.worldSliceMaxMs = Math.round(p.painter.maxUnitMs * 10) / 10;
+    if (!done) return;
+    painting = null;
+    const plate = { world: p.world, key: p.key, vkey: p.vkey, season: p.season, at: p.at, ms: p.spent, bare: !spritesReady(), path: 'main', fonts: fontLoaded() };
+    cutBands(p.c, p.w, p.h).then(
+      (bands) => {
+        free(p.c);
+        receive({ ...plate, bands });
+      },
+      (err) => {
+        // no createImageBitmap for canvases: one copy, as before
+        console.warn('[render] cannot cut the plate into bands, copying it whole:', err?.message || err);
+        const c = makeCanvas(p.w, p.h);
+        c.getContext('2d', { alpha: false }).drawImage(p.c, 0, 0);
+        free(p.c);
+        finishPlate(c, plate);
+      },
+    );
+  }
+
+  /** A finished plate as bands of bitmaps (from the worker or from the main-thread painter): copy them in over a few frames. */
+  let upload = null; // { c, g, bands, next, plate }
+  let curWorld = null;
+  function receive(plate) {
+    cancelUpload();
+    if (plate.world !== curWorld) {
+      closeBands(plate.bands); // the game moved on to another world while this was painted
+      return;
+    }
+    const w = plate.bands[0].bitmap.width;
+    const h = plate.bands.reduce((sum, b) => sum + b.bitmap.height, 0);
+    const c = makeCanvas(w, h);
+    upload = { c, g: c.getContext('2d', { alpha: false }), bands: plate.bands, next: 0, plate, frames: 0 };
+  }
+
+  function cancelUpload() {
+    if (!upload) return;
+    closeBands(upload.bands.slice(upload.next));
+    free(upload.c);
+    upload = null;
+  }
+
+  function advanceUpload() {
+    const u = upload;
+    for (let n = 0; n < BANDS_PER_FRAME && u.next < u.bands.length; n++) {
+      const b = u.bands[u.next++];
+      u.g.drawImage(b.bitmap, 0, b.y);
+      b.bitmap.close?.();
+    }
+    u.frames++;
+    if (u.next < u.bands.length) {
+      u.g.getImageData(0, 0, 1, 1); // submit this frame's uploads now, not all at once with the first blit of the plate
+      return;
+    }
+    upload = null;
+    stats.worldUploadFrames = u.frames;
+    finishPlate(u.c, u.plate);
+  }
+
+  function finishPlate(c, plate) {
+    install(c, plate.world, plate.key, plate.vkey, plate.season, plate.bare, plate.path, plate.fonts);
+    stats.worldBuildMs = Math.round(plate.ms);
+    stats.worldSeason = plate.season;
+    (stats.worldBuildBySeason ||= {})[plate.season || 'none'] = stats.worldBuildMs;
+    stats.worldPath = plate.path === 'worker' ? 'worker' : 'main';
+    stats.worldWaitMs = Math.round((performance.now() / 1000 - plate.at) * 1000);
     publish();
   }
 
-  function request(state, view, key, vkey, season) {
+  function request(state, view, key, vkey, season, now) {
     prepareModules(state.world, view, vkey);
     const wk = startWorker();
     if (wk) {
@@ -254,7 +361,9 @@ export function createRenderer(canvas) {
         giveUpWorker(err?.message || err); // e.g. a world that cannot be cloned
       }
     }
-    paintSync(state, view, key, vkey, season);
+    // the first plate waits a moment for the page's italic: lettered without it, it would be painted a second time
+    if (!layer.canvas && !fontsReady && now - firstDrawAt < FONT_WAIT) return;
+    startPaint(state, view, key, vkey, season, performance.now() / 1000);
   }
 
   function draw(state, view, dt = 1 / 60) {
@@ -266,6 +375,14 @@ export function createRenderer(canvas) {
     const key = `${vkey}|${season}`;
     const world = state.world;
     if (job && now - job.at > WORKER_TIMEOUT) giveUpWorker('timeout');
+    if (firstDrawAt < 0) firstDrawAt = now;
+    if (curWorld !== world) {
+      // another world (a new game): nothing painted or copied for the old one is of any use
+      curWorld = world;
+      cancelPaint();
+      cancelUpload();
+    }
+    if (painting && painting.key !== key) cancelPaint(); // the window or the season moved on while it was being painted
 
     // does the plate need (re)painting?
     const ready = !!layer.canvas && layer.world === world;
@@ -279,7 +396,11 @@ export function createRenderer(canvas) {
     } else if (!want && season !== layer.season) {
       want = true; // the season turned: repaint in the background, the old plate stays on show meanwhile
     }
-    if (want && !(job && job.world === world && job.key === key)) request(state, view, key, vkey, season);
+    const coming = (j) => j && j.world === world && j.key === key; // a plate for exactly this is already on its way
+    if (want && !coming(job) && !coming(painting) && !coming(upload?.plate)) request(state, view, key, vkey, season, now);
+    const plateOnShow = !!layer.canvas && layer.world === world;
+    if (painting) advancePaint(plateOnShow ? PAINT_BUDGET : PAINT_BUDGET * 2);
+    if (upload) advanceUpload();
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
@@ -294,22 +415,27 @@ export function createRenderer(canvas) {
         warmWorld = world;
         warmStep = 0;
       }
-      if (warmStep < WARM_STEPS.length) warmUp(warmStep++, state, view, s, now, dt);
+      if (warmStep < WARM_STEPS.length && !painting) warmUp(warmStep++, state, view, s, now, dt);
       return;
     }
 
     const tl = performance.now();
     const stretch = layer.vkey !== vkey; // stretched until the new size settles
     const blit = (c) => (stretch ? ctx.drawImage(c, 0, 0, canvas.width, canvas.height) : ctx.drawImage(c, 0, 0));
-    const fk = fade ? (now - fade.at) / (globalThis.__seasonFade ?? SEASON_FADE) : 1;
+    const fadeDur = globalThis.__seasonFade ?? SEASON_FADE;
+    const fk = fade ? (now - fade.at) / fadeDur : 1;
     if (fade && fk < 1) {
-      blit(fade.from);
-      ctx.globalAlpha = fk * fk * (3 - 2 * fk);
-      blit(layer.canvas);
-      ctx.globalAlpha = 1;
+      // two full-screen blits per frame for the whole dissolve would be the page's biggest steady cost: the mix is
+      // baked every FADE_STEP seconds (a 1-3 % step of alpha, not visible) and each frame blits that one picture
+      if ((fk - Math.max(0, fade.mixK)) * fadeDur >= FADE_STEP) {
+        fade.mix = bakeFade(fk, fade.mix);
+        fade.mixK = fk;
+      }
+      blit(fade.mixK < 0 ? fade.from : fade.mix);
     } else {
       if (fade) {
         free(fade.from);
+        free(fade.mix);
         fade = null;
       }
       blit(layer.canvas);

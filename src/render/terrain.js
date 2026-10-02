@@ -26,7 +26,7 @@ import {
 import { sampleProfile } from '../world/query.js';
 import { soilFeatures, soilLookOf } from './soil-look.js';
 import { LABEL_FONT, labelLayout } from './soil-labels.js';
-import { paintDetails, paintTones, paintUnder } from './soil-paint.js';
+import { paintDetailsSteps, paintTonesSteps, paintUnderSteps } from './soil-paint.js';
 
 const PAPER_RGB = rgb(PAL.paper);
 /** The multiply colour that, painted on paper, gives the wanted final colour. */
@@ -109,6 +109,14 @@ const LOOKS = {
 const hrand = (...v) => (subSeed(...v) % 10007) / 10007;
 
 export function paintTerrain(ctx, world, ext, hooks = {}) {
+  for (const _ of paintTerrainSteps(ctx, world, ext, hooks));
+}
+
+/**
+ * paintTerrain as a generator: it yields between small units of work (a wash, a loop of grains, a rock), so a caller can
+ * spread the plate over several frames (world-layer.js createWorldPainter). Drawing order, and so the pixels, are the same.
+ */
+export function* paintTerrainSteps(ctx, world, ext, hooks = {}) {
   const look = LOOKS[hooks.season] || SUMMER;
   const hs = world.horizons;
   const step = world.step;
@@ -127,7 +135,7 @@ export function paintTerrain(ctx, world, ext, hooks = {}) {
   };
   const groundMin = Math.min(...world.ground);
 
-  paintSky(ctx, world, ext, groundMin, profile, gY, rng, look);
+  yield* paintSky(ctx, world, ext, groundMin, profile, gY, rng, look);
 
   /* ---- soil bands: base wash, then mottling ---- */
   const bandPoly = (i) => {
@@ -147,18 +155,19 @@ export function paintTerrain(ctx, world, ext, hooks = {}) {
   const avoid = hooks.avoid || (() => false);
 
   ctx.save();
-  hs.forEach((h, i) => {
+  for (let i = 0; i < hs.length; i++) {
     const b = finals[i];
     // Wash only the wet edge once heavily, then the body in a looser stroke.
     wash(ctx, polys[i], { color: paperMul(b.final), alpha: 0.95, layers: 3, ragged: i === 0 ? 1.6 : 3.2, edge: 0.7, edgeW: 2, seed: seed + i * 101, comp: 'multiply' });
-  });
+    yield;
+  }
   ctx.restore();
 
   // Sub-layers of the horizons (the dark A1 of a podzol, the rusty top of its B, the black top of a humus).
-  paintTones(ctx, world, soil, { topY, botY, x0: ext.x0, x1: ext.x1, step, mul: paperMul, seed });
+  yield* paintTonesSteps(ctx, world, soil, { topY, botY, x0: ext.x0, x1: ext.x1, step, mul: paperMul, seed });
 
   // Mottled blooms inside each band: darker/warmer/cooler pools of pigment.
-  hs.forEach((h, i) => {
+  for (let i = 0; i < hs.length; i++) {
     const b = finals[i];
     let height = 0;
     for (let x = 0; x <= world.width; x += 160) height += botY(i, x) - topY(i, x);
@@ -177,11 +186,13 @@ export function paintTerrain(ctx, world, ext, hooks = {}) {
       const acc = b.accents[Math.floor(rng() * b.accents.length)];
       const blob = blobPoly(x, y, rx, ry, seed + k * 13 + i, { n: 12, jitter: 0.3, rot: (rng() - 0.5) * 0.3 });
       wash(ctx, blob, { color: paperMul(acc), alpha: 0.15 + rng() * 0.22, layers: 2, ragged: 3, edge: 0.45, edgeW: 1.6, seed: seed + k, comp: 'multiply' });
+      if (k % 6 === 5) yield;
     }
-  });
+    yield;
+  }
 
   // The biome's broad marks (gley, rust, damp patches, podzol tongues, the fill of krotovinas): under the veil, so depth tints them too.
-  paintUnder(ctx, feats, { mul: paperMul, avoid });
+  yield* paintUnderSteps(ctx, feats, { mul: paperMul, avoid });
 
   // Depth: a deepening indigo veil.
   ctx.save();
@@ -193,25 +204,29 @@ export function paintTerrain(ctx, world, ext, hooks = {}) {
   ctx.fillStyle = dg;
   ctx.fillRect(ext.x0, groundMin + 40, ext.x1 - ext.x0, ext.y1 - groundMin);
   ctx.restore();
+  yield;
 
-  paintSoilTexture(ctx, world, ext, { topY, botY, finals, polys, hooks, rng, look, soil });
-  paintDetails(ctx, feats, { mul: paperMul, avoid });
+  yield* paintSoilTexture(ctx, world, ext, { topY, botY, finals, polys, hooks, rng, look, soil });
+  yield* paintDetailsSteps(ctx, feats, { mul: paperMul, avoid });
 
   // Wavy inked boundaries between horizons: a dark broken pen line with a pale dotted echo.
   for (let i = 1; i < hs.length; i++) {
     const pts = profile((x) => topY(i, x), 1.5);
     inkDashed(ctx, pts, { w: 1.3, color: '#150c07', alpha: 0.42, dash: 16, gap: 5, seed: seed + i * 7, taperStart: 0.3, taperEnd: 0.3 });
     inkDashed(ctx, profile((x) => topY(i, x), 4.5), { w: 0.9, color: '#d9c18c', alpha: 0.26, dash: 3, gap: 9, seed: seed + i * 11, taperStart: 0.5, taperEnd: 0.5, press: 0.1 });
+    yield;
   }
 
-  paintRocks(ctx, world, seed);
-  paintSurface(ctx, world, ext, { gY, profile, rng, seed, look });
+  yield* paintRocks(ctx, world, seed);
+  yield* paintSurface(ctx, world, ext, { gY, profile, rng, seed, look });
+  yield;
   paintMarginalia(ctx, world, ext, { topY, botY, gY, unit: hooks.cssUnit || 1 });
+  yield;
 }
 
 /* ------------------------------------------------------------------------- sky */
 
-function paintSky(ctx, world, ext, groundMin, profile, gY, rng, look) {
+function* paintSky(ctx, world, ext, groundMin, profile, gY, rng, look) {
   const seed = world.seed;
   const w = ext.x1 - ext.x0;
   ctx.save();
@@ -231,6 +246,7 @@ function paintSky(ctx, world, ext, groundMin, profile, gY, rng, look) {
     const cy = ext.y0 + 20 + rng() * (groundMin - ext.y0 - 40);
     const blob = blobPoly(cx, cy, 160 + rng() * 380, 9 + rng() * 20, seed + 40 + k, { n: 12, jitter: 0.25 });
     wash(ctx, blob, { color: k % 3 === 0 ? '#f0d9a8' : '#c4d4de', alpha: 0.05 + rng() * 0.05, layers: 2, ragged: 4, edge: 0.5, seed: seed + k, comp: 'multiply' });
+    if (k % 3 === 2) yield;
   }
 
   // (clouds are live sprites drifting in ambient.js)
@@ -248,7 +264,9 @@ function paintSky(ctx, world, ext, groundMin, profile, gY, rng, look) {
   }
   const closeTo = (arr, bottom) => arr.concat([{ x: arr[arr.length - 1].x, y: bottom }, { x: arr[0].x, y: bottom }]);
   wash(ctx, closeTo(far, groundMin + 30), { color: look.far[0], alpha: look.far[1], layers: 3, ragged: 1.6, edge: 0.4, edgeW: 1.2, seed: seed + 71, comp: 'multiply', smooth: false });
+  yield;
   wash(ctx, closeTo(near, groundMin + 30), { color: look.near[0], alpha: look.near[1], layers: 3, ragged: 1.8, edge: 0.5, edgeW: 1.2, seed: seed + 72, comp: 'multiply', smooth: false });
+  yield;
   if (look.twigs) {
     // bare crowns: here and there a fan of fine twigs, drawn over the near range
     for (let x = s0; x <= ext.x1 + 70; x += 22) {
@@ -269,6 +287,7 @@ function paintSky(ctx, world, ext, groundMin, profile, gY, rng, look) {
         const sd = b % 2 ? 1 : -1;
         inkStroke(ctx, [{ x: mx, y: my }, { x: mx + sd * len * 0.2, y: my - len * 0.2 }], { ...o, w: 0.45, seed: seed + 900 + i * 8 + b });
       }
+      if (i % 3 === 0) yield;
     }
   }
   if (look.crowns) {
@@ -281,13 +300,14 @@ function paintSky(ctx, world, ext, groundMin, profile, gY, rng, look) {
       const ry = 5 + hrand(seed, 'crown-ry', i) * 7;
       const col = cr.colors[subSeed(seed, 'crown-c', i) % cr.colors.length];
       wash(ctx, blobPoly(x, near[i].y + ry * 0.9, rx, ry, seed + 500 + i, { n: 10, jitter: 0.3 }), { color: col, alpha: cr.alpha, layers: 2, ragged: 1.6, edge: 0.35, edgeW: 1, seed: seed + 600 + i, comp: 'multiply' });
+      if (i % 4 === 0) yield;
     }
   }
 }
 
 /* ------------------------------------------------------------------- soil texture */
 
-function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, look, soil }) {
+function* paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, look, soil }) {
   const hs = world.horizons;
   const grain = { sand: 1, specks: 1, hatch: 1, pebbles: 1, strata: 1, cracks: 1, fibres: 1, humusFibres: 1, ...(soil && soil.grain) };
   const stones = soil && soil.stones;
@@ -305,7 +325,8 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
     return null;
   };
 
-  hs.forEach((h, i) => {
+  for (let i = 0; i < hs.length; i++) {
+    const h = hs[i];
     let height = 0;
     for (let x = 0; x <= world.width; x += 160) height += Math.min(botY(i, x), world.height + 40) - topY(i, x);
     height /= Math.ceil(world.width / 160) + 1;
@@ -325,6 +346,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, r, r * 0.75, rng() * 3, 0, Math.PI * 2);
       ctx.fill();
+      if (k % GRAINS_PER_STEP === GRAINS_PER_STEP - 1) yield;
     }
     const darkN = Math.round((area / 260) * grain.specks);
     for (let k = 0; k < darkN; k++) {
@@ -335,6 +357,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, r, r * 0.8, rng() * 3, 0, Math.PI * 2);
       ctx.fill();
+      if (k % GRAINS_PER_STEP === GRAINS_PER_STEP - 1) yield;
     }
     ctx.restore();
 
@@ -348,6 +371,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
       if (ry < 6) continue;
       const blob = blobPoly(p.x, p.y, rx, ry, seed + k * 5 + i, { n: 10, jitter: 0.3, rot: (rng() - 0.5) * 0.5 });
       hatch(ctx, blob, { angle: 0.75 + (rng() - 0.5) * 0.4, gap: 4 + rng() * 2, w: 0.7, color: '#0c0603', alpha: 0.22 + rng() * 0.12, seed: seed + k, lenVar: 0.5 });
+      yield;
     }
 
     // Pebbles.
@@ -357,6 +381,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
       if (!p || avoid(p.x, p.y, 26)) continue;
       const rx = (grav ? 4 : 2) + rng() * (grav ? 9 : 3.6);
       pebble(ctx, p.x, p.y, rx, rx * (0.6 + rng() * 0.3), seed + k * 3 + i, rng, h.id, stones);
+      if (k % 4 === 3) yield;
     }
 
     // Layer-specific marks.
@@ -377,6 +402,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
           ],
           { w: 0.7 + rng() * 0.6, color: rng() < 0.6 ? '#a98456' : '#c9a66a', alpha: 0.28 + rng() * 0.25, seed: seed + k, taperStart: 0.1, taperEnd: 0.7, tremor: 0.4 },
         );
+        if (k % 24 === 23) yield;
       }
     }
     if (lit) {
@@ -386,6 +412,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
         const ty = topY(0, x);
         const y = ty + 4 + rng() * Math.max(2, Math.min(botY(0, x) - ty - 7, 20));
         litterLeaf(ctx, x, y, 8 + rng() * 11, (rng() - 0.5) * 1.1, seed + k, rng, look.leaves.cols);
+        if (k % 8 === 7) yield;
       }
       // autumn drops more leaves (own random stream: the shared one must not move)
       const more = Math.round(leafN * look.leaves.extra);
@@ -396,6 +423,7 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
           const ty = topY(0, x);
           const y = ty + 3 + lr() * Math.max(2, Math.min(botY(0, x) - ty - 6, 16));
           litterLeaf(ctx, x, y, 7 + lr() * 10, (lr() - 0.5) * 1.5, seed + 900 + k, lr, look.leaves.cols);
+          if (k % 8 === 7) yield;
         }
       }
     }
@@ -408,12 +436,14 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
         const pts = [];
         for (let s = 0; s <= 5; s++) pts.push({ x: p.x + (s / 5) * len, y: p.y + noise1(s * 1.3 + k) * 5 + (s / 5) * (rng() - 0.5) * 8 });
         inkStroke(ctx, pts, { w: 1.1 + rng() * 1.4, color: clay ? '#d9a574' : '#cdb287', alpha: 0.09 + rng() * 0.1, seed: seed + k, taperStart: 0.4, taperEnd: 0.5, tremor: 0.6 });
+        if (k % 8 === 7) yield;
       }
       const crackN = Math.round((area / 28000) * grain.cracks);
       for (let k = 0; k < crackN; k++) {
         const p = inBand(i, 10);
         if (!p) continue;
         crack(ctx, p.x, p.y, 16 + rng() * 26, seed + k * 7, rng);
+        if (k % 8 === 7) yield;
       }
     }
     if (grav) {
@@ -423,10 +453,14 @@ function paintSoilTexture(ctx, world, ext, { topY, botY, finals, hooks, rng, loo
         if (!p || avoid(p.x, p.y, 40)) continue;
         const rx = 6 + rng() * 11;
         pebble(ctx, p.x, p.y, rx, rx * (0.55 + rng() * 0.25), seed + k * 11, rng, 'gravel', stones);
+        if (k % 4 === 3) yield;
       }
     }
-  });
+    yield;
+  }
 }
+
+const GRAINS_PER_STEP = 400; // sand grains and specks are tiny fills: this many per unit of work
 
 function pebble(ctx, x, y, rx, ry, seed, rng, band, biomeTones) {
   const tone = biomeTones && band !== 'gravel' ? biomeTones : band === 'gravel' ? ['#8c8a8e', '#a39a8c', '#78808c'] : band === 'clay' ? ['#a08672', '#8d7765', '#b09a80'] : ['#8f8068', '#7a6c58', '#9a8a70'];
@@ -553,8 +587,11 @@ function paintMarginalia(ctx, world, ext, { topY, botY, gY, unit }) {
 
 /* ------------------------------------------------------------------------- rocks */
 
-function paintRocks(ctx, world, seed) {
-  for (const r of world.rocks || []) paintRock(ctx, r, seed);
+function* paintRocks(ctx, world, seed) {
+  for (const r of world.rocks || []) {
+    paintRock(ctx, r, seed);
+    yield;
+  }
 }
 
 export function paintRock(ctx, rock, seed) {
@@ -645,7 +682,7 @@ export function paintRock(ctx, rock, seed) {
 
 /* ---------------------------------------------------------------------- surface */
 
-function paintSurface(ctx, world, ext, { gY, profile, rng, seed, look }) {
+function* paintSurface(ctx, world, ext, { gY, profile, rng, seed, look }) {
   const W = ext.x1 - ext.x0;
   const s0 = Math.floor((ext.x0 - 20) / 4) * 4;
 
@@ -658,12 +695,14 @@ function paintSurface(ctx, world, ext, { gY, profile, rng, seed, look }) {
   }
   const strip = top.concat(bot.reverse());
   wash(ctx, strip, { color: look.surface[0], alpha: look.surface[1], layers: 3, ragged: 2, edge: 0.4, edgeW: 1, seed: seed + 301, smooth: false });
+  yield;
 
   // Moss cushions.
   const mossN = Math.round(W / 70);
   for (let k = 0; k < mossN; k++) {
     const x = ext.x0 + rng() * W;
     moss(ctx, x, gY(x) + 1, 12 + rng() * 26, 3.5 + rng() * 5, seed + k * 3, rng, look.moss);
+    if (k % 4 === 3) yield;
   }
 
   // Ground line in ink, in broken sections.
@@ -679,11 +718,13 @@ function paintSurface(ctx, world, ext, { gY, profile, rng, seed, look }) {
   for (let k = 0; k < tufts; k++) {
     const x = ext.x0 + rng() * W;
     tuft(ctx, x, gY(x) + 1, 8 + rng() * rng() * 30 + rng() * 8, seed + k * 5, rng, look.tuft);
+    if (k % 8 === 7) yield;
   }
   const ferns = Math.round(W / 190);
   for (let k = 0; k < ferns; k++) {
     const x = ext.x0 + rng() * W;
     fern(ctx, x, gY(x) + 1, 24 + rng() * 22, rng() < 0.5 ? -1 : 1, seed + k * 17, rng, look.fern);
+    yield;
   }
   const flowers = Math.round(W / 160);
   const FL = look.flowers.palette;
@@ -691,6 +732,7 @@ function paintSurface(ctx, world, ext, { gY, profile, rng, seed, look }) {
     const x = ext.x0 + rng() * W;
     const shown = hrand(seed, 'flower', k) * 100 < look.flowers.keep; // the flower is placed either way, only drawn or not
     flower(ctx, x, gY(x) + 1, 12 + rng() * 14, FL[Math.floor(rng() * FL.length)], seed + k * 23, rng, shown, look.flowers.stem);
+    if (k % 4 === 3) yield;
   }
   if (look.flowers.tiny) {
     // spring: a scatter of tiny flowers between the tufts (own random stream)
@@ -700,6 +742,7 @@ function paintSurface(ctx, world, ext, { gY, profile, rng, seed, look }) {
     for (let k = 0; k < tiny; k++) {
       const x = ext.x0 + tr() * W;
       tinyFlower(ctx, x, gY(x) + 1, 4 + tr() * 6, TC[Math.floor(tr() * TC.length)], tr);
+      if (k % 8 === 7) yield;
     }
   }
 }

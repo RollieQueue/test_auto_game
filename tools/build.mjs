@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformJs, RELATIVE_MODULE } from './build/scan.mjs';
+import { bundleWorker, findWorkerEntries, workerAssetFiles } from './build/worker-bundle.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(HERE, '..');
@@ -131,13 +132,28 @@ export function build({ root = DEFAULT_ROOT, out = path.join(root, 'dist', 'root
     imports[`@rnt/${m.rel}`] = `data:text/javascript;base64,${b64(`${m.code}\n//# sourceURL=rnt/${m.rel}\n`)}`;
   }
 
+  // ---- workers: each `new Worker(new URL('./x.js', import.meta.url))` entry becomes ONE classic script (see worker-bundle.mjs)
+  const workers = {};
+  const workerFiles = new Set(); // files a worker reads by URL (its fetch is served from the embedded map)
+  for (const entry of [...findWorkerEntries(modules)].sort()) {
+    if (!fs.existsSync(path.join(root, entry))) {
+      warn(`worker entry ${entry} does not exist (left out; the page falls back to the main thread)`);
+      continue;
+    }
+    const graph = collectModules(root, path.join(root, entry), { stripComments, warn });
+    workers[entry] = bundleWorker(graph, entry);
+    for (const f of workerAssetFiles(graph)) workerFiles.add(f);
+  }
+
   // ---- runtime assets ---------------------------------------------------------
   const assets = {};
   for (const file of listFiles(path.join(root, 'assets'))) {
     const ext = path.extname(file).toLowerCase();
     if (!MIME[ext]) continue;
-    if (inlinedByCss.has(file) && MIME[ext].startsWith('font/')) continue; // used only by @font-face: one copy is enough
-    assets[posix(path.relative(root, file))] = [MIME[ext], b64(fs.readFileSync(file))];
+    const rel = posix(path.relative(root, file));
+    // a font used only by @font-face needs one copy, unless a worker loads it itself (workers do not see the page's CSS)
+    if (inlinedByCss.has(file) && MIME[ext].startsWith('font/') && !workerFiles.has(rel)) continue;
+    assets[rel] = [MIME[ext], b64(fs.readFileSync(file))];
   }
   // ---- licences travel with the fonts -------------------------------------------
   const licences = listFiles(path.join(root, 'assets')).filter((f) => /\.txt$/i.test(f) && /OFL|LICEN[CS]E/i.test(path.basename(f)));
@@ -149,8 +165,10 @@ export function build({ root = DEFAULT_ROOT, out = path.join(root, 'dist', 'root
 
   // ---- put it together -----------------------------------------------------------
   const bootstrap = fs.readFileSync(path.join(HERE, 'build', 'bootstrap.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
+  const workerJson = JSON.stringify(workers).replace(/</g, '\\u003c'); // never a "</script" or "<!--" inside the page
   const scripts = [
     `<script type="application/json" id="rnt-assets">${JSON.stringify(assets)}</script>`,
+    `<script type="application/json" id="rnt-workers">${workerJson}</script>`,
     `<script>\n${bootstrap}</script>`,
     `<script type="importmap">\n${JSON.stringify({ imports }, null, 0).replace(/","/g, '",\n"')}\n</script>`,
     `<script type="module">import ${JSON.stringify(entryName)};</script>`,
@@ -167,6 +185,8 @@ export function build({ root = DEFAULT_ROOT, out = path.join(root, 'dist', 'root
     moduleBytes: Object.values(imports).reduce((s, v) => s + v.length, 0),
     assets: Object.keys(assets),
     assetBytes: JSON.stringify(assets).length,
+    workers: Object.keys(workers),
+    workerBytes: workerJson.length,
     cssInlinedFiles: [...inlinedByCss].map((f) => posix(path.relative(root, f))),
   };
   log(stats);
