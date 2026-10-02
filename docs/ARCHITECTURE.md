@@ -16,11 +16,12 @@ or `start.bat` on Windows) because browsers refuse ES modules from `file://`.
   `new URL(…, import.meta.url)`.
 - URL params: `?seed=123` fixes the world, `?autostart=1` skips the title screen, `?debug=1` for debug overlays.
 - `window.__game` exposes `{ state, view, sim, actions, renderer, hud, audio }` for browser automation.
-- `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit')`,
+- `actions` (src/main.js, passed to the HUD): `start()`, `togglePause()`, `setSpeed(1|2)`, `setTool('grow'|'fruit'|'trap'|'barrier')`,
   `cancelDrag()`, `restart(seed?)`, `setMuted(bool)`, `isMuted()`, `hasSave()`, `continueSaved()` (loads the saved
   game and plays it; returns false when there is none). Keyboard shortcuts live in the UI task.
 - Seasons with day/night (`state.flags.seasons`) and soil threats (`state.flags.threats`) are on in the game by
-  default; `?seasons=0` / `?threats=0` turn them off. Tests that build a state with `createState` get both off
+  default; `?seasons=0` / `?threats=0` turn them off. The honey-fungus rival (`state.flags.rival`) rides with the threats;
+  `?rival=0` turns it off, `?rival=1` wakes it at once. Tests that build a state with `createState` get both off
   unless they set the flags.
 - Browser checks: `node tools/shot.mjs` drives headless Edge/Chrome over the DevTools protocol with no
   dependencies; it starts its own server for a `/path` URL and runs actions in order, e.g.
@@ -89,7 +90,7 @@ state = {
   flags: { allObjectivesDone: false },
   events: GameEvent[],
   ui: {
-    tool: 'grow' | 'fruit',
+    tool: 'grow' | 'fruit' | 'trap' | 'barrier',
     pointer: { x, y, sx, sy, inside } | null,   // world + CSS-pixel position of the mouse
     hoverNode: nodeId | null,
     hoverTarget: { kind: 'water'|'mineral'|'tree'|'rock'|'mushroom'|'horizon', id } | null,
@@ -239,50 +240,89 @@ mushrooms, cut, edges, cause}`, `worm-caught {x, y, trapId, wormId, minerals}`, 
 A worm bites no sooner than 3 s after its `worm-sense`, and a bite lasts 5 / 3.4 / 2.8 s in chapters 1 / 2 / 3,
 so the warning (a red «!» over the worm, a dashed line to its target, a cue and a note) leaves time for a ring.
 
-## Rival: honey fungus (`state.flags.rival`) — PLANNED contract for S3b, not built yet
+## Rival: honey fungus (`state.flags.rival`)
 
 Biology: honey fungus (Armillaria) spreads by black rhizomorphs from an old stump, grips the roots of trees and
 rots them. Mycorrhiza protects its partners (a mantle around the root tips), and antagonism keeps the rival away.
-The flag is on together with threats; `?rival=0` turns it off, `?rival=1` wakes it at once (tests, screenshots).
+The flag is on together with threats; `?rival=0` turns it off, `?rival=1` turns it on and wakes it at once (tests,
+screenshots): `state.flags.rival` is `false`, `true` (wakes at chapter 2 + `B.rivalWakeDelay` s) or `'now'`.
+Code: `src/sim/rival.js` (the whole rival, barriers included), `economy.js` (pay cut, mantle), `objectives.js`.
 
 ```js
-world.stumps = Stump[]  // { id, x, y, r } 1–2 old stumps at the surface near the glade edges, deterministic per seed;
-                        // fairness: ≥ 260 u from the spore, ≥ 140 u from any trunk
-state.rival = null | {
+world.stumps = Stump[]  // { id, x, y, r } 1–2 old stumps at the surface, deterministic per seed; fairness: ≥ 260 u
+                        // from the spore, ≥ 140 u from any trunk (src/world/fairness.js stumpProblems). They stand
+                        // where no HUD card hides them (STUMP.seen: world x 420–700 or 1220–1872; the resource card
+                        // covers x < ~372 at 1280×720) and fall back to the whole bands only when nothing fits.
+state.rival = null | {  // created by the first step with the flag; null while the flag is off
   awake,                // wakes at the start of chapter 2 + B.rivalWakeDelay s
   nodes:    [{ id, x, y, alive, born }],
-  edges:    [{ id, a, b, w, alive, born, wither }],  // wither 0..1 while a barrier dissolves it; alive=false at 1
-  tips:     [{ id, node, x, y, dir, target: { kind: 'tree', id } | null, speed }],
-  grip:     [{ treeId, node, x, y, since }],          // a rhizomorph holding a tree's root zone
+  edges:    [{ id, a, b, w, alive, born, wither }],  // a is towards the source; wither 0..1 while a barrier dissolves it;
+                                                     // alive=false at 1. Extra: orphan (cut off from its source, withers away),
+                                                     // cut (the barrier's doing). w 1.5 on a trunk, 1.2 on a side branch.
+  tips:     [{ id, node, x, y, dir, target: { kind: 'tree', id } | null, speed }], // speed is the current u/s (0 = waiting/winter)
+  grip:     [{ treeId, node, x, y, since, tip }],     // a rhizomorph holding a root tip of a tree (tip = index in tree.tips)
   clusters: [{ id, treeId, x, y, n, age }],           // honey-mushroom clusters at infected trunks (autumn)
   spores,                                             // the rival's score from its clusters
+  // bookkeeping, saved too: rs ver wait age nextTip nextCluster nextBarrier spawnT emptyT sweepT tipEvT hot
+  //   src [{key, node}] (root node of every stump 's<id>' and lost tree 't<id>'), levels [per tree 0..3],
+  //   stats { grips, freed, lost, cut, killed }
 }
 tree.infection          // 0..1: grows while gripped (× (1 − B.mantleProtect × tree.mantle), × season), heals when free
 tree.mantle             // 0..1: the player's protection, follows how well the player has fed the tree lately
 tree.lost               // infection reached 1: the tree stops paying, stands as a snag, its base becomes a new stump
 state.barriers = Barrier[]  // { id, nodeId, x, y, r, t, dur } tool 'barrier' (key 4), cost barrierCost(state)
-state.ui.tool           // ... | 'barrier'; while 'barrier', state.ui.barrierPick = null | { nodeId, x, y, ok, reason }
+state.ui.tool           // ... | 'barrier'; while 'barrier', state.ui.barrierPick = null | { nodeId, x, y, r, ok, reason, cost }
 ```
 
-Rules: rhizomorph tips steer to the most valuable tree with the weakest mantle, around rocks; player edges with
-`w ≥ B.rivalBlockW` block them. A barrier (placed on a player node) withers rhizomorph edges inside `r` and kills
-tips there; a grip whose edges are all dead is released. Rhizomorphs grow fastest in spring and autumn and sleep in
-winter; clusters appear in autumn at trees with infection ≥ 0.4.
+Rules (numbers are `B.rival*`, `B.barrier*`, `B.mantle*` in `src/sim/balance.js`):
+- **Wake**: `rival-wake` at the first stump, `B.rivalStartTips` (2) tips. Up to `B.rivalMaxTips` (4) tips and `B.rivalMaxSegments`
+  (300 alive edges); a new tip leaves a stump or a lost tree every `B.rivalTipEvery` (60 s of growing time), a side branch starts at
+  2 % of the nodes. A rival cut back completely (no tips, no segments) sends tips again after `B.rivalRegrow` (45 s). Dead-end
+  twigs older than `B.rivalTwigAge` (150 s) with no tip or grip wither away, so the segment budget never clogs.
+- **Growth**: a tip grows 5–8 u/s × the season (`B.rivalSeason`: spring 1, summer 0.55, autumn 1.1, winter 0; 1 without seasons) and
+  lays a node every 16–24 u. It looks 24 u ahead, stays in open soil at least 10 u under the surface, goes round rocks (`costAt`) and
+  gives up after 14 s boxed in or 45 s without getting nearer (the spawn timer replaces it).
+- **Targets**: a tip steers to the tree with the best `worth × (1 − mantleProtect × mantle) / (1 + distance / 450) / (1 + 0.7 × grips)`
+  (worth = stage pay × species × 1.5 if linked, 0.7 otherwise). On a tree it goes for a root tip the player has linked (that is where
+  the player has a node to put a barrier on), else the nearest; shallow tips preferred. Re-evaluated every 1.5–3 s with hysteresis.
+- **Blocking**: a tip whose way ahead crosses a live player edge with `w ≥ B.rivalBlockW` (1.8, a busy cord) turns away (it tries
+  headings up to 155° off, on the side it last chose) or stands; thin hyphae do not block.
+- **Grip**: a tip within `B.rivalGripRadius` (18 u, like the player's links) of its goal root tip grips it, no sooner than
+  `B.rivalGripAfter` (60 s) after the waking (an early tip waits at the root); `rival-grip`. At most 2 grips per tree, one per root
+  tip. Infection rises 1 / `B.rivalInfectSeconds` (180 s) per second for one grip, +50 % per further grip, × `(1 − 0.75 × mantle)` ×
+  `B.rivalInfectSeason` (spring 1, summer 0.75, autumn 1.15, winter 0.15); `tree-infected` at 0.25 / 0.5 / 0.75; a pay cut up to
+  `B.rivalPayCut` (70 %) and slower growth (× (1 − infection)). At 1 the tree is lost (`tree-lost`): no pay, no drinking, a new source.
+  The last living tree is never rotted beyond `B.rivalLastTree` (0.9), so there is always a way on. A free tree heals in
+  `B.rivalHealSeconds` (240 s), faster by (1 + 2 × mantle); a released grip emits `tree-freed`.
+- **Mantle** (economy.js, with the flag on): follows `fed share × root contacts factor` (`B.treeContactFactor`, 0.6 / 0.8 / 1 for 1 / 2 /
+  3+ links) with a time constant `B.mantleTau` (40 s); it fades the same way once the tree is unlinked.
+- **Barrier**: costs `barrierCost(state)` = `B.barrierCost` (20) + `B.barrierCostStep` (5) per barrier standing; radius `B.barrierRadius`
+  (85 u), lasts `B.barrierDur` (40 s), at most `B.barrierMax` (3). Inside it rhizomorph edges wither in `B.barrierWither` (3 s) and die,
+  everything beyond a dead edge withers as an orphan (`B.rivalOrphanSeconds`, 6 s), tips die at once, new tips cannot start in it, and
+  a grip whose edge died is released. An edge outside any barrier recovers.
+- **Clusters**: in autumn each tree with infection ≥ 0.4 grows one cluster (3–7 mushrooms, `rival-fruit`), they add to `rival.spores`
+  and are gone with the first cold (winter). None without seasons.
+- **Objectives** (only with the flag): page 2 «Перерезать барьером тяжи опёнка» (`rivalCut`: `B.rivalCutGoal` = 3 edges cut by barriers),
+  page 3 «Укрепить защиту рощи» (`rivalGuard`: every living tree has mantle ≥ `B.mantleGoal` = 0.5). Both can always be reached: the
+  player can grow to a rhizomorph, and a lost tree no longer counts.
 
 API (`src/sim/index.js`): `canBarrier(state, nodeId)`, `commandBarrier(state, nodeId)`, `pickBarrierNode(state, x, y)`,
-`barrierDenial(state, nodeId)` → `'sugar'|'crowded'|'dead'|'max'|null`, `barrierCost(state)`. Pointer input for the
-tool lives in `src/input/pointer.js` (sim); the key `4` and the tool tab in `src/ui`.
+`barrierDenial(state, nodeId)` → `'sugar'|'crowded'|'dead'|'max'|null` (and `'off'` while the rival sleeps or the flag is off, no
+event then), `barrierCost(state)`. Order of denials: off, dead, max, crowded, sugar. Pointer input for the tool lives in
+`src/input/pointer.js` (sim); the key `4` and the tool tab in `src/ui`. `src/sim/rival.js` also exports `spawnTipAt(state, x, y, dir,
+treeId)` (a hook for tests and scenarios) and `nearestRootTip(state, tree, x, y)`.
 
 Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-grip {treeId, x, y}`,
-`tree-infected {treeId, level}` (at 0.25 / 0.5 / 0.75), `tree-freed {treeId, x, y}`, `tree-lost {treeId, x, y}`,
-`rival-cut {x, y, edges}`, `rival-fruit {treeId, x, y, n}`, `barrier-placed {id, x, y}`,
-`barrier-denied {reason, x, y}`, `barrier-gone {id}`.
+`tree-infected {treeId, level}` (at 0.25 / 0.5 / 0.75; also `x, y` of the trunk base), `tree-freed {treeId, x, y}`,
+`tree-lost {treeId, x, y}`, `rival-cut {x, y, edges}`, `rival-fruit {treeId, x, y, n}`, `barrier-placed {id, x, y, nodeId}`,
+`barrier-denied {reason, x, y}` (+ `insufficient` for sugar), `barrier-gone {id, x, y}`.
 
-Pinned details (sim, render and UI are built in parallel against them):
+Pinned details (sim, render and UI were built in parallel against them):
 - Trees are `state.world.trees`; `infection`, `mantle`, `lost` live on those objects (missing on old saves = 0 / 0 / false).
 - `born` is `state.time` at creation, like the player's network. Every random choice comes from `state.rival.rs`
   (an integer mulberry32 state like `state.sim.threat.rs`), so a seed and its commands replay exactly. `state.rival`,
-  `state.barriers` and the tree fields are saved; saves without them still load.
+  `state.barriers` and the tree fields are saved (persist-codec.js: tree rows have 7 numbers, `rival` and `barriers` are
+  optional); saves without them still load.
 - `state.rival.ver`: an integer the sim bumps whenever rival nodes or edges are added or an edge dies, so the renderer can
   cache the static rhizomorph drawing. `wither` changes do not bump it.
 - `world.stumps` never changes after generation and comes from its own derived rng, so trees, deposits and decor of
@@ -298,6 +338,11 @@ Pinned details (sim, render and UI are built in parallel against them):
   start. The barrier tab and key `4` show once `state.rival && state.rival.awake`.
 - Art: manifest ids `decor.stump.1` (group `decor`, type `stump`) and `mushroom.honey.1` / `mushroom.honey.2` (group
   `mushroom`, type `honey`). The player's mushrooms never pick type `honey`; procedural drawing stays the fallback.
+
+Balance (tests/bot.mjs, seasons and threats on, 16 seeds incl. one per biome, 1200 s = the first year; see the table in the task report): the
+passive bot (no barrier) loses a tree on 10 seeds (the others woke late or were nearly rotted through); bots that put a barrier on every
+grip, or also when a tip comes within 120 u of its tree, lose at most one tree per seed; the first grip comes ≥ 60 s after the waking on
+every seed. The bot's sugar is tight (about 10–40 in chapter 2), which is why a barrier costs 20 and not more.
 
 ## Illustrated assets (art task)
 

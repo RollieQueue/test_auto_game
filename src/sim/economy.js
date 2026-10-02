@@ -7,7 +7,7 @@ function updateCaps(state) {
   const len = state.stats.hyphaeLength;
   state.cap.pool = B.poolBase + B.poolPerLength * len;
   let stages = 0;
-  for (const t of state.world.trees) if (t.linked) stages += t.stage + 1;
+  for (const t of state.world.trees) if (t.linked && !t.lost) stages += t.stage + 1;
   state.cap.sugar = (B.sugarCapBase + B.sugarCapPerLength * len + B.sugarCapPerTreeStage * stages) * pressure(state).sugarCap;
 }
 
@@ -45,11 +45,18 @@ function extract(state, dt) {
   }
 }
 
-/** Exchange with linked trees; returns the sugar they paid this step. */
+/**
+ * Exchange with linked trees; returns the sugar they paid this step. A tree the rival has rotted pays less (B.rivalPayCut) and
+ * grows slower, a lost one does nothing at all. With the rival on, every tree's mantle follows how well the player feeds it
+ * (the fed share times the root contacts) and fades once it is unlinked.
+ */
 function stepTrees(state, dt) {
   const { world, res, sim, events } = state;
   const fx = sim.fx;
-  const linked = world.trees.filter((t) => sim.contacts[t.id].length > 0);
+  const linked = world.trees.filter((t) => sim.contacts[t.id].length > 0 && !t.lost);
+  const mantle = Boolean(state.flags.rival);
+  const mk = Math.min(1, dt / B.mantleTau);
+  if (mantle) for (const t of world.trees) if (!linked.includes(t)) t.mantle = (t.mantle ?? 0) * (1 - mk);
   if (linked.length === 0) return 0;
   const fac = (t) => B.treeContactFactor[Math.min(sim.contacts[t.id].length, B.treeContactFactor.length) - 1];
   let wantW = 0;
@@ -72,7 +79,9 @@ function stepTrees(state, dt) {
     res.minerals -= takeM;
     const sat = B.treeSatWater * (takeW / dW) + (1 - B.treeSatWater) * (takeM / dM); // demands are never 0
     t.health += (sat - t.health) * Math.min(1, dt / B.treeHealthTau);
-    const pay = B.treePay[t.stage] * sp.pay * fac(t) * sat * fx.pay * pressure(state).treePay * dt;
+    const rot = 1 - (t.infection ?? 0);
+    if (mantle) t.mantle = (t.mantle ?? 0) + (sat * fac(t) - (t.mantle ?? 0)) * mk;
+    const pay = B.treePay[t.stage] * sp.pay * fac(t) * sat * fx.pay * pressure(state).treePay * (1 - B.rivalPayCut * (t.infection ?? 0)) * dt;
     paid += pay;
     const intake = sim.intake[t.id];
     intake.water += takeW;
@@ -80,7 +89,7 @@ function stepTrees(state, dt) {
     intake.sugar += pay;
     if (t.stage < 3) {
       const g = clamp((t.health - B.treeGrowFromHealth) / (1 - B.treeGrowFromHealth), 0, 1);
-      t.growth += (g * sp.grow * fx.treeGrow * pressure(state).treeGrow * dt) / B.treeGrowSeconds[t.stage];
+      t.growth += (g * sp.grow * fx.treeGrow * pressure(state).treeGrow * rot * dt) / B.treeGrowSeconds[t.stage];
       if (t.growth >= 1) {
         t.stage++;
         t.growth = 0;

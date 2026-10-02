@@ -1,6 +1,6 @@
 // Fairness of a generated glade: the opening must be winnable on every seed. Pure functions over a World.
 import { dist } from '../core/geom.js';
-import { costAt } from './query.js';
+import { costAt, sampleProfile } from './query.js';
 
 /** Limits, in world units and sugar (the player starts with 100 sugar; B.startSugar). */
 export const FAIR = {
@@ -68,4 +68,57 @@ export function checkFairness(world) {
   if (!(nitrogenCost <= FAIR.nitrogenCost)) problems.push(`first nitrogen costs ${nitrogenCost.toFixed(0)}`);
 
   return { ok: problems.length === 0, problems, water: waterCost, tip: tipCost, nitrogen: nitrogenCost };
+}
+
+/**
+ * Old stumps (the honey fungus' starting points): 1-2 at the surface near the glade edges. These limits are NOT part of
+ * checkFairness (a failing check would rebuild existing worlds); generate.js picks spots that satisfy them by construction
+ * and tests call stumpProblems().
+ */
+export const STUMP = {
+  count: [1, 2],
+  r: [26, 34],
+  bands: [[48, 700], [1220, 1872]], // left, right: x of the stump centre
+  // Where a stump is not hidden by a HUD card: the resource card always covers world x < ~372 at the surface (at
+  // 1280×720), the objectives card folds to a one-line header once a page is under way. generate.js places stumps here
+  // and falls back to the whole bands only when no stump would fit at all.
+  seen: [[420, 700], [1220, 1872]],
+  edge: 40, // from the world's left and right edges
+  fromOrigin: 260, // 2-D distance from the spore
+  fromTrunk: 140, // horizontal distance from any trunk
+  slopeSpan: 30, // |ground(x + span) - ground(x - span)| must stay within slopeMax: keeps stumps off ravine walls
+  slopeMax: 24,
+};
+
+/** Why a stump centre at x is not allowed (a short string), or null when it is fine. Uses the ground, origin and trunks of `world`. */
+export function stumpSpotProblem(world, x) {
+  if (x < STUMP.edge || x > world.width - STUMP.edge) return 'stump near the world edge';
+  const y = sampleProfile(world.ground, world.step, x);
+  if (dist(x, y, world.origin.x, world.origin.y) < STUMP.fromOrigin) return 'stump near the spore';
+  if (world.trees.some((t) => Math.abs(t.x - x) < STUMP.fromTrunk)) return 'stump near a trunk';
+  const slope = Math.abs(sampleProfile(world.ground, world.step, x + STUMP.slopeSpan) - sampleProfile(world.ground, world.step, x - STUMP.slopeSpan));
+  if (slope > STUMP.slopeMax) return 'stump on a slope';
+  return null;
+}
+
+/** Problems of `world.stumps` (empty array = fine). */
+export function stumpProblems(world) {
+  const problems = [];
+  const stumps = world.stumps;
+  if (!Array.isArray(stumps) || stumps.length < STUMP.count[0] || stumps.length > STUMP.count[1]) {
+    problems.push(`stump count ${Array.isArray(stumps) ? stumps.length : 'missing'}`);
+    return problems;
+  }
+  stumps.forEach((s, i) => {
+    if (s.id !== i) problems.push(`stump ${i} has id ${s.id}`);
+    if (!(s.r >= STUMP.r[0] && s.r <= STUMP.r[1])) problems.push(`stump ${i} radius ${s.r}`);
+    if (!STUMP.bands.some(([a, b]) => s.x >= a && s.x <= b)) problems.push(`stump ${i} outside the edge bands`);
+    if (Math.abs(s.y - sampleProfile(world.ground, world.step, s.x)) > 1e-9) problems.push(`stump ${i} is not on the ground`);
+    const why = stumpSpotProblem(world, s.x);
+    if (why) problems.push(`stump ${i}: ${why}`);
+  });
+  if (stumps.length === 2 && STUMP.bands.every(([a, b]) => stumps.filter((s) => s.x >= a && s.x <= b).length === 1) === false) {
+    problems.push('two stumps on the same side');
+  }
+  return problems;
 }

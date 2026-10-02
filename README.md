@@ -109,7 +109,8 @@
   зависимостей).
 - `npm run build` — сборка в один файл `dist/roots-and-threads.html` (устройство: `tools/build/README.md`).
 - Параметры адреса: `?seed=7` фиксирует мир, `?autostart=1` пропускает титульный экран, `?seasons=0`
-  выключает сезоны, `?debug=1` — отладку.
+  выключает сезоны, `?threats=0` — угрозы, `?rival=0` — опёнка, `?rival=1` будит опёнка сразу (для проверок),
+  `?debug=1` включает отладку.
 - `node tools/shot.mjs` — проверка в безголовом браузере: клики, перетаскивания, скриншоты (описание в
   начале файла). Сценарий `tools/scenarios/fast-forward.js` проматывает игру ботом.
 - Галереи рисунков: `src/render/gallery-trees.html`, `gallery-mushrooms.html`, `gallery-decor.html`;

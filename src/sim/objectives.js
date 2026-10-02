@@ -29,9 +29,10 @@ const HOLDS = {
 
 /**
  * The observations of a chapter (1..3); `seasons` picks the winter observation for page 3, a sugar reserve without it;
- * `biome` (world.biome) adds the glade's own observation to page 2.
+ * `biome` (world.biome) adds the glade's own observation to page 2, `rival` (state.flags.rival) one observation about the
+ * honey fungus to page 2 and to page 3.
  */
-export function pageObjectives(chapter, seasons = false, biome = null) {
+export function pageObjectives(chapter, seasons = false, biome = null, rival = false) {
   if (chapter === 2) {
     const glade = GLADE_OBJECTIVES[biome]?.();
     return [
@@ -41,6 +42,7 @@ export function pageObjectives(chapter, seasons = false, biome = null) {
       { id: 'finds', text: `Записать в тетрадь ${B.chapter2Finds} вида находок` },
       { id: 'worms', text: `Поймать ${B.chapter2Worms} нематод в ловчие кольца` },
       ...(glade ? [glade] : []),
+      ...(rival ? [{ id: 'rivalCut', text: 'Перерезать барьером тяжи опёнка (клавиша 4)' }] : []),
       { id: 'spores500', text: `Собрать ${B.chapter2Spores} спор` },
     ];
   }
@@ -50,14 +52,15 @@ export function pageObjectives(chapter, seasons = false, biome = null) {
         ? { id: 'winter', text: `Дожить до весны с запасом в ${B.winterSugar} сахара` }
         : { id: 'reserve', text: `Накопить запас в ${B.reserveSugar} сахара` },
       { id: 'mushrooms8', text: `Вырастить ${B.chapter3Mushrooms} грибов разом` },
+      ...(rival ? [{ id: 'rivalGuard', text: `Укрепить защиту рощи: у каждого дерева не меньше ${Math.round(B.mantleGoal * 100)} % защиты от опёнка` }] : []),
       { id: 'spores1500', text: `Собрать ${B.chapter3Spores} спор` },
     ];
   }
   return OBJECTIVES;
 }
 
-export function createObjectives(chapter = 1, seasons = false, biome = null) {
-  return pageObjectives(chapter, seasons, biome).map((o) => ({ ...o, done: false }));
+export function createObjectives(chapter = 1, seasons = false, biome = null, rival = false) {
+  return pageObjectives(chapter, seasons, biome, rival).map((o) => ({ ...o, done: false }));
 }
 
 /** Depth (below the surface) at which the gravel horizon begins in this world. */
@@ -77,7 +80,7 @@ const CHECKS = {
   worms: (state) => state.sim.threat.caught >= B.chapter2Worms,
   spores500: (state) => state.res.spores >= B.chapter2Spores,
   gladeBirch: (state) => state.sim.holdT >= B.glade.holdSeconds,
-  gladeOak: (state) => state.world.trees.filter((t) => t.species === 'oak').every((t) => t.stage >= 2),
+  gladeOak: (state) => state.world.trees.filter((t) => t.species === 'oak' && !t.lost).every((t) => t.stage >= 2),
   gladePine: (state) =>
     new Set(state.net.links.filter((l) => l.kind === 'mineral' && state.world.minerals[l.targetId].kind === 'phosphorus').map((l) => l.targetId)).size >=
     B.glade.pinePhosphorus,
@@ -91,6 +94,13 @@ const CHECKS = {
   // chapter 3
   winter: (state) => state.clock.season === 'winter' && state.clock.seasonFrac >= 0.9 && state.res.sugar >= B.winterSugar,
   reserve: (state) => state.res.sugar >= B.reserveSugar,
+  // the honey fungus: segments cut by barriers (the player can always grow to a rhizomorph and cut it); a mantle on every
+  // living tree (a lost tree is no longer the player's to keep, so it does not count)
+  rivalCut: (state) => (state.rival?.stats.cut ?? 0) >= B.rivalCutGoal,
+  rivalGuard: (state) => {
+    const living = state.world.trees.filter((t) => !t.lost);
+    return living.length > 0 && living.every((t) => (t.mantle ?? 0) >= B.mantleGoal);
+  },
   mushrooms8: (state) => state.mushrooms.filter((m) => m.mature).length >= B.chapter3Mushrooms,
   spores1500: (state) => state.res.spores >= B.chapter3Spores,
 };
@@ -123,7 +133,7 @@ export function stepObjectives(state, dt = 0) {
   flags.pagesDone = n;
   if (n < B.chapterCount) {
     state.chapter = n + 1;
-    state.objectives = createObjectives(n + 1, Boolean(flags.seasons), state.world.biome);
+    state.objectives = createObjectives(n + 1, Boolean(flags.seasons), state.world.biome, Boolean(flags.rival));
     events.push({ type: 'chapter', chapter: n + 1 });
   } else {
     flags.bookDone = true;

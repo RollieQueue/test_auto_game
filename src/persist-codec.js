@@ -121,8 +121,10 @@ export function encodeState(state) {
     chapter: state.chapter ?? 1, // the page the notebook is on (threats); `objectives` lists the done ones of that page
     fauna: encodeValue(state.fauna ?? []),
     traps: encodeValue(state.traps ?? []),
+    rival: encodeValue(state.rival ?? null), // the honey fungus (null before it exists); unknown members round-trip as they are
+    barriers: encodeValue(state.barriers ?? []),
     net: encodeNet(state.net),
-    trees: world.trees.map((t) => [t.stage, t.growth, t.health, t.linked ? 1 : 0]),
+    trees: world.trees.map((t) => [t.stage, t.growth, t.health, t.linked ? 1 : 0, t.infection ?? 0, t.mantle ?? 0, t.lost ? 1 : 0]),
     water: world.water.map((d) => d.amount),
     minerals: world.minerals.map((d) => d.amount),
     finds: Object.entries(state.finds ?? {}).map(([id, f]) => [Number(id), f.kind, round2(f.at)]),
@@ -168,6 +170,29 @@ function validateHypha(h, count) {
   check(isId(h.seg, h.segCost.length) && isObj(h.tip) && isNum(h.tip.x) && isNum(h.tip.y), 'hypha seg/tip');
 }
 
+const isBool = (v) => typeof v === 'boolean';
+const allNum = (o, keys) => keys.every((k) => isNum(o[k]));
+
+/** The rival: arrays of rhizomorph nodes, edges, tips, grips and clusters that refer to each other and to the trees by id. */
+function validateRival(r, treeCount) {
+  check(isObj(r), 'rival');
+  const { nodes, edges, tips, grip, clusters } = r;
+  for (const a of [nodes, edges, tips, grip, clusters]) check(Array.isArray(a), 'rival arrays');
+  nodes.forEach((n, i) => check(isObj(n) && n.id === i && allNum(n, ['x', 'y', 'born']) && isBool(n.alive), 'rival node'));
+  edges.forEach((e, i) => {
+    check(isObj(e) && e.id === i && isId(e.a, nodes.length) && isId(e.b, nodes.length), 'rival edge ids');
+    check(allNum(e, ['w', 'born', 'wither']) && isBool(e.alive), 'rival edge');
+  });
+  for (const t of tips) {
+    check(isObj(t) && Number.isInteger(t.id) && isId(t.node, nodes.length) && allNum(t, ['x', 'y', 'dir', 'speed']), 'rival tip');
+    const g = t.target;
+    check(g == null || (isObj(g) && g.kind === 'tree' && isId(g.id, treeCount)), 'rival tip target');
+  }
+  for (const g of grip) check(isObj(g) && isId(g.treeId, treeCount) && isId(g.node, nodes.length) && allNum(g, ['x', 'y', 'since']), 'rival grip');
+  for (const c of clusters) check(isObj(c) && Number.isInteger(c.id) && isId(c.treeId, treeCount) && allNum(c, ['x', 'y', 'n', 'age']), 'rival cluster');
+  check(isBool(r.awake) && isNum(r.spores) && (r.rs === undefined || Number.isInteger(r.rs)), 'rival state');
+}
+
 /** Throws when the payload cannot be a save of this version; returns it otherwise. */
 export function validatePayload(p) {
   check(isObj(p) && p.v === SAVE_VERSION, 'version');
@@ -179,7 +204,8 @@ export function validatePayload(p) {
   check(isObj(p.flags) && Array.isArray(p.objectives), 'flags');
   const nodes = validateNet(p.net);
   for (const k of ['trees', 'water', 'minerals', 'mushrooms', 'flows']) check(Array.isArray(p[k]), k);
-  check(p.trees.every((t) => Array.isArray(t) && t.length === 4 && t.every(isNum)), 'trees');
+  // a tree row is [stage, growth, health, linked] (saves before the rival) or that plus [infection, mantle, lost]
+  check(p.trees.every((t) => Array.isArray(t) && (t.length === 4 || t.length === 7) && t.every(isNum)), 'trees');
   check(p.water.every(isNum) && p.minerals.every(isNum), 'deposits');
   check(p.mushrooms.every((m) => isObj(m) && isId(m.nodeId, nodes) && isNum(m.x) && isNum(m.baseY) && isNum(m.age) && isNum(m.growth)), 'mushrooms');
   check(p.flows.every((f) => Array.isArray(f) && isId(f[0], nodes) && isId(f[1], nodes) && FLOW_KINDS.includes(f[2]) && isNum(f[3])), 'flows');
@@ -189,6 +215,9 @@ export function validatePayload(p) {
   check(p.chapter === undefined || (Number.isInteger(p.chapter) && p.chapter >= 1 && p.chapter <= 9), 'chapter');
   check(p.fauna === undefined || (Array.isArray(p.fauna) && p.fauna.every((w) => isObj(w) && isNum(w.x) && isNum(w.y) && isNum(w.a))), 'fauna');
   check(p.traps === undefined || (Array.isArray(p.traps) && p.traps.every((t) => isObj(t) && isId(t.nodeId, nodes) && isNum(t.x) && isNum(t.y))), 'traps');
+  // `rival` and `barriers` are optional: saves from before the honey fungus have none (null = it has not been created)
+  if (p.rival !== undefined && p.rival !== null) validateRival(p.rival, p.trees.length);
+  check(p.barriers === undefined || (Array.isArray(p.barriers) && p.barriers.every((b) => isObj(b) && isId(b.nodeId, nodes) && allNum(b, ['id', 'x', 'y', 'r', 't', 'dur']))), 'barriers');
   check(isObj(p.sim) && Number.isInteger(p.sim.rng) && isObj(p.sim.rest), 'sim');
   return p;
 }
@@ -252,6 +281,10 @@ function restoreWorld(world, p) {
   world.trees.forEach((t, i) => {
     [t.stage, t.growth, t.health] = p.trees[i];
     t.linked = p.trees[i][3] === 1;
+    // old saves have 4 numbers: no infection, no mantle
+    t.infection = p.trees[i][4] ?? 0;
+    t.mantle = p.trees[i][5] ?? 0;
+    t.lost = p.trees[i][6] === 1;
   });
   world.water.forEach((d, i) => (d.amount = p.water[i]));
   world.minerals.forEach((d, i) => (d.amount = p.minerals[i]));
@@ -287,11 +320,13 @@ export function decodeState(p) {
   if (p.clock !== undefined) state.clock = decodeValue(p.clock);
   if (p.weather !== undefined) state.weather = decodeValue(p.weather);
   state.chapter = p.chapter ?? 1;
-  if (state.chapter !== 1) state.objectives = createObjectives(state.chapter, Boolean(state.flags.seasons), state.world.biome);
+  if (state.chapter !== 1) state.objectives = createObjectives(state.chapter, Boolean(state.flags.seasons), state.world.biome, Boolean(state.flags.rival));
   const done = new Set(p.objectives);
   for (const o of state.objectives) o.done = done.has(o.id);
   state.fauna = decodeValue(p.fauna ?? []);
   state.traps = decodeValue(p.traps ?? []);
+  state.rival = p.rival ? decodeValue(p.rival) : null;
+  state.barriers = decodeValue(p.barriers ?? []);
 
   net.originId = p.net.originId;
   net.version = p.net.version;

@@ -144,6 +144,51 @@ export const B = {
   trapDigestSeconds: 14, // s after a catch during which the ring catches nothing
   trapMinerals: 8, // minerals (nitrogen) per worm, into the pool up to its cap
 
+  // --- Rival (state.flags.rival, src/sim/rival.js): the honey fungus (Armillaria). Black rhizomorphs creep from old stumps
+  // (later from lost trees) towards the trees most worth having, grip their roots and rot them; a thick cord stops a tip, a
+  // barrier (key 4) withers whatever lies inside it. The player's mantle (how well a tree is fed) slows the rot.
+  rivalWakeDelay: 45, // s after the notebook opens chapter 2 (?rival=1 wakes it at once)
+  rivalSeason: { spring: 1, summer: 0.55, autumn: 1.1, winter: 0 }, // tip speed by season (seasons only)
+  rivalInfectSeason: { spring: 1, summer: 0.75, autumn: 1.15, winter: 0.15 }, // rot speed by season (seasons only)
+  rivalSpeed: [5, 8], // u/s a tip grows at season 1
+  rivalSpacing: [16, 24], // u between rhizomorph nodes (and so the length of a segment)
+  rivalBranch: 0.02, // chance of a side branch at every new node (if tips and segments are left)
+  rivalMaxSegments: 300, // alive edges
+  rivalMaxTotal: 900, // nodes ever made (dead ones stay in the arrays); no growth beyond
+  rivalMaxTips: 4,
+  rivalStartTips: 2, // tips at the waking, and after a complete cut-back
+  rivalTipEvery: 60, // s between new tips from the stumps and lost trees while there is room
+  rivalRegrow: 45, // s: a rival cut right back (no tips, no segments) waits this long before it sends tips again
+  rivalDepthMin: 10, // u below the surface: a tip never rises above this
+  rivalLook: 24, // u: how far ahead a tip looks for rocks, the surface and thick cords
+  rivalBlockW: 1.8, // a player edge at least this thick (a busy cord) stops a tip: it turns away or stalls
+  rivalStallDie: 14, // s a tip may stand stalled (nowhere to go) before it gives up
+  rivalNoProgress: 45, // s without getting nearer to its tree before a tip gives up
+  rivalGripRadius: 18, // u: the contact radius to a root tip (the same as the player's tipLinkRadius)
+  rivalGripAfter: 60, // s after the waking: no grip is made before
+  rivalMaxGrips: 2, // grips on one tree
+  rivalInfectSeconds: 180, // s from 0 to 1 for one grip at season 1 and no mantle
+  rivalExtraGrip: 0.5, // every further grip adds this share of the rate
+  rivalHealSeconds: 240, // s from 1 to 0 for a free tree with no mantle
+  rivalHealMantle: 2, // ... faster by (1 + this * mantle)
+  rivalPayCut: 0.7, // the sugar a tree pays falls by this share at full infection
+  rivalLastTree: 0.9, // the last living tree cannot be rotted beyond this (there is always a way on)
+  rivalFruitInfection: 0.4, // autumn clusters appear at trees rotted this far
+  rivalFruitRate: 0.04, // per second per such tree in autumn
+  rivalFruit: [3, 7], // mushrooms in a cluster
+  rivalOrphanSeconds: 6, // s a rhizomorph cut off from its source takes to wither away
+  rivalTwigAge: 150, // s: a dead-end twig (no tip, no grip) this old withers away on its own
+  rivalCutGoal: 3, // page 2: segments cut by barriers
+  mantleTau: 40, // s: the mantle follows how well the tree is fed (and how many roots touch it) with this smoothing
+  mantleProtect: 0.75, // rot speed x (1 - this * mantle)
+  mantleGoal: 0.5, // page 3: every living tree has at least this much mantle
+  barrierCost: 20, // sugar, plus barrierCostStep for every barrier standing
+  barrierCostStep: 5,
+  barrierRadius: 85, // u around the node it is placed on
+  barrierDur: 40, // s
+  barrierMax: 3,
+  barrierWither: 3, // s a rhizomorph edge inside a barrier takes to wither
+
   // --- Pressure (threats only): the economy tightens so that sugar is a constraint all game long. Multipliers on the
   // numbers above; the saprotrophic floor stays, so a starved network can always recover.
   hard: {

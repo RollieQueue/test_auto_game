@@ -4,9 +4,9 @@
 import { WORLD_W, WORLD_H, PROFILE_STEP } from '../config.js';
 import { createRng, fbm1, hash32, makeNoise1D } from '../core/rng.js';
 import { clamp, dist, pointInPolygon, polygonBounds } from '../core/geom.js';
-import { sampleProfile } from './query.js';
+import { groundYAt, sampleProfile } from './query.js';
 import { BIOMES, BIOME_IDS, gladeName, pickWeighted } from './biomes.js';
-import { FAIR, checkFairness } from './fairness.js';
+import { FAIR, STUMP, checkFairness, stumpSpotProblem } from './fairness.js';
 
 /** Soil horizons, top to bottom. depth: units below the ground surface (nominal; worlds scale it per biome); cost: sugar per unit of hypha. */
 export const HORIZONS = [
@@ -169,6 +169,10 @@ export function buildWorld(seed, attempt = 0) {
       crownSeed: hash32(seed, 'crown', id),
       roots,
       tips,
+      // the honey fungus' view of the tree (the sim owns these): infection 0..1, the player's mantle 0..1, lost = a snag
+      infection: 0,
+      mantle: 0,
+      lost: false,
     };
   });
   const nearRoots = (x, y, d) =>
@@ -251,7 +255,7 @@ export function buildWorld(seed, attempt = 0) {
     if (repeated.length) rng.pick(repeated).type = kind;
   }
 
-  return {
+  const world = {
     seed,
     biome: biome.id,
     name,
@@ -267,7 +271,44 @@ export function buildWorld(seed, attempt = 0) {
     trees,
     decor,
     origin,
+    stumps: [],
   };
+  world.stumps = placeStumps(world);
+  return world;
+}
+
+/**
+ * 1-2 old stumps near the left and/or right glade edges. Drawn from their own rng after the world is complete, so
+ * nothing else about a seed changes; every candidate is checked with the same rules the tests use (stumpSpotProblem).
+ */
+function placeStumps(world) {
+  const rng = createRng(hash32(world.seed, 'stumps'));
+  const order = rng.chance(0.5) ? [0, 1] : [1, 0];
+  const want = rng.chance(0.4) ? 2 : 1;
+  const stumps = [];
+  const tryBand = (b, band) => {
+    const [x0, x1] = band[b];
+    let x = null;
+    for (let tries = 0; tries < 40 && x === null; tries++) {
+      const cx = rng.range(x0, x1);
+      if (!stumpSpotProblem(world, cx)) x = cx;
+    }
+    // no luck: scan the band from its inner end outwards for the first valid spot
+    if (b === 0) {
+      for (let cx = x1; cx >= x0 && x === null; cx -= 6) if (!stumpSpotProblem(world, cx)) x = cx;
+    } else {
+      for (let cx = x0; cx <= x1 && x === null; cx += 6) if (!stumpSpotProblem(world, cx)) x = cx;
+    }
+    if (x === null) return;
+    const r = rng.range(STUMP.r[0], STUMP.r[1]);
+    stumps.push({ id: stumps.length, x, y: groundYAt(world, x), r });
+  };
+  // `want` is a wish; when the first band has no spot the loop simply goes on to the other one. Stumps go where no HUD
+  // card hides them (STUMP.seen); only a glade with no such spot gets one in the whole bands (the left band always has
+  // a spot: the spore is 340+ from the edge).
+  for (const b of order) if (stumps.length < want) tryBand(b, STUMP.seen);
+  for (const b of order) if (!stumps.length) tryBand(b, STUMP.bands);
+  return stumps.sort((a, c) => a.x - c.x).map((s, id) => ({ ...s, id }));
 }
 
 /**

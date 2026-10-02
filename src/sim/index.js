@@ -8,8 +8,10 @@ import { recomputeFlows } from './flows.js';
 import { createObjectives, stepObjectives } from './objectives.js';
 import { initTime, stepTime } from './clock.js';
 import { canTrap, commandTrap, pickTrapNode, stepThreats, trapDenial } from './threats.js';
+import { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode, stepRival } from './rival.js';
 
 export { commandGrow, estimateGrowth, canFruit, commandFruit, mushroomCost, pickFruitNode, canTrap, commandTrap, pickTrapNode, trapDenial };
+export { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode };
 
 export function initSim(state) {
   const { world, net } = state;
@@ -34,6 +36,8 @@ export function initSim(state) {
   state.chapter = 1;
   state.fauna = []; // nematodes (state.flags.threats), see threats.js
   state.traps = []; // «ловчие кольца»
+  state.rival = null; // the honey fungus (state.flags.rival): the first step with the flag creates it, see rival.js
+  state.barriers = []; // barrier tool (key 4)
   initTime(state);
 }
 
@@ -44,6 +48,7 @@ export function updateSim(state, dt) {
   stepTime(state);
   stepGrowth(state, dt);
   stepThreats(state, dt);
+  stepRival(state, dt);
   stepEconomy(state, dt);
   stepMushrooms(state, dt);
   sim.flowDt += dt;

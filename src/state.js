@@ -18,7 +18,7 @@ export function createState(seed) {
     objectives: [],
     flags: { allObjectivesDone: false },
     events: [],
-    ui: { tool: 'grow', pointer: null, hoverNode: null, hoverTarget: null, drag: null, preview: null },
+    ui: { tool: 'grow', pointer: null, hoverNode: null, hoverTarget: null, drag: null, preview: null, barrierPick: null },
     stats: { hyphaeLength: 0, maxDepth: 0 },
   };
   initSim(state);

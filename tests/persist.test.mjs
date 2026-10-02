@@ -90,7 +90,11 @@ function view(state) {
 /** The world with its dynamic fields blanked: must equal a freshly generated one. */
 function staticWorld(world) {
   const w = structuredClone(world);
-  for (const t of w.trees) t.stage = t.growth = t.health = t.linked = 0;
+  for (const t of w.trees) {
+    t.stage = t.growth = t.health = t.linked = 0;
+    t.infection = t.mantle = 0;
+    t.lost = false;
+  }
   for (const d of [...w.water, ...w.minerals]) d.amount = 0;
   return w;
 }

@@ -17,6 +17,8 @@ const hudRoot = document.getElementById('hud');
 // Seasons with day and night, and threats in the soil, are on by default; ?seasons=0 / ?threats=0 turn them off.
 const SEASONS = params.get('seasons') !== '0';
 const THREATS = params.get('threats') !== '0';
+// The honey fungus rides with the threats; ?rival=0 turns it off, ?rival=1 turns it on and wakes it at once (see sim/rival.js).
+const RIVAL = params.get('rival') === '0' ? false : params.get('rival') === '1' ? 'now' : THREATS;
 
 function pickSeed(value) {
   const n = Number(value);
@@ -27,6 +29,7 @@ function newState(seed) {
   const state = createState(pickSeed(seed));
   state.flags.seasons = SEASONS;
   state.flags.threats = THREATS;
+  state.flags.rival = RIVAL;
   return state;
 }
 
@@ -136,6 +139,7 @@ function frame(now) {
   } else {
     acc = 0;
   }
+  game.input.refresh(now);
   game.renderer.draw(state, game.view, dtReal);
   game.hud.update(state, dtReal, game.view);
   game.audio.update(state, dtReal);

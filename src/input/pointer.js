@@ -1,8 +1,10 @@
 // Pointer input. Drag from a network node to grow a hypha (right click cancels the drag); in 'fruit'
-// mode a click plants a mushroom, in 'trap' mode it grows a «ловчее кольцо» on the node. Keeps state.ui.pointer /
-// hoverNode / hoverTarget / trapPick / drag / preview current.
+// mode a click plants a mushroom, in 'trap' mode it grows a «ловчее кольцо» on the node, in 'barrier' mode it puts a barrier
+// against the honey fungus on the node. Keeps state.ui.pointer / hoverNode / hoverTarget / trapPick / barrierPick / drag /
+// preview current.
 // Keyboard handling belongs to the UI (actions.cancelDrag, actions.setTool, ...).
 import { targetAt } from '../world/query.js';
+import { B } from '../sim/balance.js';
 
 const MIN_POINT_SPACING = 6;
 const MAX_DRAG_POINTS = 800;
@@ -30,11 +32,21 @@ export function attachInput(canvas, game) {
       ui.hoverNode = null;
       ui.hoverTarget = null;
       ui.trapPick = null;
+      ui.barrierPick = null;
       return;
     }
     ui.hoverNode = game.sim.pickNode(state, p.x, p.y);
     ui.hoverTarget = targetAt(state.world, state.mushrooms, p.x, p.y);
     ui.trapPick = null;
+    ui.barrierPick = null;
+    if (ui.tool === 'barrier' && game.sim.pickBarrierNode) {
+      const id = game.sim.pickBarrierNode(state, p.x, p.y);
+      if (id !== null) {
+        const node = state.net.nodes[id];
+        const reason = game.sim.barrierDenial(state, id);
+        ui.barrierPick = { nodeId: id, x: node.x, y: node.y, r: B.barrierRadius, ok: reason === null, reason, cost: game.sim.barrierCost(state) };
+      }
+    }
     if (ui.tool === 'trap' && game.sim.pickTrapNode) {
       const id = game.sim.pickTrapNode(state, p.x, p.y);
       if (id !== null) {
@@ -62,6 +74,11 @@ export function attachInput(canvas, game) {
     if (state.ui.tool === 'trap') {
       const node = game.sim.pickTrapNode(state, p.x, p.y);
       if (node !== null) game.sim.commandTrap(state, node);
+      return;
+    }
+    if (state.ui.tool === 'barrier') {
+      const node = game.sim.pickBarrierNode(state, p.x, p.y);
+      if (node !== null) game.sim.commandBarrier(state, node);
       return;
     }
     const node = game.sim.pickNode(state, p.x, p.y);
@@ -104,6 +121,7 @@ export function attachInput(canvas, game) {
     if (state.ui.pointer) state.ui.pointer.inside = false;
     if (!state.ui.drag) state.ui.hoverTarget = null;
     state.ui.trapPick = null;
+    state.ui.barrierPick = null;
   };
 
   const onContextMenu = (ev) => {
@@ -118,7 +136,18 @@ export function attachInput(canvas, game) {
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('contextmenu', onContextMenu);
 
+  // A tool pick goes stale while the pointer rests: sugar comes in, a barrier ends, the tool is switched by key. The
+  // frame loop calls refresh() so the ring and its tooltip follow (a few times a second is plenty).
+  let refreshedAt = -Infinity;
   return {
+    refresh(now) {
+      const state = game.state;
+      const ui = state.ui;
+      if ((ui.tool !== 'barrier' && ui.tool !== 'trap') || !ui.pointer || !ui.pointer.inside || ui.drag) return;
+      if (now - refreshedAt < 150) return;
+      refreshedAt = now;
+      updateHover(state, ui.pointer);
+    },
     detach() {
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);

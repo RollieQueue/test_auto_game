@@ -7,6 +7,7 @@ import { committedSugar } from '../src/sim/growth.js';
 import { B, pressure } from '../src/sim/balance.js';
 import { mushroomCost } from '../src/sim/mushrooms.js';
 import { findRadius } from '../src/sim/finds.js';
+import { nearestRootTip } from '../src/sim/rival.js';
 import { costAt, groundYAt } from '../src/world/query.js';
 
 export const DT = 1 / 60;
@@ -130,7 +131,9 @@ function route(state, grid, isTarget) {
  * the tighter economy: the bot then grows rings against worms and works through the later chapters), runOn (keep playing
  * after all objectives), untilChapter (with threats: stop once this chapter's page is complete), curve (sample the state
  * every 30 s into stats.curve), guard (false: never lay rings against worms), reaction / guardReach (how late and how
- * close the bot reacts to a worm), debug }
+ * close the bot reacts to a worm), rival (the honey fungus: true wakes it with chapter 2, 'now' at once), barrier (with the rival: 'grip'
+ * puts a barrier on every grip, 'near' also when a tip comes within `near` u (default 120) of its tree, false never: the passive bot),
+ * debug }
  */
 export function playBot(seed, opts = {}) {
   const maxSeconds = opts.maxSeconds ?? 1200;
@@ -139,15 +142,20 @@ export function playBot(seed, opts = {}) {
   state.phase = 'playing';
   if (opts.seasons) state.flags.seasons = true;
   if (opts.threats) state.flags.threats = true;
+  if (opts.rival) state.flags.rival = opts.rival;
   const grid = costGrid(state.world);
   const { world, net } = state;
-  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null, chapterDone: {}, traps: 0, curve: [], firstAt: {}, senseAt: {}, senseLead: [] };
+  const stats = { zeroStreak: 0, maxZeroStreak: 0, doneAt: {}, events: {}, commands: 0, rejected: 0, minSugar: Infinity, bySeason: {}, yearEnd: null, chapterDone: {}, traps: 0, barriers: 0, noNode: 0, curve: [], firstAt: {}, senseAt: {}, senseLead: [] };
   let nextThink = 0;
 
   const linked = (kind) => net.links.some((l) => l.kind === kind);
-  const free = () => state.res.sugar - committedSugar(net);
+  const raw = () => state.res.sugar - committedSugar(net);
+  // with the rival awake and barriers allowed, the bot keeps a reserve for them (defence spends the raw stock)
+  const reserve = () => (state.rival?.awake && opts.barrier !== false ? opts.reserve ?? 24 : 0);
+  const free = () => raw() - reserve();
 
-  const grow = (r, minPartial = Infinity) => {
+  const grow = (r, minPartial = Infinity, useRaw = false) => {
+    const have = () => (useRaw ? raw() : free());
     if (!r) {
       stats.noRoute = (stats.noRoute || 0) + 1;
       return false;
@@ -156,7 +164,7 @@ export function playBot(seed, opts = {}) {
     let spend = 0;
     let n = 0;
     let prev = { x: net.nodes[r.nodeId].x, y: net.nodes[r.nodeId].y };
-    const budget = free() - 0.5; // the sim integrates the cost a little differently across horizon edges
+    const budget = have() - 0.5; // the sim integrates the cost a little differently across horizon edges
     for (const p of r.points) {
       const c = Math.hypot(p.x - prev.x, p.y - prev.y) * costAt(world, p.x, p.y) * pressure(state).growCost;
       if (spend + c > budget) break;
@@ -167,7 +175,7 @@ export function playBot(seed, opts = {}) {
     const full = n === r.points.length;
     if (opts.debug) console.log('grow', state.time.toFixed(1), 'pts', r.points.length, 'affordable', n, 'cost', r.cost.toFixed(0), 'budget', budget.toFixed(0), 'cap', state.cap.sugar.toFixed(0));
     // wait for the full route unless the purse is nearly at its cap
-    if (!full && free() < state.cap.sugar - 6 && spend < minPartial) return false; // (a long drag may go ahead as far as `minPartial` sugar reaches)
+    if (!full && have() < state.cap.sugar - 6 && spend < minPartial) return false; // (a long drag may go ahead as far as `minPartial` sugar reaches)
     if (n < 1) return false;
     stats.commands++;
     const ok = sim.commandGrow(state, r.nodeId, r.points.slice(0, n));
@@ -276,6 +284,69 @@ export function playBot(seed, opts = {}) {
     return false;
   };
 
+  // Barriers against the honey fungus: on a player node within reach of a grip (and, with 'near', of a tip closing in on its tree).
+  let nextBarrierAt = 0;
+  const barrierMode = opts.barrier ?? 'near';
+  const nearTip = opts.near ?? 120;
+  const covered = (x, y) => state.barriers.some((b) => Math.hypot(b.x - x, b.y - y) < b.r - 12 && b.t < b.dur - 6);
+  const defend = () => {
+    const rival = state.rival;
+    if (!rival || !rival.awake || !barrierMode || state.time < nextBarrierAt) return false;
+    const spots = rival.grip.map((g) => ({ x: g.x, y: g.y }));
+    if (barrierMode === 'near') {
+      for (const t of rival.tips) {
+        if (!t.target) continue;
+        const rt = nearestRootTip(state, world.trees[t.target.id], t.x, t.y);
+        if (rt && rt.d <= nearTip) spots.push({ x: t.x, y: t.y });
+      }
+    }
+    let waiting = false;
+    for (const spot of spots) {
+      if (covered(spot.x, spot.y)) continue;
+      waiting = true;
+      const id = sim.pickNode(state, spot.x, spot.y, B.barrierRadius - 14);
+      if (id === null) {
+        // no hypha near the threat: grow one towards it (a barrier needs a node within reach)
+        if (net.growing.length === 0 && raw() > sim.barrierCost(state) + 12) {
+          stats.reach = (stats.reach || 0) + 1;
+          if (grow(route(state, grid, (x, y) => Math.hypot(x - spot.x, y - spot.y) <= 40 && y - groundYAt(world, x) >= 14), 30, true)) return true;
+          stats.reachFail = (stats.reachFail || 0) + 1;
+        } else stats.reachSugar = (stats.reachSugar || 0) + 1;
+        stats.noNode++;
+        continue;
+      }
+      if (raw() < sim.barrierCost(state) + 4 || !sim.canBarrier(state, id)) continue;
+      if (sim.commandBarrier(state, id)) {
+        nextBarrierAt = state.time + 2;
+        stats.barriers++;
+        return true;
+      }
+    }
+    return waiting && raw() < sim.barrierCost(state) + 16 ? 'save' : false; // a threat is not covered yet: keep the sugar for it
+  };
+  // Page 2 wants a rhizomorph cut by a barrier: grow to the nearest one and cut it.
+  const goRival = () =>
+    state.rival?.awake &&
+    grow(
+      route(state, grid, (x, y) => {
+        if (y - groundYAt(world, x) < 16) return false;
+        return state.rival.nodes.some((n) => n.alive && Math.hypot(n.x - x, n.y - y) <= 45);
+      }),
+      30,
+    );
+  const cutRival = () => {
+    if (!state.rival?.awake || !pending('rivalCut') || state.barriers.length > 0 || raw() < sim.barrierCost(state) + 4) return false;
+    for (const n of state.rival.nodes) {
+      if (!n.alive) continue;
+      const id = sim.pickNode(state, n.x, n.y, B.barrierRadius - 14);
+      if (id !== null && sim.canBarrier(state, id) && sim.commandBarrier(state, id)) {
+        stats.barriers++;
+        return true;
+      }
+    }
+    return false;
+  };
+
   const plant = () => {
     for (const n of net.nodes) {
       if (sim.canFruit(state, n.id)) {
@@ -288,6 +359,7 @@ export function playBot(seed, opts = {}) {
 
   const think = () => {
     guard();
+    if (defend()) return; // acted, or a threat is waiting for sugar
     if (net.growing.length > 0) return;
     if (!linked('water')) return void goWater();
     if (!linked('tree')) return void goTree();
@@ -315,6 +387,10 @@ export function playBot(seed, opts = {}) {
         }
       }
       if (state.stats.maxDepth < gravelDepth && free() > 40) return void goGravel();
+      if (barrierMode && pending('rivalCut') && free() > 45) {
+        if (cutRival()) return;
+        if (goRival()) return;
+      }
       if (state.chapter >= 3 && state.mushrooms.length < B.chapter3Mushrooms + 1 && free() > 50) {
         if (plant()) return;
         return void goSurface();
@@ -328,6 +404,7 @@ export function playBot(seed, opts = {}) {
     sim.updateSim(state, DT);
     state.time += DT;
     for (const ev of state.events) {
+      opts.onEvent?.(ev, state);
       stats.events[ev.type] = (stats.events[ev.type] || 0) + 1;
       stats.firstAt[ev.type] ??= state.time;
       if (ev.type === 'worm-sense') stats.senseAt[ev.id] = state.time;
@@ -358,8 +435,8 @@ export function playBot(seed, opts = {}) {
       think();
       nextThink = state.time + 0.5;
     }
-    if (opts.curve && i % 1800 === 0) {
-      stats.curve.push({ t: Math.round(state.time), sugar: Math.round(state.res.sugar), len: Math.round(state.stats.hyphaeLength), mush: state.mushrooms.length, worms: state.fauna.length, traps: state.traps.length, spores: Math.round(state.res.spores), chapter: state.chapter });
+    if (opts.curve && i % (opts.curveEvery ?? 1800) === 0) {
+      stats.curve.push({ t: Math.round(state.time), sugar: Math.round(state.res.sugar), len: Math.round(state.stats.hyphaeLength), mush: state.mushrooms.length, worms: state.fauna.length, traps: state.traps.length, spores: Math.round(state.res.spores), chapter: state.chapter, rival: state.rival && { tips: state.rival.tips.length, grips: state.rival.grip.length, seg: state.rival.edges.filter((e) => e.alive).length, inf: world.trees.map((t) => +t.infection.toFixed(2)), mantle: world.trees.map((t) => +t.mantle.toFixed(2)), barriers: state.barriers.length } });
     }
     if (opts.untilChapter ? stats.chapterDone[opts.untilChapter] !== undefined : completed !== null && !opts.runOn) break;
   }
