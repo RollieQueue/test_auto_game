@@ -35,7 +35,7 @@ export function createRival() {
   const shapes = new Map(); // edge id -> smoothEdges() curve + w
   const nodeIndex = { src: null, n: -1, map: new Map() };
   const cache = { canvas: null, key: '', baked: new Set(), world: null, rival: null, stamp: -1 };
-  const curves = { rival: null, ver: -2, nodes: -1, edges: -1, stamp: 0 }; // the stamp of the smoothed shapes
+  const curves = { rival: null, ver: -2, nodes: -1, edges: -1, grips: -1, stamp: 0 }; // the stamp of the smoothed shapes
   const sprites = new Map(); // key -> sprite (stain, honey tuft, stump, barrier ring)
   const fx = [];
   let seq = 1;
@@ -65,19 +65,22 @@ export function createRival() {
 
   /**
    * The curve of one edge. The chains are Chaikin-smoothed (rival-logic smoothEdges: a node with two edges rounds its corner,
-   * a fork joins the parent with the straightest child), so every shape depends on its neighbours and the whole set is made
-   * again when rival.ver (nodes or edges added, an edge died) or the edge count changes. null for a dead edge or a missing node.
+   * a fork joins the parent with the straightest child; hairpins in a chain are pulled onto their chord first, the gripped root
+   * points stay put), so every shape depends on its neighbours and the whole set is made again when rival.ver (nodes or edges
+   * added, an edge died), the edge count or the grips change. null for a dead edge or a missing node.
    */
   function shapeOf(rival, e) {
     const ver = Number.isFinite(rival.ver) ? rival.ver : -1;
-    if (curves.rival !== rival || curves.ver !== ver || curves.nodes !== rival.nodes.length || curves.edges !== rival.edges.length) {
+    const grips = Array.isArray(rival.grip) ? rival.grip.length : 0;
+    if (curves.rival !== rival || curves.ver !== ver || curves.nodes !== rival.nodes.length || curves.edges !== rival.edges.length || curves.grips !== grips) {
       shapes.clear();
-      for (const [id, s] of smoothEdges(rival.nodes, rival.edges)) shapes.set(id, s);
+      const pinned = new Set(Array.isArray(rival.grip) ? rival.grip.map((g) => g && g.node) : []);
+      for (const [id, s] of smoothEdges(rival.nodes, rival.edges, pinned)) shapes.set(id, s);
       for (const q of rival.edges) {
         const s = q && shapes.get(q.id);
         if (s) s.w = clamp(BASE_W + 1.2 * (num(q.w, 1) - 1), BASE_W, 9);
       }
-      Object.assign(curves, { rival, ver, nodes: rival.nodes.length, edges: rival.edges.length, stamp: curves.stamp + 1 });
+      Object.assign(curves, { rival, ver, nodes: rival.nodes.length, edges: rival.edges.length, grips, stamp: curves.stamp + 1 });
     }
     return shapes.get(e.id) || null;
   }

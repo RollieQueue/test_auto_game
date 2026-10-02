@@ -268,6 +268,9 @@ test('the guide points at the oldest grip once the rival holds a tree', () => {
   // the normal steps go on unless the one-time arrow is asked for
   assert.notEqual(pickHint(s).id, 'rival');
   const o = s.net.nodes[s.net.originId];
+  // nothing grown yet: «Это спора» would hide the grip, so the grip arrow still goes first
+  assert.equal(pickHint(s, null, 'grow', { rivalHint: false }).id, 'spore');
+  assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'rival');
   s.net.nodes[s.net.originId] = { ...o, born: 1 }; // the game has started
   assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'rival');
   // no grip: nothing to point at, even when asked

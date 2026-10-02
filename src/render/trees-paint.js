@@ -1445,12 +1445,29 @@ export function infectionSteps(ctx, m, ib, v, season, W, H) {
       const n = Math.min(40, nDead - i);
       steps.push(() => {
         ctx.save();
-        ctx.globalCompositeOperation = 'source-atop';
+        // a bare winter crown has no leaves to paint on: its dead leaves hang in tufts on the twigs, over the crown
+        ctx.globalCompositeOperation = P.bare ? 'source-over' : 'source-atop';
         for (let q = 0; q < n; q++) {
           const p = spotIn(shapes, drng);
           const col = tones[Math.floor(drng() * tones.length)];
           const ang = rr(drng, 0, TAU);
-          if (pine) {
+          if (P.bare) {
+            // a tuft: a short twig and three withered leaves hanging from it
+            const ln = rr(drng, 5, 8) * sc;
+            ctx.beginPath();
+            ctx.moveTo(p.x - ln * 0.5, p.y - 1);
+            ctx.lineTo(p.x + ln * 0.5, p.y + 1);
+            ctx.lineWidth = 0.8;
+            ctx.strokeStyle = 'rgba(51,33,15,0.8)';
+            ctx.stroke();
+            for (let k = 0; k < 3; k++) {
+              const lx = p.x + (k - 1) * ln * 0.45;
+              ctx.beginPath();
+              leafOutline(ctx, lx, p.y + 1, Math.PI / 2 + rr(drng, -0.7, 0.7), rr(drng, 5, 7.5) * sc, 1.9 * sc);
+              ctx.fillStyle = rgba(col, 0.92);
+              ctx.fill();
+            }
+          } else if (pine) {
             // a streak of dead needles
             const ln = rr(drng, 6, 11) * sc;
             ctx.beginPath();

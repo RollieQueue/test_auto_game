@@ -53,3 +53,36 @@ for (const seed of [1, 7, 42]) {
     assert.equal(h.id, 'wait');
   });
 }
+
+for (const seed of [9, 26]) {
+  test(`a gripped tree outranks «Это спора» and the walk steps, the other priorities stay, seed ${seed}`, () => {
+    const gripped = (s) => {
+      s.phase = 'playing';
+      s.flags.threats = true;
+      s.flags.rival = true;
+      const tree = s.world.trees[0];
+      s.rival = { awake: true, nodes: [], edges: [], tips: [], grip: [{ treeId: tree.id, node: 0, x: tree.x, y: 400, since: 50 }], clusters: [], spores: 0, ver: 0, rs: 1 };
+      return s;
+    };
+    // nothing grown yet: without the one-time arrow the spore comes first, with it the grip does
+    const s = gripped(createState(seed));
+    assert.equal(pickHint(s).id, 'spore');
+    assert.equal(pickHint(s, null, 'grow', { rivalHint: false }).id, 'spore');
+    assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'rival');
+    assert.equal(pickHint(s, null, 'grow', { rivalHint: true, wormHint: true }).id, 'rival');
+    // the arrow is for the grip only: without one the spore stays
+    s.rival.grip = [];
+    assert.equal(pickHint(s, null, 'grow', { rivalHint: true }).id, 'spore');
+    // a started game: the grip beats the water step, and without the arrow the steps go on as before
+    const t = createState(seed);
+    t.phase = 'playing';
+    const o = t.net.nodes[t.net.originId];
+    assert.ok(sim.commandGrow(t, o.id, [{ x: o.x + 12, y: o.y + 6 }, { x: o.x + 24, y: o.y + 12 }]));
+    advance(t, 1);
+    gripped(t);
+    assert.equal(pickHint(t, null, 'grow', { rivalHint: true }).id, 'rival');
+    assert.equal(pickHint(t, null, 'grow', { rivalHint: false }).id, 'water');
+    t.rival.grip = [];
+    assert.equal(pickHint(t, null, 'grow', { rivalHint: true }).id, 'water');
+  });
+}

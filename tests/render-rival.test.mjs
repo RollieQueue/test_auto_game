@@ -3,6 +3,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BACK_COS,
+  STEP_COS,
+  STEP_LEN,
   HEAD_NEAR,
   GROW_TIME,
   INF_BUCKETS,
@@ -22,6 +25,7 @@ import {
   mantleOf,
   rivalCacheKey,
   ringStrength,
+  relaxChains,
   rivalParts,
   rootGoal,
   sallowAmount,
@@ -414,6 +418,114 @@ test('smoothEdges: forks join the parent with the straightest child, dead edges 
   const bad = smoothEdges([node(0, 0, 0), null, { id: 1, x: NaN, y: 0 }], [null, edge(0, 0, 9), edge(1, 0, 1), edge(2, 0, 0)]);
   assert.equal(bad.size, 0);
   assert.equal(smoothEdges(undefined, undefined).size, 0);
+});
+
+/** The drawn points of a chain of edges (ids in order), from its first apex to its last. */
+function chainSamples(m, ids, steps = 12) {
+  const out = [];
+  for (const id of ids) for (let i = 0; i < steps; i++) out.push(curveAt(m.get(id), i / steps));
+  const last = m.get(ids[ids.length - 1]);
+  out.push({ x: last.x1, y: last.y1 });
+  return out;
+}
+
+/** The sharpest turn (degrees) between two successive steps of a sampled path; coincident points are skipped. */
+function sharpestTurn(pts) {
+  let worst = 0;
+  let prev = null;
+  for (let i = 1; i < pts.length; i++) {
+    const v = { x: pts[i].x - pts[i - 1].x, y: pts[i].y - pts[i - 1].y };
+    const l = Math.hypot(v.x, v.y);
+    if (l < 1e-9) continue;
+    if (prev) {
+      const cos = (v.x * prev.x + v.y * prev.y) / (l * prev.l);
+      worst = Math.max(worst, (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI);
+    }
+    prev = { x: v.x, y: v.y, l };
+  }
+  return worst;
+}
+
+const chainOf = (pts) => ({
+  nodes: pts.map(([x, y], i) => node(i, x, y)),
+  edges: pts.slice(1).map((_, i) => edge(i, i, i + 1)),
+  ids: pts.slice(1).map((_, i) => i),
+});
+
+test('smoothEdges: a zig-zag chain (out, back, out, back ...) is drawn without back-tracking, ends kept', () => {
+  // the "Ч" loops: a tip that keeps being sent another way leaves hairpins of ~170 degrees in its chain
+  const { nodes, edges, ids } = chainOf([[0, 0], [0, 40], [8, 0], [8, 40], [16, 0], [16, 40], [24, 0], [70, 2]]);
+  const m = smoothEdges(nodes, edges);
+  const pts = chainSamples(m, ids);
+  assert.ok(sharpestTurn(pts) < 100, `still a hairpin: ${sharpestTurn(pts)} deg`);
+  for (let i = 1; i < pts.length; i++) assert.ok(pts[i].x >= pts[i - 1].x - 1e-9, 'the chain never goes back along x');
+  assert.ok(Math.max(...pts.map((p) => p.y)) < 20, 'the 40 u spikes are gone');
+  // the two ends stay on their nodes
+  assert.deepEqual([m.get(0).x0, m.get(0).y0], [0, 0]);
+  assert.deepEqual([m.get(ids[ids.length - 1]).x1, m.get(ids[ids.length - 1]).y1], [70, 2]);
+  // the check bites: the raw node polyline of the same chain turns by ~170 degrees
+  assert.ok(sharpestTurn(nodes) > 150);
+});
+
+test('smoothEdges: an out-and-back spur along a chain collapses onto the chord, the stretches that stay are untouched', () => {
+  // west 40 u, then turn right round and go east past the start
+  const { nodes, edges, ids } = chainOf([[0, 0], [20, 0], [40, 2], [26, 4], [50, 5], [80, 5]]);
+  const m = smoothEdges(nodes, edges);
+  const pts = chainSamples(m, ids);
+  assert.ok(sharpestTurn(pts) < 100, `${sharpestTurn(pts)}`);
+  for (let i = 1; i < pts.length; i++) assert.ok(pts[i].x >= pts[i - 1].x - 1e-9, `goes back at ${i}`);
+  assert.deepEqual([m.get(0).x0, m.get(0).y0], [0, 0]);
+  assert.deepEqual([m.get(4).x1, m.get(4).y1], [80, 5]);
+});
+
+test('smoothEdges: a stair of short right-angle steps runs on as a diagonal, a long right-angle bend stays a bend', () => {
+  const stair = chainOf([[0, 0], [16, 0], [16, 16], [32, 16], [32, 32], [48, 32], [48, 48], [64, 48]]);
+  const raw = sharpestTurn(stair.nodes);
+  assert.ok(Math.abs(raw - 90) < 1e-6);
+  const pts = chainSamples(smoothEdges(stair.nodes, stair.edges), stair.ids);
+  assert.ok(sharpestTurn(pts) < 60, `still stepping: ${sharpestTurn(pts)} deg`);
+  assert.deepEqual([pts[0].x, pts[0].y], [0, 0]);
+  assert.deepEqual([pts[pts.length - 1].x, pts[pts.length - 1].y], [64, 48]);
+  // 40 u legs: a bend is a bend (the same shape the tangent test above relies on)
+  const bend = chainOf([[0, 0], [40, 0], [40, 40]]);
+  const at = new Map([[0, [bend.edges[0]]], [1, bend.edges], [2, [bend.edges[1]]]]);
+  assert.equal(relaxChains(new Map(bend.nodes.map((n) => [n.id, n])), at).size, 0);
+});
+
+test('relaxChains: only two-edge nodes with a sharp turn move; ends, forks, pinned nodes and gentle chains stay', () => {
+  const at = (nodes, edges) => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const map = new Map();
+    for (const e of edges) for (const id of [e.a, e.b]) (map.get(id) || map.set(id, []).get(id)).push(e);
+    return { byId, map };
+  };
+  // gentle wave: nothing moves
+  let c = chainOf([[0, 0], [20, 6], [40, -4], [60, 5], [80, 0]]);
+  let r = at(c.nodes, c.edges);
+  assert.equal(relaxChains(r.byId, r.map).size, 0);
+  // a hairpin at node 2: it moves to the midpoint of its neighbours; the ends never move
+  c = chainOf([[0, 0], [30, 0], [10, 2], [50, 2]]);
+  r = at(c.nodes, c.edges);
+  const moved = relaxChains(r.byId, r.map);
+  assert.ok(moved.has(1) || moved.has(2));
+  assert.equal(moved.has(0), false);
+  assert.equal(moved.has(3), false);
+  for (const id of [0, 1, 2, 3]) {
+    const n = moved.get(id) || r.byId.get(id);
+    assert.ok(Number.isFinite(n.x + n.y));
+  }
+  // the same hairpin with its apex pinned (a gripped root point): the apex stays
+  c = chainOf([[0, 0], [30, 0], [10, 2], [50, 2]]);
+  r = at(c.nodes, c.edges);
+  const pinned = relaxChains(r.byId, r.map, new Set([1]));
+  assert.equal(pinned.has(1), false);
+  // a fork at the apex is not a chain node: it stays too (the child folding back is a spur, drawn as one)
+  c = chainOf([[0, 0], [30, 0], [10, 2], [50, 2]]);
+  c.nodes.push(node(4, 30, 30));
+  c.edges.push(edge(9, 1, 4));
+  r = at(c.nodes, c.edges);
+  assert.equal(relaxChains(r.byId, r.map).has(1), false);
+  assert.ok(BACK_COS < 0 && STEP_COS > 0 && STEP_COS < 0.5 && STEP_LEN > 14 && STEP_LEN < 40);
 });
 
 test('rootGoal picks the sim\'s root tip: linked first, held ones skipped, shallow preferred, target x/y win', () => {

@@ -87,3 +87,34 @@ export function cardMode(cover, pointerOnCard) {
   if (under) return pointerOnCard ? 'pointed' : 'behind';
   return pointerOnCard ? 'pointer' : 'solid';
 }
+
+/** World -> screen rect of an old stump as drawn (the cut trunk, its roots and the honey tufts round its foot). */
+export function stumpRect(stump, view) {
+  const r = Math.max(14, Math.min(60, num(stump.r) || 28));
+  const s = view.scale;
+  return {
+    l: (num(stump.x) - 2.2 * r) * s + view.ox,
+    r: (num(stump.x) + 2.2 * r) * s + view.ox,
+    t: (num(stump.y) - 3 * r) * s + view.oy,
+    b: (num(stump.y) + 0.6 * r) * s + view.oy,
+  };
+}
+
+/** How many of the rival's stumps lie under the screen rect `rect` (none when the game has no rival: they are not drawn then). */
+export function stumpsUnder(state, view, rect) {
+  const list = state && state.rival && typeof state.rival === 'object' && state.world && state.world.stumps;
+  if (!Array.isArray(list) || !view || !(view.scale > 0) || !rect) return 0;
+  let n = 0;
+  for (const st of list) if (st && Number.isFinite(st.x) && Number.isFinite(st.y) && overlaps(rect, stumpRect(st, view))) n += 1;
+  return n;
+}
+
+// The objectives card measured open: 19.7 em x 15.9 em (17.6 x 14.1 in a small window), from its top right corner.
+const OBJ_OPEN = { w: 19.7, h: 15.9, smallW: 17.6, smallH: 14.1 };
+
+/** The screen rect the objectives card would fill if it were open, from the rect it has now (`b`) and the font size in px. */
+export function openCardRect(b, fs, small = false) {
+  const w = (small ? OBJ_OPEN.smallW : OBJ_OPEN.w) * fs;
+  const h = (small ? OBJ_OPEN.smallH : OBJ_OPEN.h) * fs;
+  return { l: b.r - w, r: b.r, t: b.t, b: b.t + h };
+}

@@ -2,7 +2,7 @@
 // update() runs every frame, so every write below is guarded by a "changed?" check.
 import { icons, checkbox, flourish, capBar } from './icons.js';
 import { RESOURCES, resourceView, resourceTip, createSugarNudge } from './resources-logic.js';
-import { coverage, cardMode, pointerIn, crownRect, mushroomRect } from './cards-logic.js';
+import { coverage, cardMode, pointerIn, crownRect, mushroomRect, openCardRect, stumpsUnder } from './cards-logic.js';
 import { objectiveText } from './trees-logic.js';
 import { gladeLabel } from './glade.js';
 import { createNotes, smallWindow } from './notes.js';
@@ -31,6 +31,7 @@ const ART_URL = 'assets/art/frontispiece.webp';
 const OBJ_REVEAL_START = 8; // s the objectives card is open at the start of a game
 const OBJ_REVEAL_TICK = 6; // s it opens when an objective is ticked off
 const OBJ_QUIET_WAKE = 12; // s the objectives card stays folded after the honey fungus woke
+const OBJ_REVEAL_STUMP = 2; // s it opens by itself at most, when open it would cover the rival's stump (it opens under the pointer as ever)
 const OBJ_HOLD = 0.35; // s it stays open after the pointer moved away
 
 const nf = new Intl.NumberFormat('ru-RU');
@@ -403,6 +404,7 @@ export function createHud(root, actions) {
   let objReveal = 0; // s the objectives card stays open (a new game, a fresh tick)
   let objHold = 0; // s the card stays open after the pointer left it
   let objQuiet = 0; // s the card stays folded after the honey fungus woke (the stump and its label must show)
+  let objHides = false; // the card, were it open, would lie over a stump (updateCards sets it)
   let seasonIntro = false; // the first season's note was shown for this game
   let cardT = 0; // s until the cards look again at what lies under them
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
@@ -859,6 +861,7 @@ export function createHud(root, actions) {
       objReveal = Math.max(0, objReveal - dt);
       objHold = Math.max(0, objHold - dt);
       objQuiet = Math.max(0, objQuiet - dt);
+      if (objHides) objReveal = Math.min(objReveal, OBJ_REVEAL_STUMP); // the stump at the glade's edge is not covered for long
       if (state.events.some((ev) => ev.type === 'rival-wake')) {
         objQuiet = OBJ_QUIET_WAKE;
         objReveal = 0;
@@ -894,7 +897,8 @@ export function createHud(root, actions) {
         const b = card.getBoundingClientRect();
         const rect = { l: b.left, t: b.top, r: b.right, b: b.bottom };
         mode = cardMode(coverage(state, view, rect), pointer && pointerIn(p, rect, 4));
-      }
+        if (key === 'obj') objHides = stumpsUnder(state, view, openCardRect(rect, parseFloat(getComputedStyle(root).fontSize) || 16, smallWindow())) > 0;
+      } else if (key === 'obj') objHides = false;
       if (shown[`card.${key}`] !== mode) {
         const prev = shown[`card.${key}`];
         shown[`card.${key}`] = mode;

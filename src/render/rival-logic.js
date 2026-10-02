@@ -136,14 +136,84 @@ export function chaikin(pts, iterations = 2) {
 }
 
 const PAIR_MAX_DOT = 0.35; // a fork joins its parent edge with the straightest child only when that child is no sharper than this
+export const BACK_COS = -0.17; // a chain node whose two edges turn by more than ~100 degrees (cos below this) is a hairpin: out and back
+export const STEP_COS = 0.26; // ... and by more than ~75 degrees is a stair step when one of its edges is short (STEP_LEN): a zig-zag
+export const STEP_LEN = 26; // u: the shorter edge of a stair step (real edges are 14..25 u long; a long right-angle bend is a bend)
+const BACK_PASSES = 16; // rounds of pulling back-tracking nodes onto their neighbours' midpoint
+
+/**
+ * The positions the chains are drawn through. A tip that is sent another way leaves a hairpin in its chain (out, turn, back
+ * along itself: the zig-zag "Ч" loops, or stairs of right angles), which no corner cutting can hide. So every node with exactly
+ * two alive edges whose turn is sharper than ~100 degrees (~75 with a short edge) is pulled to the midpoint of its two neighbours, round after round, until the chain only bends
+ * gently: the out-and-back detour collapses onto the chord between the stretches that stay. Ends, tips, forks and `pinned` nodes
+ * (a gripped root point) never move, and only the drawn point moves: the sim's nodes are not touched.
+ * `at` is Map(node id -> alive edges there). Returns Map(node id -> { id, x, y }) of the nodes that moved.
+ */
+export function relaxChains(byId, at, pinned) {
+  const moved = new Map();
+  const free = (id) => {
+    const l = at.get(id);
+    return l && l.length === 2 && !(pinned && pinned.has(id));
+  };
+  const seen = new Set();
+  const other = (e, id) => (e.a === id ? e.b : e.a);
+  for (const [start, list] of at) {
+    if (free(start)) continue;
+    for (const first of list) {
+      if (seen.has(first)) continue;
+      const ids = [start];
+      let prev = start;
+      let e = first;
+      for (;;) {
+        seen.add(e);
+        const id = other(e, prev);
+        ids.push(id);
+        if (!free(id)) break;
+        const next = at.get(id).find((q) => q !== e);
+        if (seen.has(next)) break;
+        prev = id;
+        e = next;
+      }
+      if (ids.length < 3) continue;
+      const P = ids.map((id) => ({ x: byId.get(id).x, y: byId.get(id).y }));
+      for (let pass = 0; pass < BACK_PASSES; pass++) {
+        let again = false;
+        for (let i = 1; i < P.length - 1; i++) {
+          const a = P[i - 1];
+          const b = P[i];
+          const c = P[i + 1];
+          const ux = b.x - a.x;
+          const uy = b.y - a.y;
+          const vx = c.x - b.x;
+          const vy = c.y - b.y;
+          const lu = Math.hypot(ux, uy);
+          const lv = Math.hypot(vx, vy);
+          if (lu < 1e-6 || lv < 1e-6) continue;
+          const cos = (ux * vx + uy * vy) / (lu * lv);
+          if (cos >= BACK_COS && (cos >= STEP_COS || Math.min(lu, lv) >= STEP_LEN)) continue;
+          P[i] = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
+          again = true;
+        }
+        if (!again) break;
+      }
+      for (let i = 1; i < P.length - 1; i++) {
+        const n = byId.get(ids[i]);
+        if (P[i].x !== n.x || P[i].y !== n.y) moved.set(ids[i], { id: n.id, x: P[i].x, y: P[i].y });
+      }
+    }
+  }
+  return moved;
+}
 
 /**
  * The drawn curve of every alive edge, as two quadratic pieces a -> m -> b: the chains of edges are Chaikin-smoothed, so a
  * path turns through a rounded bend instead of a corner (no box-like loops). A node with exactly two alive edges rounds its
  * corner; at a fork the parent edge is joined with the straightest child (the others leave sharply); ends and tips stay put.
+ * Back-tracking nodes are first pulled onto their chord (relaxChains), so a chain never doubles back on itself.
+ * `pinned` is an optional Set of node ids that must stay where they are. The result depends on whole chains, not on one edge.
  * Returns Map(edge id -> { x0, y0, c1x, c1y, mx, my, c2x, c2y, x1, y1, len }); edges whose nodes are missing are left out.
  */
-export function smoothEdges(nodes, edges) {
+export function smoothEdges(nodes, edges, pinned) {
   const byId = new Map();
   for (const n of nodes || []) if (n && Number.isFinite(n.x + n.y)) byId.set(n.id, n);
   const at = new Map();
@@ -157,6 +227,7 @@ export function smoothEdges(nodes, edges) {
       else at.set(id, [e]);
     }
   }
+  for (const [id, n] of relaxChains(byId, at, pinned)) byId.set(id, n);
   const far = (e, id) => byId.get(e.a === id ? e.b : e.a);
   const unit = (n, o) => {
     const dx = o.x - n.x;

@@ -16,22 +16,23 @@ const COVER = [0, 0.04, 0.1, 0.19, 0.31]; // share of the crown erased (gaps and
 const BLOTCH = [0, 1, 2, 3, 5]; // dark rust patches: a dying sector of the crown
 const BLOTCH_A = [0, 0.22, 0.3, 0.38, 0.46];
 const DEAD = [0, 0.7, 1.5, 2.6, 3.8]; // dead brown leaves (needle streaks) per 1000 px² of crown
+const BARE_DEAD = 0.5; // the share of those that cling to a bare winter crown
 
 const LEAF_BROWN = '#7a4f26';
-const SEASON_BROWN = { autumn: '#6a3d1c', spring: '#7a4f26', summer: '#7a4f26', winter: '#6b4a30' };
+const SEASON_BROWN = { autumn: '#6a3d1c', spring: '#7a4f26', summer: '#7a4f26', winter: '#8c4a22' }; // winter: rust on the bare twigs
 const PINE_BROWN = '#8a4f2a';
 
 const bucketOf = (b) => clamp(Math.round(num(b)), 0, INF_BUCKETS);
 const season = (s) => (s === 'spring' || s === 'autumn' || s === 'winter' ? s : 'summer');
 
-/** An oak or a birch in winter has no leaves: only twigs, so infection can only thin them out. */
+/** An oak or a birch in winter has no leaves: only twigs. The infection rusts them, thins them out and leaves a few dead leaves clinging. */
 export const isBareCrown = (species, s) => season(s) === 'winter' && species !== 'pine';
 
 /** Alpha 0..MAX_WASH of the rust wash over the crown (0 for a healthy tree). */
 export function washAmount(bucket, species, s) {
   const b = bucketOf(bucket);
   if (b === 0) return 0;
-  const k = isBareCrown(species, s) ? 0.4 : species === 'pine' ? 1.15 : season(s) === 'autumn' ? 1.12 : 1;
+  const k = isBareCrown(species, s) ? 0.95 : species === 'pine' ? 1.15 : season(s) === 'autumn' ? 1.12 : 1;
   return Math.min(MAX_WASH, WASH[b] * k);
 }
 
@@ -45,7 +46,7 @@ export function washColor(species, s) {
 export function holeCover(bucket, species, s) {
   const b = bucketOf(bucket);
   if (b === 0) return 0;
-  const k = isBareCrown(species, s) ? 0.55 : species === 'pine' ? 0.85 : 1;
+  const k = isBareCrown(species, s) ? 0.9 : species === 'pine' ? 0.85 : 1;
   return Math.min(MAX_COVER, COVER[b] * k);
 }
 
@@ -57,10 +58,10 @@ export function blotchCount(bucket, species, s) {
 
 export const blotchAlpha = (bucket) => BLOTCH_A[bucketOf(bucket)];
 
-/** Dead brown leaves (or rusty needle streaks) per 1000 px² of crown; none on a bare winter crown. */
+/** Dead brown leaves (or rusty needle streaks) per 1000 px² of crown; on a bare winter crown only about half as many, hanging on in tufts. */
 export function deadDensity(bucket, species, s) {
   const b = bucketOf(bucket);
-  return isBareCrown(species, s) ? 0 : DEAD[b];
+  return isBareCrown(species, s) ? DEAD[b] * BARE_DEAD : DEAD[b];
 }
 
 /** Everything the painter needs for one bucket; `active` is false for a healthy crown (nothing is painted then). */

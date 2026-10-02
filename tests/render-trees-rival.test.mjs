@@ -77,16 +77,27 @@ test('the parameters stay bounded, and bad input reads as a healthy tree or the 
   assert.equal(infectionLook(-1, 'oak').bucket, 0);
 });
 
-test('infection brown is visible on the autumn crown, rusty for needles, and a bare crown gets only a light touch', () => {
+test('infection brown is visible on the autumn crown, rusty for needles, and a bare winter crown shows it too: rusty twigs and a few clinging dead leaves', () => {
   // the wash is the crown's own change of colour: stronger on the yellow autumn crown than in summer
   assert.ok(washAmount(2, 'birch', 'autumn') > washAmount(2, 'birch', 'summer'));
   assert.ok(washAmount(2, 'pine', 'summer') > washAmount(2, 'birch', 'summer'));
   assert.notEqual(washColor('birch', 'autumn'), washColor('pine', 'autumn'));
   assert.ok(washAmount(2, 'birch', 'autumn') >= 0.3, 'at 40-50 % infection a yellow crown is clearly browner');
   assert.ok(isBareCrown('birch', 'winter') && isBareCrown('oak', 'winter') && !isBareCrown('pine', 'winter') && !isBareCrown('oak', 'autumn'));
-  assert.ok(washAmount(2, 'oak', 'winter') < washAmount(2, 'oak', 'autumn') / 2);
+  for (const sp of ['oak', 'birch']) {
+    assert.ok(washAmount(1, sp, 'winter') >= 0.2, `${sp}: even a light infection rusts the winter twigs`);
+    assert.ok(washAmount(4, sp, 'winter') > washAmount(2, sp, 'winter') && washAmount(2, sp, 'winter') > washAmount(1, sp, 'winter'));
+    assert.ok(washAmount(2, sp, 'winter') < washAmount(2, sp, 'autumn'), 'but a leafy crown shows more');
+    assert.ok(holeCover(2, sp, 'winter') >= 0.08, 'the twig sprays thin out');
+    assert.equal(washAmount(0, sp, 'winter'), 0, 'a healthy tree stays as it was');
+    assert.equal(deadDensity(0, sp, 'winter'), 0);
+    for (let b = 1; b <= 4; b++) {
+      assert.ok(deadDensity(b, sp, 'winter') > 0, `${sp}/${b}: dead leaves cling to a bare crown`);
+      assert.ok(deadDensity(b, sp, 'winter') < deadDensity(b, sp, 'summer'), 'fewer than on a leafy crown');
+    }
+  }
+  assert.notEqual(washColor('oak', 'winter'), washColor('oak', 'autumn'));
   assert.equal(blotchCount(4, 'oak', 'winter'), 0);
-  assert.equal(deadDensity(4, 'birch', 'winter'), 0);
   assert.ok(deadDensity(4, 'pine', 'winter') > 0, 'an evergreen is not bare in winter');
 });
 
@@ -238,6 +249,22 @@ test('infection steps: none for a healthy crown, more of them as the infection g
           }
         }
       }
+    }
+  });
+});
+
+test('a bare winter crown gets its dead leaves hung over the twigs (source-over), a leafy one paints them onto the foliage (source-atop)', () => {
+  withCanvasStub(() => {
+    for (const sp of ['oak', 'birch']) {
+      const m = buildModel(sp, 3, 55);
+      const ops = (se) => {
+        const { ctx, log } = fakeCtx();
+        run(infectionSteps(ctx, m, 3, 0.7, se, 400, 400));
+        return log.filter((l) => l.startsWith('op='));
+      };
+      assert.ok(ops('winter').includes('op=source-over'), `${sp}: tufts of dead leaves over the bare crown`);
+      assert.ok(ops('summer').includes('op=source-atop'));
+      assert.equal(ops('summer').includes('op=source-over'), false, `${sp}: a leafy crown paints only onto its foliage`);
     }
   });
 });

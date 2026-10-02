@@ -103,7 +103,7 @@ const hint = (id, title, text, extra = {}) => ({ id, title, text, ring: null, ..
  * The hint for the current state, or null when the guide has nothing more to say.
  * `prevKey` is the key of the target chosen last time (for stickiness).
  * `extras.wormHint`: the one-time arrow at the first worm ever may interrupt the normal steps.
- * `extras.rivalHint`: the same for the first grip of the honey fungus (it goes before the worm's arrow).
+ * `extras.rivalHint`: the same for the first grip of the honey fungus (it goes before the worm's arrow, and before the spore).
  * Returns { id, title, text, ring: {x, y, rx, ry} | null, key, duration? }.
  */
 export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool, extras = {}) {
@@ -112,9 +112,9 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
   const has = (kind) => links.some((l) => l.kind === kind);
   const nodes = net.nodes.filter((n) => n.alive);
 
-  // a) nothing grown yet: point at the spore
+  // a) the one-time arrows come first: a gripped tree is lost in minutes, so «Это спора» must not hide it
   const started = (net.growing && net.growing.length > 0) || net.nodes.some((n) => n.born > 0.05);
-  if (started && extras.rivalHint) {
+  if (extras.rivalHint) {
     const rh = rivalHint(state);
     if (rh) return rh;
   }
@@ -122,6 +122,7 @@ export function pickHint(state, prevKey = null, tool = state.ui && state.ui.tool
     const wh = wormHint(state);
     if (wh) return wh;
   }
+  // nothing grown yet: point at the spore
   if (!started) {
     const o = net.nodes[net.originId] || nodes[0];
     if (!o) return null;
