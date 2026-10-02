@@ -29,7 +29,7 @@ def seeds_for(cfg, st, asset, picked_only, n_override):
 
 
 def build_prompt(cfg, st, asset):
-    style = cfg["styles"][st["style"]]
+    style = cfg["styles"][asset.get("style") or st["style"]]  # an asset may pick its own style (rival set)
     negative = style["negative"]
     if asset.get("negExtra"):  # per-asset exclusions go first: CLIP only reads the first 77 tokens
         negative = f"{asset['negExtra']}, {negative}"

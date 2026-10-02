@@ -94,30 +94,52 @@ plates = [
     PL("seed", "a pair of maple samara seed keys, round brown seeds with long papery wings, one large specimen in the middle, a small single seed beside it"),
     PL("snail", "a garden snail with a banded spiral shell, side view, one large specimen in the middle, a small view of the shell from above beside it"),
     PL("beetle", "a ground beetle, glossy dark body, six legs, dorsal view, one large specimen in the middle, a small head and antenna detail beside it"),
-    PL("pebble", "a smooth rounded river pebble with a pale quartz stripe, one large specimen in the middle, a small broken half of a pebble beside it"),
-    PL("bone", "a weathered mammal femur bone, long shaft with two rounded knobbed joint ends, one large specimen in the middle, a small view of the joint end beside it"),
+    PL("pebble", "mineralogy plate, three river pebbles of different shapes with white quartz veins and mineral bands, seen from several sides, grey and ochre stone"),
+    PL("bone", "zoology plate, tiny skull of a field mouse, long flat snout, two large incisor teeth, lower jaw bone, side view, one skull in the middle, two small jaw bones beside it"),
     PL("shell", "an empty land snail shell, round glossy whorls, aperture with a thin lip, three-quarter view, one large specimen in the middle, a small view from above beside it"),
-    PL("potsherd", "a broken fragment of ancient pottery, jagged curved edges, painted band pattern, one large shard in the middle, a small shard beside it"),
+    PL("potsherd", "a curved clay pot shard with a thick rough broken edge, orange terracotta, incised herringbone lines and a row of dots, shown from outside and in profile, museum catalogue drawing"),
     PL("ammonite", "a fossil ammonite, ribbed spiral shell, one large specimen in the middle, a small cross-section of the spiral beside it"),
 ]
-PLATE_NEG = {"plate.seed": "butterfly, moth, insect, wings of an insect, leaf, feather, cone, needles", "plate.pebble": "cross, relief, carving, engraving, slab, platform, base",
-             "plate.bone": "skull, head, teeth, jaw, face, skeleton, vase, column, funnel, tool, mushroom, branch, wood", "plate.shell": "animal, body, tentacles, nautilus, fossil, ammonite",
-             "plate.potsherd": "whole pot, vase, jar, bowl, plate, complete vessel, handle"}
+PLATE_NEG = {"plate.seed": "butterfly, moth, insect, wings of an insect, leaf, feather, cone, needles", "plate.pebble": "cross, relief, carving, engraving, slab, platform, base, egg, bird, eggs, nest, gem, crystal",
+             "plate.bone": "human skull, big round skull, brain case, ape, long bone, femur, skeleton, bird, vase, column, funnel, tool, mushroom, branch, wood, horn", "plate.shell": "animal, body, tentacles, nautilus, fossil, ammonite",
+             "plate.potsherd": "whole pot, vase, jar, bowl, plate, dish, disc, complete vessel, handle, parchment, paper, scroll, map, manuscript, leaf, tiles, mosaic"}
 PLATE_SHIFT = {k: 40 for k in PLATE_NEG}
-PLATE_SHIFT.update({"plate.seed": 80, "plate.bone": 80})  # fresh seeds after a prompt rewrite; the first round's picks stay valid by seed
+PLATE_SHIFT.update({"plate.seed": 80})  # fresh seeds after a prompt rewrite; the first round's picks stay valid by seed
+PLATE_SHIFT.update({"plate.pebble": 120, "plate.bone": 280, "plate.potsherd": 220})  # ART-3: new seeds for the redo of the three weak plates
 for _i, _a in enumerate(plates):
     _a["seedOffset"] = _i * 100 + PLATE_SHIFT.get(_a["id"], 0)
     if _a["id"] in PLATE_NEG:
         _a["negExtra"] = PLATE_NEG[_a["id"]]
         _a["candidates"] = 8
-PLATE_CROP = {"plate.bone": [0.04, 0.015, 0.96, 0.95], "plate.beetle": [0.05, 0.02, 0.95, 0.94], "plate.ammonite": [0.03, 0.03, 0.99, 0.95]}
+PLATE_CROP = {"plate.bone": [0.04, 0.03, 0.96, 0.88], "plate.potsherd": [0.05, 0.05, 0.95, 0.90], "plate.beetle": [0.05, 0.02, 0.95, 0.94], "plate.ammonite": [0.03, 0.03, 0.99, 0.95]}
 for _a in plates:
     if _a["id"] in PLATE_CROP:
         _a["crop"] = PLATE_CROP[_a["id"]]
-PLATE_PICKS = {"plate.seed": 5303, "plate.bone": 5780, "plate.acorn": 5003, "plate.leaf": 5101, "plate.twig": 5205, "plate.snail": 5402, "plate.beetle": 5501, "plate.pebble": 5644, "plate.shell": 5847, "plate.potsherd": 5944, "plate.ammonite": 6001}
+PLATE_PICKS = {"plate.seed": 5303, "plate.bone": 5883, "plate.acorn": 5003, "plate.leaf": 5101, "plate.twig": 5205, "plate.snail": 5402, "plate.beetle": 5501, "plate.pebble": 5721, "plate.shell": 5847, "plate.potsherd": 6127, "plate.ammonite": 6001}
 for _a in plates:
-    if _a["id"] in PLATE_PICKS:
+    if PLATE_PICKS.get(_a["id"]) is not None:
         _a["picked"] = PLATE_PICKS[_a["id"]]
+
+# ART-3: the honey-fungus rival (old stump + two honey-fungus tufts) and a pine samara. Own set so its styles may allow moss / clusters.
+rival = [
+    dict(id="decor.stump.1", group="decor", type="stump", style="stump", anchor="bottommid", worldSize=70, height=256, seedOffset=400,
+         negExtra="forest, trees, landscape, background scenery, table, soil, ground, pedestal",
+         subject="an old sawn tree stump covered in green moss, flat top with growth rings, weathered bark, gnarled roots spreading at the base, side view"),
+    dict(id="mushroom.honey.1", group="mushroom", type="honey", style="tuft", anchor="bottom", worldSize=50, height=320, seedOffset=100,
+         subject="a tuft of honey fungus Armillaria mellea, honey-brown caps with dark scales, pale gills, ring on the stem, stems fused at the base, side view"),
+    dict(id="mushroom.honey.2", group="mushroom", type="honey", style="tuft", anchor="bottom", worldSize=50, height=320, seedOffset=200,
+         subject="a young bunch of honey mushrooms, rounded honey-yellow scaly caps, slender stems with a ring, clustered and joined at the base, side view"),
+    # decor.seed.3 (Scots pine samara) was tried with 3 prompt rounds x 8 seeds: SDXL draws fans/oars/pods, never a seed with one wing -> dropped.
+]
+
+HOLES = {"holes": True, "hole_dist": 20, "hole_area": 0.0015}  # paper enclosed between stems / roots becomes transparent
+RIVAL_PICKS = {"decor.stump.1": (6405, {**HOLES, "hole_dist": 16, "tol": 28, "soft": 30, "basecut": 0.04}),
+               "mushroom.honey.1": (6104, {**HOLES, "basecut": 0.12}), "mushroom.honey.2": (6200, HOLES)}
+for _a in rival:
+    if _a["id"] in RIVAL_PICKS:
+        _a["picked"] = RIVAL_PICKS[_a["id"]][0]
+        if RIVAL_PICKS[_a["id"]][1]:
+            _a["cut"] = RIVAL_PICKS[_a["id"]][1]
 
 data = {
     "version": 1,
@@ -137,6 +159,14 @@ data = {
             "suffix": "19th century naturalist atlas plate, fine sepia ink linework, cross-hatching, soft watercolor wash, muted earthy colors, plain cream paper",
             "negative": "text, letters, words, numbers, captions, labels, signature, watermark, border, frame, photograph, 3d render, cartoon, anime, oversaturated, several specimens, grid, collage, ground, soil, hands",
         },
+        "stump": {
+            "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, single specimen, pure white background",
+            "negative": "beige, cream background, gradient, several objects, splatter, stains, grass, flowers, mushrooms, tree trunk, branches, leaves, shadow, text, signature, watermark, border, frame, page, photograph, 3d render, cropped",
+        },
+        "tuft": {
+            "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, bare stem base, pure white background",
+            "negative": "beige, cream background, gradient, grass, moss, fern, leaves, twigs, insects, splatter, stains, ground, soil, shadow, wood, log, bark, text, signature, watermark, border, frame, page, photograph, 3d render, cropped",
+        },
         "plate": {
             "suffix": "19th century naturalist atlas plate, scientific cross-section illustration, fine sepia ink linework, cross-hatching, delicate watercolor wash, muted earthy colors, aged paper",
             "negative": "photograph, photo, 3d render, text, letters, numbers, signature, watermark, caption, label, border, frame, blurry, oversaturated, neon, cartoon, anime",
@@ -145,6 +175,7 @@ data = {
     "sets": {
         "mushrooms": {"style": "specimen", "width": 1024, "height": 1024, "seedBase": 1000, "assets": mushrooms},
         "decor": {"style": "decor", "width": 1024, "height": 1024, "seedBase": 2000, "candidates": 4, "assets": decor},
+        "rival": {"style": "decor", "width": 1024, "height": 1024, "seedBase": 6000, "candidates": 8, "assets": rival},
         "plates": {"style": "naturalist", "width": 1024, "height": 1024, "seedBase": 5000, "candidates": 6, "assets": plates},
         "frontispiece": {"style": "plate", "width": 1280, "height": 832, "seedBase": 3000, "candidates": 8, "assets": [dict(
             id="plate.frontispiece", group="plate", type="frontispiece", file="assets/art/frontispiece.webp", target=[1400, None], crop=[0.03, 0.025, 0.97, 0.925], picked=3004, cut=dict(gamma=1.35, sat=0.95, vig0=0.86, vig1=1.03),

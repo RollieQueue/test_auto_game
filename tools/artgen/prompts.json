@@ -26,6 +26,14 @@
    "suffix": "19th century naturalist atlas plate, fine sepia ink linework, cross-hatching, soft watercolor wash, muted earthy colors, plain cream paper",
    "negative": "text, letters, words, numbers, captions, labels, signature, watermark, border, frame, photograph, 3d render, cartoon, anime, oversaturated, several specimens, grid, collage, ground, soil, hands"
   },
+  "stump": {
+   "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, single specimen, pure white background",
+   "negative": "beige, cream background, gradient, several objects, splatter, stains, grass, flowers, mushrooms, tree trunk, branches, leaves, shadow, text, signature, watermark, border, frame, page, photograph, 3d render, cropped"
+  },
+  "tuft": {
+   "suffix": "vintage naturalist illustration, fine sepia pen and ink outlines, cross-hatching, delicate watercolor wash, muted colors, bare stem base, pure white background",
+   "negative": "beige, cream background, gradient, grass, moss, fern, leaves, twigs, insects, splatter, stains, ground, soil, shadow, wood, log, bark, text, signature, watermark, border, frame, page, photograph, 3d render, cropped"
+  },
   "plate": {
    "suffix": "19th century naturalist atlas plate, scientific cross-section illustration, fine sepia ink linework, cross-hatching, delicate watercolor wash, muted earthy colors, aged paper",
    "negative": "photograph, photo, 3d render, text, letters, numbers, signature, watermark, caption, label, border, frame, blurry, oversaturated, neon, cartoon, anime"
@@ -399,6 +407,71 @@
     }
    ]
   },
+  "rival": {
+   "style": "decor",
+   "width": 1024,
+   "height": 1024,
+   "seedBase": 6000,
+   "candidates": 8,
+   "assets": [
+    {
+     "id": "decor.stump.1",
+     "group": "decor",
+     "type": "stump",
+     "style": "stump",
+     "anchor": "bottommid",
+     "worldSize": 70,
+     "height": 256,
+     "seedOffset": 400,
+     "negExtra": "forest, trees, landscape, background scenery, table, soil, ground, pedestal",
+     "subject": "an old sawn tree stump covered in green moss, flat top with growth rings, weathered bark, gnarled roots spreading at the base, side view",
+     "picked": 6405,
+     "cut": {
+      "holes": true,
+      "hole_dist": 16,
+      "hole_area": 0.0015,
+      "tol": 28,
+      "soft": 30,
+      "basecut": 0.04
+     }
+    },
+    {
+     "id": "mushroom.honey.1",
+     "group": "mushroom",
+     "type": "honey",
+     "style": "tuft",
+     "anchor": "bottom",
+     "worldSize": 50,
+     "height": 320,
+     "seedOffset": 100,
+     "subject": "a tuft of honey fungus Armillaria mellea, honey-brown caps with dark scales, pale gills, ring on the stem, stems fused at the base, side view",
+     "picked": 6104,
+     "cut": {
+      "holes": true,
+      "hole_dist": 20,
+      "hole_area": 0.0015,
+      "basecut": 0.12
+     }
+    },
+    {
+     "id": "mushroom.honey.2",
+     "group": "mushroom",
+     "type": "honey",
+     "style": "tuft",
+     "anchor": "bottom",
+     "worldSize": 50,
+     "height": 320,
+     "seedOffset": 200,
+     "subject": "a young bunch of honey mushrooms, rounded honey-yellow scaly caps, slender stems with a ring, clustered and joined at the base, side view",
+     "picked": 6200,
+     "cut": {
+      "holes": true,
+      "hole_dist": 20,
+      "hole_area": 0.0015
+     }
+    }
+   ]
+  },
   "plates": {
    "style": "naturalist",
    "width": 1024,
@@ -585,7 +658,7 @@
       0.95,
       0.93
      ],
-     "subject": "a smooth rounded river pebble with a pale quartz stripe, one large specimen in the middle, a small broken half of a pebble beside it",
+     "subject": "mineralogy plate, three river pebbles of different shapes with white quartz veins and mineral bands, seen from several sides, grey and ochre stone",
      "cut": {
       "gamma": 1.25,
       "sat": 0.9,
@@ -594,10 +667,10 @@
       "paper": "#f3eddc",
       "maxkb": 90
      },
-     "seedOffset": 640,
-     "negExtra": "cross, relief, carving, engraving, slab, platform, base",
+     "seedOffset": 720,
+     "negExtra": "cross, relief, carving, engraving, slab, platform, base, egg, bird, eggs, nest, gem, crystal",
      "candidates": 8,
-     "picked": 5644
+     "picked": 5721
     },
     {
      "id": "plate.bone",
@@ -610,11 +683,11 @@
      ],
      "crop": [
       0.04,
-      0.015,
+      0.03,
       0.96,
-      0.95
+      0.88
      ],
-     "subject": "a weathered mammal femur bone, long shaft with two rounded knobbed joint ends, one large specimen in the middle, a small view of the joint end beside it",
+     "subject": "zoology plate, tiny skull of a field mouse, long flat snout, two large incisor teeth, lower jaw bone, side view, one skull in the middle, two small jaw bones beside it",
      "cut": {
       "gamma": 1.25,
       "sat": 0.9,
@@ -623,10 +696,10 @@
       "paper": "#f3eddc",
       "maxkb": 90
      },
-     "seedOffset": 780,
-     "negExtra": "skull, head, teeth, jaw, face, skeleton, vase, column, funnel, tool, mushroom, branch, wood",
+     "seedOffset": 980,
+     "negExtra": "human skull, big round skull, brain case, ape, long bone, femur, skeleton, bird, vase, column, funnel, tool, mushroom, branch, wood, horn",
      "candidates": 8,
-     "picked": 5780
+     "picked": 5883
     },
     {
      "id": "plate.shell",
@@ -670,9 +743,9 @@
       0.05,
       0.05,
       0.95,
-      0.93
+      0.9
      ],
-     "subject": "a broken fragment of ancient pottery, jagged curved edges, painted band pattern, one large shard in the middle, a small shard beside it",
+     "subject": "a curved clay pot shard with a thick rough broken edge, orange terracotta, incised herringbone lines and a row of dots, shown from outside and in profile, museum catalogue drawing",
      "cut": {
       "gamma": 1.25,
       "sat": 0.9,
@@ -681,10 +754,10 @@
       "paper": "#f3eddc",
       "maxkb": 90
      },
-     "seedOffset": 940,
-     "negExtra": "whole pot, vase, jar, bowl, plate, complete vessel, handle",
+     "seedOffset": 1120,
+     "negExtra": "whole pot, vase, jar, bowl, plate, dish, disc, complete vessel, handle, parchment, paper, scroll, map, manuscript, leaf, tiles, mosaic",
      "candidates": 8,
-     "picked": 5944
+     "picked": 6127
     },
     {
      "id": "plate.ammonite",

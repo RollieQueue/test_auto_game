@@ -46,10 +46,10 @@
    "type": "bone",
    "file": "assets/art/plate/bone.webp",
    "w": 768,
-   "h": 779,
+   "h": 709,
    "anchor": {
     "x": 384,
-    "y": 389
+    "y": 354
    },
    "worldSize": 1080
   },
@@ -98,10 +98,10 @@
    "type": "potsherd",
    "file": "assets/art/plate/potsherd.webp",
    "w": 768,
-   "h": 751,
+   "h": 725,
    "anchor": {
     "x": 384,
-    "y": 375
+    "y": 362
    },
    "worldSize": 1080
   },
@@ -247,6 +247,32 @@
     "y": 318
    },
    "worldSize": 52
+  },
+  {
+   "id": "mushroom.honey.1",
+   "group": "mushroom",
+   "type": "honey",
+   "file": "assets/art/mushroom/honey.1.webp",
+   "w": 363,
+   "h": 320,
+   "anchor": {
+    "x": 158,
+    "y": 319
+   },
+   "worldSize": 50
+  },
+  {
+   "id": "mushroom.honey.2",
+   "group": "mushroom",
+   "type": "honey",
+   "file": "assets/art/mushroom/honey.2.webp",
+   "w": 334,
+   "h": 320,
+   "anchor": {
+    "x": 181,
+    "y": 319
+   },
+   "worldSize": 50
   },
   {
    "id": "mushroom.porcini.1",
@@ -507,6 +533,19 @@
     "y": 143
    },
    "worldSize": 24
+  },
+  {
+   "id": "decor.stump.1",
+   "group": "decor",
+   "type": "stump",
+   "file": "assets/art/decor/stump.1.webp",
+   "w": 278,
+   "h": 256,
+   "anchor": {
+    "x": 138,
+    "y": 255
+   },
+   "worldSize": 70
   },
   {
    "id": "decor.twig.1",

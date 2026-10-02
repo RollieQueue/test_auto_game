@@ -25,7 +25,7 @@ ISNET = TOOLS / "models" / "isnet-general-use.onnx"
 PAPER = np.array([0xEF, 0xE4, 0xCC], np.float32) / 255
 INK = np.array([0x3A, 0x2A, 0x1E], np.float32) / 255
 SOIL = (0x3F, 0x2C, 0x20)
-DEFAULTS = dict(tol=20.0, soft=40.0, sat=0.85, gamma=1.0, speck=0.06, pad=3, sharpen=0.5, holes=False, basecut=0.0, fade=0.06, matte=True, near=10)
+DEFAULTS = dict(tol=20.0, soft=40.0, sat=0.85, gamma=1.0, speck=0.06, pad=3, sharpen=0.5, holes=False, basecut=0.0, fade=0.06, hole_dist=7.0, hole_area=0.01, matte=True, near=10)
 
 
 def border_color(a, ring=6):
@@ -129,11 +129,11 @@ def cut(rgb, o, matte=None):
     core = np.isin(lab, edge)
     bgreg = ndi.binary_dilation(core, iterations=2) & cand
     if o["holes"]:  # enclosed, near-pure paper regions (loops of twigs, gaps between legs)
-        pure = dist < 7
+        pure = dist < o["hole_dist"]  # per asset: tufts need a looser purity and smaller areas (paper between stems)
         lab2, n2 = ndi.label(pure & ~bgreg)
         if n2:
             areas = ndi.sum(np.ones_like(lab2), lab2, index=np.arange(1, n2 + 1))
-            keep = np.where(areas > 0.01 * rgb.shape[0] * rgb.shape[1])[0] + 1
+            keep = np.where(areas > o["hole_area"] * rgb.shape[0] * rgb.shape[1])[0] + 1
             bgreg |= np.isin(lab2, keep)
     zone = ndi.binary_dilation(bgreg, iterations=3)
     ramp = np.clip((dist - o["tol"]) / o["soft"], 0, 1)
@@ -196,6 +196,9 @@ def anchor_of(alpha, mode):
         return int(round((xs * alpha).sum() / s)), int(round((ys * alpha).sum() / s))
     rows = np.where((alpha > 0.3).any(1))[0]
     bottom = rows.max()
+    if mode == "bottommid":  # symmetric flare (stump roots): horizontal middle of the whole silhouette, ground line at the lowest row
+        cols_ = np.where((alpha > 0.3).any(0))[0]
+        return int(round((cols_.min() + cols_.max()) / 2)), int(bottom + 1)
     band = alpha[max(rows.min(), bottom - max(2, int(0.06 * (bottom - rows.min())))): bottom + 1]
     cols = np.arange(w)
     cx = (band.sum(0) * cols).sum() / band.sum()

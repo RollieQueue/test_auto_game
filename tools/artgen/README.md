@@ -99,5 +99,13 @@ Picks live in `make_prompts.py` (`PLATE_PICKS`, `PLATE_CROP`, `PLATE_SHIFT` = fr
 ## Known gaps
 
 * `decor.seed.1`: SDXL turns "winged seed" into insects/feathers; the pick (2772) is a leaf-like winged seed, not a pine samara. The `seed` plate shows a Scots pine twig with a cone and loose seeds instead.
-* Plate subjects ignore "small detail view beside it" most of the time (acorn, pine, bone have one); the `bone` plate is long bones, not a vole's.
+* Plate subjects ignore "small detail view beside it" most of the time (acorn, pine have one). ART-3 redo: `pebble` (several river pebbles with bands/veins) and `potsherd` (terracotta shard with incised lines and dots) now read right; `bone` is a small-mammal skull with lower jaw and incisors (SDXL keeps drawing human skulls or live mice for "vole"; seed 5883 of the first round was the only convincing one).
+* Pine samara (`decor.seed.3`) was tried in three prompt rounds (24 seeds): SDXL draws fans, oars, pods and pine twigs, never a seed with one wing. Not delivered.
 * Trees (stretch goal) were not generated.
+
+## Rival set (`--set rival`, ART-3)
+
+`decor.stump.1` (anchor `bottommid` = horizontal middle of the silhouette at the lowest row, worldSize 70 = height), `mushroom.honey.1/2` (anchor `bottom`, worldSize 50).
+An asset may carry its own `style` (generate.py): the rival styles `stump` / `tuft` drop the moss / ground / cluster negatives of `decor` / `specimen`.
+Cut option `holes` with `hole_dist` (colour distance, default 7) and `hole_area` (fraction of the image, default 0.01) removes paper that is enclosed between stems and roots;
+tufts need `hole_dist` ~20 and `hole_area` ~0.0015, otherwise a cream backing shows on dark soil.
