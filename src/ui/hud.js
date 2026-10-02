@@ -265,6 +265,11 @@ export function createHud(root, actions) {
   // floating labels keep out of the column of margin notes: the notes on screen and the slot of the next one
   const labels = createLabels(el.labels, () => {
     const out = [];
+    // The cards and bars stay readable too: a label born under them (a stump at the glade's edge) floats clear.
+    for (const sel of ['.res-card', '.obj-card', '.tools', '.stamps']) {
+      const r = q(sel) && q(sel).getBoundingClientRect();
+      if (r && r.width >= 2) out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+    }
     let bottom = -Infinity;
     for (const n of el.notes.children) {
       const r = n.getBoundingClientRect();
