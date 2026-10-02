@@ -1,14 +1,15 @@
 // Creates the whole game state for a seed. The schema is documented in docs/ARCHITECTURE.md.
-import { generateWorld } from './world/generate.js';
+import { GEN, generateWorld } from './world/generate.js';
 import { initSim } from './sim/index.js';
 
-export function createState(seed) {
+/** `gen` is the generator version of the glade (world.gen): a new game takes the newest, a save its own (see persist-codec.js). */
+export function createState(seed, gen = GEN) {
   const state = {
     seed,
     time: 0,
     speed: 1,
     phase: 'title',
-    world: generateWorld(seed),
+    world: generateWorld(seed, gen),
     net: { nodes: [], edges: [], links: [], growing: [], originId: 0, version: 0 },
     res: { sugar: 0, water: 0, minerals: 0, spores: 0 },
     rates: { sugar: 0, water: 0, minerals: 0, spores: 0 },

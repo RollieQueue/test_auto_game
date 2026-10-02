@@ -94,7 +94,7 @@ test('grade: a lost tree holds the year at «fair» and a ruined grove at «poor
   const g = gradeYear(s);
   assert.equal(g.capped, 'ruin'); // 1 of 2 trees: half the grove or less stands
   assert.equal(g.grade, 'poor');
-  const five = game({ rival: false, seed: 13 });
+  const five = game({ rival: false, seed: 5 }); // a glade of five trees (generator 2)
   assert.equal(five.world.trees.length, 5);
   year(five, { stageUps: 9, spores: 2000, pages: 1, mushrooms: 8, allied: true });
   five.world.trees[0].lost = true;

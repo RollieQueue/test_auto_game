@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createState } from '../src/state.js';
 import { B } from '../src/sim/balance.js';
 import { groundYAt } from '../src/world/query.js';
-import { pickHint, mineralsDry } from '../src/ui/guide-logic.js';
+import { YOUNG_DETOUR, mineralsDry, pickHint, rockDetour } from '../src/ui/guide-logic.js';
 import { coverage, cardMode, mushroomRect, mushroomBox, crownRect, pointerIn } from '../src/ui/cards-logic.js';
 import { _setSpritesForTest } from '../src/render/sprites.js';
 import { describeTree, objectiveText, objectiveProgress, leadingTree, pctText } from '../src/ui/trees-logic.js';
@@ -165,12 +165,21 @@ test('the root-tip hint leads to the youngest growing tree', () => {
     const [, treeId] = h.key.match(/^tip:(\d+):/);
     const tree = s.world.trees.find((t) => t.id === Number(treeId));
     const youngest = Math.min(...stages.filter((st) => st < 3));
-    // normally the youngest; the exception is a far youngest tree with an old one close by
+    // normally the youngest; the exception is a far youngest tree with an old one close by: farther than YOUNG_DETOUR (about 10 sugar
+    // of hypha, what the opening can spare) by the guide's own measure, the distance from the network plus the detour round a rock
     if (tree.stage !== youngest) {
-      const o = s.net.nodes[s.net.originId];
-      const d = (t) => Math.min(...t.tips.filter((tip) => tip.minStage <= t.stage).map((tip) => Math.hypot(tip.x - o.x, tip.y - o.y)));
+      const alive = s.net.nodes.filter((n) => n.alive);
+      const score = (t) =>
+        Math.min(
+          ...t.tips
+            .filter((tip) => tip.minStage <= t.stage)
+            .map((tip) => {
+              const node = alive.reduce((a, b) => (Math.hypot(a.x - tip.x, a.y - tip.y) <= Math.hypot(b.x - tip.x, b.y - tip.y) ? a : b));
+              return Math.hypot(node.x - tip.x, node.y - tip.y) + rockDetour(s.world, node, tip);
+            }),
+        );
       const young = s.world.trees.filter((t) => t.stage === youngest);
-      assert.ok(Math.min(...young.map(d)) > d(tree) + 300, `seed ${seed}: skipped the youngest tree without a reason`);
+      assert.ok(Math.min(...young.map(score)) > score(tree) + YOUNG_DETOUR, `seed ${seed}: skipped the youngest tree without a reason`);
     } else {
       assert.match(h.text, /самого молодого дерева/);
     }

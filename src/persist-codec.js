@@ -3,11 +3,16 @@
 // edges, distances, flow paths) are rebuilt from the saved network in the same order the live game builds them.
 import { hash32 } from './core/rng.js';
 import { createState } from './state.js';
+import { GENERATIONS } from './world/generate.js';
 import { createSimData, pathBetween } from './sim/network.js';
 import { restoreTime } from './sim/clock.js';
 import { rescanFinds } from './sim/finds.js';
 import { createObjectives } from './sim/objectives.js';
 
+// The payload shape did not change when the world generator got a version (`gen`, see encodeState), so the version stays:
+// a save without `gen` is a generator-1 save and rebuilds its glade with exactly the v1 rules; a save with a `gen` this build
+// does not know is refused; and an older build that meets a `gen: 2` save rebuilds the v1 glade of that seed, finds the
+// fingerprint `wf` different and refuses it («world differs») instead of playing a glade the save was not made on.
 export const SAVE_VERSION = 1;
 
 const CELL = 40; // keep equal to the grid cell of src/sim/network.js (the tests compare the rebuilt grid)
@@ -26,7 +31,7 @@ function check(ok, what) {
   if (!ok) throw new Error(`save: ${what}`);
 }
 
-/** Digest of the generated world (deposits, trees, origin): a save made on another world generator is refused. */
+/** Digest of the generated world (deposits, trees, origin): a save made on another world generator is refused. Does not mention `gen`, so v1 fingerprints are what they always were. */
 export function worldFingerprint(world) {
   const parts = [world.seed, world.origin.x.toFixed(1), world.origin.y.toFixed(1), world.ground.length];
   for (const w of world.water) parts.push(w.x.toFixed(1), w.y.toFixed(1), w.rx.toFixed(1), w.max);
@@ -107,6 +112,7 @@ export function encodeState(state) {
   return {
     v: SAVE_VERSION,
     seed: state.seed,
+    gen: world.gen ?? 1, // the world generator version the glade was built with (generate.js GEN); saves from before it have no such field
     wf: worldFingerprint(world),
     time: state.time,
     speed: state.speed,
@@ -211,6 +217,7 @@ function restoreRival(r) {
 export function validatePayload(p) {
   check(isObj(p) && p.v === SAVE_VERSION, 'version');
   check(isNum(p.seed) && p.seed > 0 && Number.isInteger(p.wf), 'seed');
+  check(p.gen === undefined || GENERATIONS.includes(p.gen), 'world generator');
   check(isNum(p.time) && p.time >= 0 && isNum(p.speed), 'time');
   for (const k of ['res', 'rates', 'cap', 'stats']) check(isObj(p[k]) && Object.values(p[k]).every(isNum), k);
   check(['sugar', 'water', 'minerals', 'spores'].every((k) => isNum(p.res[k]) && isNum(p.rates[k])), 'resources');
@@ -319,7 +326,7 @@ function restoreFinds(state, p) {
 /** Builds a fresh, playable state (phase 'paused') from a validated payload. Throws when it does not fit. */
 export function decodeState(p) {
   validatePayload(p);
-  const state = createState(p.seed);
+  const state = createState(p.seed, p.gen ?? 1);
   check(worldFingerprint(state.world) === p.wf, 'world differs');
   state.sim = createSimData(state);
   const { net, sim } = state;

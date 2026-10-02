@@ -1,29 +1,38 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CROWN_HALF, HORIZONS, MIN_TRUNK_GAP, TREE_X, buildWorld, generateWorld, trunkRange } from '../src/world/generate.js';
+import { CROWN_HALF, GEN, HORIZONS, MIN_TRUNK_GAP, TREE_X, buildWorld, generateWorld, trunkRange } from '../src/world/generate.js';
 import { BIOMES, BIOME_IDS, TERRAIN_FEATURES } from '../src/world/biomes.js';
-import { FAIR, checkFairness } from '../src/world/fairness.js';
+import { FAIR, FAIR_V2, checkFairness } from '../src/world/fairness.js';
 import { costAt, groundYAt, horizonIndexAt, rockAt } from '../src/world/query.js';
+import { distToPolyline, pointInPolygon } from '../src/core/geom.js';
 
+// Both world generators are tested: 1 is what saves made before «старт с задачкой» rebuild with, 2 is what a new game gets
+// (tests/world-gen2.test.mjs has the checks that belong to 2 alone).
+const GENS = [1, 2];
 const SEEDS = Array.from({ length: 220 }, (_, i) => i + 1).concat([1234, 4242, 99991, 2024, 31337, 7777777]);
 const worlds = new Map();
-const worldOf = (seed) => {
-  if (!worlds.has(seed)) worlds.set(seed, generateWorld(seed));
-  return worlds.get(seed);
+const worldOf = (seed, gen = GEN) => {
+  const key = `${gen}:${seed}`;
+  if (!worlds.has(key)) worlds.set(key, generateWorld(seed, gen));
+  return worlds.get(key);
 };
+const outlineDist = (x, y, poly) => (pointInPolygon(x, y, poly) ? 0 : distToPolyline(x, y, [...poly, poly[0]]));
 const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
 const humusSpan = (w) => w.horizons[2].depth - w.horizons[1].depth;
 
-test('world generation is deterministic for a seed', () => {
-  assert.deepEqual(generateWorld(42), generateWorld(42));
-  assert.deepEqual(generateWorld(1234), generateWorld(1234));
-  assert.notDeepEqual(generateWorld(42).rocks, generateWorld(43).rocks);
+for (const gen of GENS) {
+test(`world generation v${gen} is deterministic for a seed`, () => {
+  assert.deepEqual(generateWorld(42, gen), generateWorld(42, gen));
+  assert.deepEqual(generateWorld(1234, gen), generateWorld(1234, gen));
+  assert.notDeepEqual(generateWorld(42, gen).rocks, generateWorld(43, gen).rocks);
+  assert.equal(generateWorld(42, gen).gen, gen, 'the world says which generator made it');
 });
 
-test(`world invariants over ${SEEDS.length} seeds`, () => {
+test(`world invariants (generator v${gen}) over ${SEEDS.length} seeds`, () => {
+  const F = gen === 1 ? FAIR : FAIR_V2;
   for (const seed of SEEDS) {
-    const w = worldOf(seed);
-    const at = `seed ${seed} (${w.biome}, ${w.terrain})`;
+    const w = worldOf(seed, gen);
+    const at = `v${gen} seed ${seed} (${w.biome}, ${w.terrain})`;
     const biome = BIOMES[w.biome];
     assert.ok(biome, `${at}: known biome`);
     assert.ok(w.terrain in TERRAIN_FEATURES, `${at}: known terrain`);
@@ -68,7 +77,7 @@ test(`world invariants over ${SEEDS.length} seeds`, () => {
     assert.equal(horizonIndexAt(w, 500, groundYAt(w, 500) - 5), -1);
 
     // rocks, deposits, curiosities
-    assert.ok(w.rocks.length <= biome.rocks.count[1]);
+    assert.ok(w.rocks.filter((r) => !r.boulder).length <= biome.rocks.count[1]); // v2 may add one boulder on top
     assert.ok(w.water.length === biome.water.plan.length, `${at}: ${w.water.length} water pockets`);
     assert.ok(w.minerals.length === biome.minerals.length, `${at}: ${w.minerals.length} mineral deposits`);
     assert.ok(w.water.length >= 4 && w.minerals.length >= 4, 'enough to play with');
@@ -86,27 +95,34 @@ test(`world invariants over ${SEEDS.length} seeds`, () => {
 
     // the spore: between the trunks, off the edges, in free soil
     const o = w.origin;
-    assert.ok(o.x >= FAIR.edge && o.x <= w.width - FAIR.edge, `${at}: origin x ${o.x}`);
-    assert.ok(Math.min(...w.trees.map((t) => Math.abs(t.x - o.x))) >= FAIR.trunkGap, `${at}: the spore is not under a trunk`);
+    assert.ok(o.x >= F.edge && o.x <= w.width - F.edge, `${at}: origin x ${o.x}`);
+    assert.ok(Math.min(...w.trees.map((t) => Math.abs(t.x - o.x))) >= F.trunkGap, `${at}: the spore is not under a trunk`);
     assert.ok(Number.isFinite(costAt(w, o.x, o.y)), `${at}: origin is passable`);
     assert.ok(o.y - groundYAt(w, o.x) > 40);
-    for (const r of w.rocks) assert.ok(Math.hypot(r.x - o.x, r.y - o.y) > r.r + 100, `${at}: rocks keep clear of the spore`);
+    // v1 keeps its rocks a rock's radius + 100 from the spore; v2 may lay a boulder nearer (62 u of soil around the spore's ring), so it is judged by the outline
+    for (const r of w.rocks) {
+      if (gen === 1) assert.ok(Math.hypot(r.x - o.x, r.y - o.y) > r.r + 100, `${at}: rocks keep clear of the spore`);
+      else assert.ok(outlineDist(o.x, o.y, r.poly) >= 60, `${at}: rock ${r.id} keeps clear of the spore`);
+    }
 
     // fairness: the opening is winnable
     const fair = checkFairness(w);
     assert.ok(fair.ok, `${at}: ${fair.problems.join('; ')}`);
-    assert.ok(fair.water <= FAIR.waterCost && fair.tip <= FAIR.tipCost && fair.nitrogen <= FAIR.nitrogenCost);
+    assert.equal(w.fallback, undefined, `${at}: no fallback`);
+    if (gen === 1) assert.ok(fair.water <= FAIR.waterCost && fair.tip <= FAIR.tipCost && fair.nitrogen <= FAIR.nitrogenCost);
   }
 });
 
-test('the generator rarely needs a rebuild to be fair', () => {
+test(`the generator v${gen} rarely needs a rebuild to be fair`, () => {
   let first = 0;
-  for (const seed of SEEDS.slice(0, 120)) if (checkFairness(buildWorld(seed, 0)).ok) first++;
-  assert.ok(first >= 120 * 0.5, `only ${first} of 120 first builds were fair`);
+  for (const seed of SEEDS.slice(0, 120)) if (checkFairness(buildWorld(seed, 0, gen)).ok) first++;
+  // v2 asks more of a glade (a first tree a walk away, a stump in sight, a wide clearing): about a third of the first builds are fair, and 80 attempts are made
+  const least = gen === 1 ? 0.5 : 0.2;
+  assert.ok(first >= 120 * least, `only ${first} of 120 first builds were fair`);
 });
 
-test('glades differ: biomes, trees, positions, spore and names vary across 60 seeds', () => {
-  const ws = Array.from({ length: 60 }, (_, i) => worldOf(i + 1));
+test(`glades differ (generator v${gen}): biomes, trees, positions, spore and names vary across 60 seeds`, () => {
+  const ws = Array.from({ length: 60 }, (_, i) => worldOf(i + 1, gen));
   const biomes = {};
   for (const w of ws) biomes[w.biome] = (biomes[w.biome] || 0) + 1;
   assert.deepEqual(Object.keys(biomes).sort(), [...BIOME_IDS].sort(), 'all biomes appear');
@@ -117,7 +133,8 @@ test('glades differ: biomes, trees, positions, spore and names vary across 60 se
   const compositions = new Set(ws.map((w) => w.trees.map((t) => t.species[0]).join('')));
   assert.ok(compositions.size >= 25, `${compositions.size} species compositions`);
   const layouts = new Set(ws.map((w) => w.trees.map((t) => Math.round(t.x / 40)).join(',')));
-  assert.ok(layouts.size >= 50, `${layouts.size} trunk layouts`);
+  // v2 lays out a wide clearing for the spore, which leaves the trunks less room to move: fewer distinct layouts at this rounding
+  assert.ok(layouts.size >= (gen === 1 ? 50 : 30), `${layouts.size} trunk layouts`);
   assert.ok(new Set(ws.flatMap((w) => w.trees.map((t) => t.species))).size === 3);
   assert.ok(new Set(ws.flatMap((w) => w.trees.map((t) => t.stage))).size >= 3, 'stages vary');
   const xs = ws.map((w) => w.origin.x);
@@ -131,8 +148,8 @@ test('glades differ: biomes, trees, positions, spore and names vary across 60 se
   assert.ok(new Set(ws.map((w) => w.horizons[2].depth)).size >= 40, 'soil depths vary');
 });
 
-test('biomes have their own character', () => {
-  const by = (id) => SEEDS.filter((s) => worldOf(s).biome === id).map(worldOf);
+test(`biomes have their own character (generator v${gen})`, () => {
+  const by = (id) => SEEDS.filter((s) => worldOf(s, gen).biome === id).map((s) => worldOf(s, gen));
   const birch = by('birch');
   const oak = by('oak');
   const pine = by('pine');
@@ -158,3 +175,4 @@ test('biomes have their own character', () => {
   assert.ok(kinds(oak, 'nitrogen') > kinds(pine, 'nitrogen') + 1, 'the oak wood is rich in nitrogen');
   assert.ok(kinds(pine, 'phosphorus') > kinds(oak, 'phosphorus') + 1, 'pines stand on phosphorus crystals');
 });
+}

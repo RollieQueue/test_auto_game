@@ -24,20 +24,28 @@ function nearestAlive(nodes, x, y) {
   return { d: bestD, node: best };
 }
 
-/** True when a straight line between two points crosses a rock (sampled). */
-function crossesRock(world, a, b) {
+/**
+ * What a rock on the straight way between two points adds to the way, in u (the line is sampled): for every rock it crosses,
+ * the hypha goes around it by about its short side, 30 u at least, never more than 260. 0 when nothing is in the way. (A flat
+ * 260 sent the hint from the nearest root tip to a farther tree whenever a boulder lay between: a way the purse cannot pay for.)
+ */
+export function rockDetour(world, a, b) {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
   const steps = Math.max(2, Math.ceil(len / 14));
+  const hit = new Set();
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    if (rockAt(world, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return true;
+    const rock = rockAt(world, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+    if (rock) hit.add(rock);
   }
-  return false;
+  let sum = 0;
+  for (const r of hit) sum += Math.min(260, 30 + 0.8 * Math.min(r.maxX - r.minX, r.maxY - r.minY));
+  return sum;
 }
 
 /**
  * Picks the closest candidate to the network. `reach` is the radius to subtract (the deposit itself is
- * already a target), a rock on the straight way adds a penalty. The previous choice stays unless a
+ * already a target), a rock on the straight way adds its detour (rockDetour). The previous choice stays unless a
  * clearly better one appears (the hint must not jump while the network grows).
  */
 function nearest(state, nodes, cands, prevKey) {
@@ -46,7 +54,7 @@ function nearest(state, nodes, cands, prevKey) {
   for (const c of cands) {
     const { d, node } = nearestAlive(nodes, c.x, c.y);
     if (!node) continue;
-    const score = Math.max(0, d - (c.reach || 0)) + (crossesRock(state.world, node, c) ? 260 : 0);
+    const score = Math.max(0, d - (c.reach || 0)) + rockDetour(state.world, node, c);
     const entry = { c, score };
     if (!best || score < best.score) best = entry;
     if (c.key === prevKey) keep = entry;
@@ -69,11 +77,15 @@ export function mineralsDry(state) {
 function scoreOf(state, nodes, c) {
   const { d, node } = nearestAlive(nodes, c.x, c.y);
   if (!node) return Infinity;
-  return Math.max(0, d - (c.reach || 0)) + (crossesRock(state.world, node, c) ? 260 : 0);
+  return Math.max(0, d - (c.reach || 0)) + rockDetour(state.world, node, c);
 }
 
-/** A tip of the youngest tree is worth a detour of this many px over the nearest tip of an older one. */
-const YOUNG_DETOUR = 500;
+/**
+ * A tip of the youngest tree is worth a detour of this many u over the nearest tip of an older one: about 10 sugar of hypha.
+ * (It was 500 while the first tip lay at the spore. Since the first tip is 160-250 u away, 500 more would send the player to a
+ * tip the purse cannot reach: the hint must point at a link the opening can pay for.)
+ */
+export const YOUNG_DETOUR = 70;
 
 /**
  * The root tips the «Кончик корня» hint may point at: the youngest tree that can still grow (a sapling grows in

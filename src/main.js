@@ -32,8 +32,11 @@ function pickSeed(value) {
 // the fungus a new glade starts with: ?species=<id>, else the last pick on the title page (kept in localStorage)
 let lastSpecies = parseSpecies(params.get('species')) ?? loadChoice();
 
+// ?gen=1 builds the glade with the first world generator (a root tip may lie at the spore), for comparing; the default is the newest
+const GEN = params.get('gen') === '1' ? 1 : undefined;
+
 function newState(seed, species) {
-  const state = createState(pickSeed(seed));
+  const state = createState(pickSeed(seed), GEN);
   state.flags.species = startingSpecies(state.world, parseSpecies(species) ?? lastSpecies);
   state.flags.seasons = SEASONS;
   state.flags.threats = THREATS;

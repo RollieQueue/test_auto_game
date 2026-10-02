@@ -13,14 +13,20 @@ import { playBot } from './bot.mjs';
 
 const digest = (obj) => createHash('sha1').update(JSON.stringify(obj)).digest('hex').slice(0, 16);
 
-/** Everything the generator produced before stumps existed: the world minus `stumps`, the glade's name (it has its own generator and word lists, see biomes.js) and the tree fields added with them. */
-function oldWorldDigest(seed) {
-  const { stumps, name, ...rest } = generateWorld(seed);
+/**
+ * Everything the generator produced before stumps existed: the world minus `stumps`, the glade's name (it has its own generator
+ * and word lists, see biomes.js), the tree fields added with them and `gen` (the generator version, which came later; the
+ * version a world was made with is asserted next to every digest). `gen` 1 is the generator every game before «старт с задачкой» used.
+ */
+function oldWorldDigest(seed, gen = 1) {
+  const { stumps, name, gen: made, ...rest } = generateWorld(seed, gen);
+  assert.equal(made, gen, `seed ${seed} was made by generator ${gen}`);
   rest.trees = rest.trees.map(({ infection, mantle, lost, ...t }) => t);
   return digest(rest);
 }
 
 // Digests taken from the generator as it was before stumps were added (checked for seeds 1..400); re-pinned without `name` when the names changed.
+// These are the digests of generator 1 and stay as they were when generator 2 came: a save made before it rebuilds exactly this world.
 const PINNED = {
   1: '8eed26ea6e17aa52',
   2: 'faa016e23967b8b1',
@@ -35,17 +41,58 @@ const PINNED = {
 };
 const PINNED_ALL_1_400 = '1e0e197fcd5c9d88';
 
-test('adding stumps leaves trees, deposits, rocks, decor and spore of existing seeds untouched', () => {
-  for (const [seed, want] of Object.entries(PINNED)) assert.equal(oldWorldDigest(Number(seed)), want, `seed ${seed}`);
+test('adding stumps leaves trees, deposits, rocks, decor and spore of existing seeds untouched (generator 1)', () => {
+  for (const [seed, want] of Object.entries(PINNED)) assert.equal(oldWorldDigest(Number(seed), 1), want, `seed ${seed}`);
   let all = '';
-  for (let seed = 1; seed <= 400; seed++) all += oldWorldDigest(seed);
+  for (let seed = 1; seed <= 400; seed++) all += oldWorldDigest(seed, 1);
   assert.equal(createHash('sha1').update(all).digest('hex').slice(0, 16), PINNED_ALL_1_400);
 });
 
-test('every glade has 1-2 old stumps that satisfy the placement rules (seeds 1..300)', () => {
+// Generator 2 («старт с задачкой») builds other glades on purpose: the spore stands 160-250 u from the nearest root tip, in a wide
+// clearing, with a boulder on the way in about a third of them, and the stumps always in sight. The same digest as above, re-pinned
+// for it on purpose (taken when generator 2 was finished; checked for seeds 1..400). The biome, ground, soil and name of a seed are
+// still the generator-1 ones, only the layout differs, so the digests of the two generators differ for every seed.
+const PINNED_V2 = {
+  1: 'e36934f67e16a2e7',
+  2: '95a4d736a4acd994',
+  3: '06562a5f4f6b2a32',
+  7: '461be1f6a39eb1d9',
+  23: 'a5eaccd66433b208',
+  42: 'a0273837d0e25964',
+  99: '098ae14052b7a6ad',
+  150: '572a7366565d4c8f',
+  300: '0a266680d22d4e3d',
+  400: 'd43d6b2b2829be39',
+};
+const PINNED_V2_ALL_1_400 = '5996be19ad1490e8';
+const PINNED_V2_STUMPS_1_400 = '4674a62f6ab19925'; // the stumps of generator 2, all 400 seeds
+
+test('generator 2 is pinned on purpose: its digests differ from generator 1 for every seed and never move by accident', () => {
+  for (const [seed, want] of Object.entries(PINNED_V2)) assert.equal(oldWorldDigest(Number(seed), 2), want, `seed ${seed}`);
+  let all = '';
+  for (let seed = 1; seed <= 400; seed++) {
+    const v2 = oldWorldDigest(seed, 2);
+    if (seed <= 60) assert.notEqual(v2, oldWorldDigest(seed, 1), `seed ${seed}: generator 2 changed the glade`);
+    all += v2;
+  }
+  assert.equal(createHash('sha1').update(all).digest('hex').slice(0, 16), PINNED_V2_ALL_1_400);
+  let stumps = '';
+  for (let seed = 1; seed <= 400; seed++) stumps += JSON.stringify(generateWorld(seed, 2).stumps);
+  assert.equal(createHash('sha1').update(stumps).digest('hex').slice(0, 16), PINNED_V2_STUMPS_1_400);
+  // what generator 2 keeps: the identity of a seed (biome, ground shape, name) and the soil horizons
+  for (let seed = 1; seed <= 60; seed++) {
+    const a = generateWorld(seed, 1);
+    const b = generateWorld(seed, 2);
+    assert.deepEqual([b.biome, b.terrain, b.name], [a.biome, a.terrain, a.name], `seed ${seed}: same identity`);
+    assert.deepEqual(b.ground, a.ground, `seed ${seed}: same ground`);
+    assert.deepEqual(b.horizons, a.horizons, `seed ${seed}: same soil`);
+  }
+});
+
+for (const gen of [1, 2]) test(`every glade has 1-2 old stumps that satisfy the placement rules (seeds 1..300, generator ${gen})`, () => {
   let sides = [0, 0];
   for (let seed = 1; seed <= 300; seed++) {
-    const w = generateWorld(seed);
+    const w = generateWorld(seed, gen);
     assert.deepEqual(stumpProblems(w), [], `seed ${seed}`);
     assert.ok(w.stumps.length >= 1 && w.stumps.length <= 2, `seed ${seed}: ${w.stumps.length} stumps`);
     for (const s of w.stumps) {
@@ -62,14 +109,14 @@ test('every glade has 1-2 old stumps that satisfy the placement rules (seeds 1..
   assert.ok(sides[0] > 30 && sides[1] > 30, `both edges get stumps: ${sides}`);
 });
 
-test('stumps are deterministic and do not decide fairness', () => {
+for (const gen of [1, 2]) test(`stumps are deterministic (generator ${gen}${gen === 1 ? ': they do not decide fairness' : ': a glade with no stump in sight is built again'})`, () => {
   for (const seed of [1, 42, 77, 205]) {
-    assert.deepEqual(generateWorld(seed).stumps, generateWorld(seed).stumps);
-    assert.equal(checkFairness(generateWorld(seed)).ok, true);
+    assert.deepEqual(generateWorld(seed, gen).stumps, generateWorld(seed, gen).stumps);
+    assert.equal(checkFairness(generateWorld(seed, gen)).ok, true);
   }
   // different seeds give different stump layouts
   const keys = new Set();
-  for (let seed = 1; seed <= 60; seed++) keys.add(JSON.stringify(generateWorld(seed).stumps));
+  for (let seed = 1; seed <= 60; seed++) keys.add(JSON.stringify(generateWorld(seed, gen).stumps));
   assert.ok(keys.size > 40);
 });
 

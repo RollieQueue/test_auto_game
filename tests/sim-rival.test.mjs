@@ -761,7 +761,7 @@ test('pickBarrierNode: the nearest node that may take a barrier, else the neares
 
 /** A state really played by the bot (passively: no barriers), the first of a few seeds that has everything a save must carry. */
 function playedState() {
-  for (const seed of [30, 39, 43, 42, 23, 1, 2, 3, 7]) {
+  for (const seed of [31, 53, 30, 39, 43, 42, 23, 1, 2, 3, 7]) { // (31 and 53 are the glades of generator 2 that fit within 700 s)
     const { state } = playBot(seed, { rival: 'now', seasons: true, barrier: false, maxSeconds: 700 });
     const r = state.rival;
     const trees = state.world.trees;
@@ -884,7 +884,7 @@ test('caps that bind: with small limits the rival never grows past them, not by 
     B.rivalMaxSegments = 30;
     B.rivalMaxTips = 2;
     B.rivalMaxTotal = 60;
-    const s = fresh(1, 'now');
+    const s = fresh(2, 'now');
     let maxTips = 0;
     let maxLive = 0;
     for (let i = 0; i < 400 * 60; i++) {

@@ -127,6 +127,9 @@ World = {
   trees:    [Tree],
   decor:    [{ id, type, x, y, rot, scale }],   // purely visual curiosities (acorn, shell, bone, potsherd, ammonite, pebble, snail, beetle, seed, leaf, twig)
   origin:   { x, y },                            // where the spore germinated
+  stumps:   [{ id, x, y, r }],                   // the honey fungus' seats (see Rival)
+  gen:      1 | 2,                               // the world generator version the glade was built with (see Glades)
+  fallback?: string[],                           // only when no build of generator 2 was fair: the rules it breaks (never on seeds 1..300)
 }
 Tree = {
   id, species: 'birch' | 'oak' | 'pine', name, x /* trunk base */, baseY,
@@ -261,6 +264,27 @@ burns its 2 old draws, so ground and soil of every seed are unchanged (279 disti
 features vary the ground line. A glade has 2–5 trees (not always three) and the spore starts anywhere across
 the width; `fairness.js` guarantees an affordable opening (water, a root tip, nitrogen) for every seed.
 
+**World generator versions** (`world.gen`, `GEN`/`GENERATIONS` in generate.js; `generateWorld(seed, gen = GEN)`,
+`createState(seed, gen = GEN)`). Generator 1 is every game before «Старт с задачкой»: a root tip could lie right at the
+spore (nearest active tip 59–250 u, median 87) and the first link was a free handshake. Generator 2 (`GEN`, every new
+game, «Новая поляна» too) hands nothing over: the nearest active root tip lies **160–250 u** from the spore (stats on
+seeds 1–300: min 160.2, median 205, max 248), in a wide clearing (`FAIR_V2.clearHalf` 400: no trunk within 400 u of its
+heart), and the opening is judged by real routes (`route.js`: the cheapest hypha around rocks at the horizon prices, times
+`B.hard.growCost` 1.15) against the purse of a real game (70 sugar: the pressured economy's sugar cap cuts `startSugar`
+100 on the first tick): the first tree costs at most 60 % of it (42), the starter water at most 45 %, both at most 90 %
+(`FAIR_V2`, pinned to the balance by tests/world-gen2.test.mjs). Water and nitrogen are nearer than in generator 1. The
+first move is a choice: a boulder (`rock.boulder`, one at most, 40–70 % of the glades by biome) lies on the way to the
+nearest tip in about a third of them, the spore prefers spots where a second tree is about as near («which tree
+first?»), and water costs about as much as the tree («water first or the tree first?»). Stumps stand in sight in every
+glade (x ≤ 1450, STUMP.seen): the spore leaves them a seat and a build without one is built again (80 → 160 attempts); if
+none of 160 builds is fair the best one plays with `world.fallback` naming the broken rules. Generator 2 keeps the identity
+of a seed (biome, terrain, name, ground, soil horizons); trees, rocks, spore, deposits, decor and stumps differ.
+**Saves**: `encodeState` writes `gen`; a payload **without** `gen` is a generator-1 save and rebuilds its glade with exactly
+the v1 rules (the v1 code path is untouched: same rng draws, same fingerprint `wf`, same trees, stumps and pockets;
+tests/fixtures/save-gen1-*.json were written by the code before the version existed); an unknown `gen` is refused
+(`save: world generator`). `SAVE_VERSION` stays 1 — the field is optional and an older build that meets a `gen: 2` save
+rebuilds the v1 glade of that seed, finds another fingerprint and refuses it. `?gen=1` in the URL builds v1 glades (debug).
+
 Each biome has its own soil (`look` in biomes.js, pure render data): pine a podzol (needle litter, ash-grey E horizon,
 rusty B with rust tongues, sand, quartz and flint), oak thick black humus with worm casts, krotovinas and white
 carbonate nodules, birch gley mottles with rust rims and damp patches, mixed brown forest soil with charcoal lenses.
@@ -322,9 +346,9 @@ Code: `src/sim/rival.js` (the whole rival, barriers included), `economy.js` (pay
 world.stumps = Stump[]  // { id, x, y, r } 1–2 old stumps at the surface, deterministic per seed; fairness: ≥ 260 u
                         // from the spore, ≥ 140 u from any trunk (src/world/fairness.js stumpProblems). They stand
                         // where no HUD card hides them (STUMP.seen: world x 420–700 or 1220–1450; at 1280×720 the
-                        // resource card covers x < ~372 and the open objectives card x > ~1479). About a third of the
-                        // glades have no such spot: they use the whole right band, then the left (the objectives card
-                        // folds on the wake).
+                        // resource card covers x < ~372 and the open objectives card x > ~1479). Generator 1: about a
+                        // third of the glades (120 of seeds 1–300) have no such spot and use the whole right band, then
+                        // the left (the objectives card folds on the wake). Generator 2: always in sight, x ≤ 1450.
 state.rival = null | {  // created by the first step with the flag; null while the flag is off
   awake, dormant,       // the wake rule above; dormant: the wake fell in late autumn or winter, it waits for spring
   nodes:    [{ id, x, y, alive, born }],
