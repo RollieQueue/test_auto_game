@@ -169,7 +169,8 @@ function fakeCtx(w = 400, h = 400) {
       if (name === 'createPattern') return () => ((stats.granulated += 1), {});
       if (name === 'createImageData') return (cw, ch) => ({ data: new Uint8ClampedArray(cw * ch * 4) });
       if (name === 'getTransform') return () => ({ a: 1, b: 0, c: 0, d: 1, e: 200, f: 300 });
-      if (name === 'putImageData' || name === 'drawImage') return () => {};
+      if (name === 'drawImage') return () => void (st.globalCompositeOperation === 'source-atop' && stats.granulated++); // a grain tile blit
+      if (name === 'putImageData') return () => {};
       return (...args) => {
         stats.calls++;
         log.push(`${String(name)}(${args.map(num).join(',')})`);
@@ -303,7 +304,7 @@ test('crownSteps for a leafy crown still run for every season after the lobe hel
   });
 });
 
-test('snag steps: a list of steps for every species and stage, the last one granulates, the same seed paints the same snag', () => {
+test('snag steps: a list of steps for every species and stage, the last ones grain the sprite in bands, the same seed paints the same snag', () => {
   withCanvasStub(() => {
     for (const sp of SPECIES) {
       for (const stage of [0, 1, 2, 3]) {
@@ -313,10 +314,15 @@ test('snag steps: a list of steps for every species and stage, the last one gran
           const steps = snagSteps(ctx, m, 400, 400);
           assert.ok(Array.isArray(steps) && steps.length >= 6, `${sp}/${stage}/${seed}: a handful of steps`);
           assert.ok(steps.every((f) => typeof f === 'function'));
-          assert.doesNotThrow(() => run(steps.slice(0, -1)), `${sp}/${stage}/${seed}`);
-          assert.equal(stats.granulated, 0, 'only the last step granulates');
-          steps[steps.length - 1]();
-          assert.ok(stats.granulated > 0, 'the last step granulates the whole sprite');
+          const grained = [];
+          steps.forEach((f, i) => {
+            const before = stats.granulated;
+            assert.doesNotThrow(f, `${sp}/${stage}/${seed}`);
+            if (stats.granulated > before) grained.push(i);
+          });
+          assert.ok(grained.length >= 1, 'the sprite is granulated');
+          assert.equal(grained[grained.length - 1], steps.length - 1, 'the grain comes last');
+          assert.equal(grained[0], steps.length - grained.length, 'in one run of steps at the end, none before');
           const again = fakeCtx();
           run(snagSteps(again.ctx, buildModel(sp, stage, seed), 400, 400));
           assert.deepEqual(again.log.slice(0, log.length), log, `${sp}/${stage}/${seed}: deterministic`);

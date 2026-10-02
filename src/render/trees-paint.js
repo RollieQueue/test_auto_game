@@ -8,7 +8,6 @@ import {
   raggedPoly,
   tracePath,
   stipple,
-  granulate,
   mulberry,
   noise1,
   seedOf,
@@ -319,7 +318,7 @@ export function trunkSteps(ctx, m, W, H) {
       furrows(ctx, rb, rng, { count: 9, minLen: 5, maxLen: 13, wMin: 0.9, wMax: 1.8, color: '#1e1611', uLo: -0.8, uHi: 0.8, aLo: 0.55, aHi: 0.9, yFrom: 0, yTo: 0.12 });
     }
   });
-  steps.push(() => granulate(ctx, W, H, 0.1, 0.4));
+  steps.push(...grainSteps(ctx, W, H, 0.1, 0.4));
   return steps;
 }
 
@@ -569,21 +568,57 @@ function paintHole(ctx, h, pal, rng, seed) {
   inkStroke(ctx, run, { w: 1, color: pal.ink, alpha: 0.6, taperStart: 0.2, taperEnd: 0.35, tremor: 0.2, seed, step: 1.6 });
 }
 
-let toothTile = null;
+const toothTiles = new Map();
 /** granulate()'s dark and light grain baked into one CPU canvas: one fill per band instead of two, and no GPU readback per fill. */
 function cpuToothTile(amount = 0.13, light = 0.5) {
-  if (!toothTile) {
+  const key = `${amount}|${light}`;
+  let tile = toothTiles.get(key);
+  if (!tile) {
     const src = grainTilesOf();
-    toothTile = document.createElement('canvas');
-    toothTile.width = src.dark.width;
-    toothTile.height = src.dark.height;
-    const g = toothTile.getContext('2d', { willReadFrequently: true });
+    tile = document.createElement('canvas');
+    tile.width = src.dark.width;
+    tile.height = src.dark.height;
+    const g = tile.getContext('2d', { willReadFrequently: true });
     g.globalAlpha = amount;
     g.drawImage(src.dark, 0, 0);
     g.globalAlpha = amount * light;
     g.drawImage(src.light, 0, 0);
+    toothTiles.set(key, tile);
   }
-  return toothTile;
+  return tile;
+}
+
+const GRAIN_BAND_PX = 350000; // device px of sprite per grain step: keeps a step well under 2 ms in the software raster
+
+/**
+ * granulate() over the whole sprite as small steps: one that bakes the grain tile, then horizontal bands of tile blits
+ * (the same pixels as the pattern fill, which was one 5-40 ms step: creating the pattern reads the GPU tile back for every sprite).
+ */
+function grainSteps(ctx, W, H, amount, light) {
+  const n = Math.max(1, Math.ceil((W * H) / GRAIN_BAND_PX));
+  const steps = [() => void cpuToothTile(amount, light)];
+  for (let band = 0; band < n; band++) {
+    steps.push(() => {
+      const ya = Math.floor((H * band) / n);
+      const yb = Math.floor((H * (band + 1)) / n);
+      if (yb <= ya) return;
+      const tile = cpuToothTile(amount, light);
+      const S = tile.width;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'source-atop';
+      for (let ty = Math.floor(ya / S); ty * S < yb; ty++) {
+        const dy0 = Math.max(ya, ty * S);
+        const dy1 = Math.min(yb, ty * S + S);
+        for (let tx = 0; tx * S < W; tx++) {
+          const dx1 = Math.min(W, tx * S + S);
+          ctx.drawImage(tile, 0, dy0 - ty * S, dx1 - tx * S, dy1 - dy0, tx * S, dy0, dx1 - tx * S, dy1 - dy0);
+        }
+      }
+      ctx.restore();
+    });
+  }
+  return steps;
 }
 
 function oakCrownSteps(ctx, m, vis, pal, v, W, H, airy = false) {
@@ -1341,7 +1376,7 @@ export function crownSteps(ctx, m, v, W, H, season) {
       });
     }
   }
-  if (sp !== 'oak') steps.push(() => granulate(ctx, W, H, 0.13, 0.5));
+  if (sp !== 'oak') steps.push(...grainSteps(ctx, W, H, 0.13, 0.5));
   return steps;
 }
 
@@ -1907,7 +1942,7 @@ export function snagSteps(ctx, m, W, H) {
     ctx.fillStyle = rgba(SNAG_DARK, 0.9);
     ctx.fill();
   });
-  steps.push(() => granulate(ctx, W, H, 0.12, 0.45));
+  steps.push(...grainSteps(ctx, W, H, 0.12, 0.45));
   return steps;
 }
 

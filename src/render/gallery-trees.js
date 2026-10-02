@@ -70,10 +70,21 @@ function fakeState(list, s = season) {
   return { world: { trees: list }, events: [], ...(s ? { flags: { seasons: true }, clock: { season: s } } : {}) };
 }
 
+// Sprites are painted in the background and fade in: for a still frame, run the frames and the painting off-screen first.
+const scratch = document.createElement('canvas').getContext('2d');
+function warm(inst, st) {
+  for (let i = 0; i < 10; i++) {
+    inst.drawRoots(scratch, st, tFixed, 0.1);
+    inst.drawTrees(scratch, st, tFixed, 0.1);
+    inst.settle();
+  }
+}
+
 let sheetWorld = null;
 function frame(list, t, dt = 1 / 60) {
   const st = fakeState(list);
   if (!sheetWorld || sheetWorld.trees !== list) sheetWorld = st.world;
+  if (mode !== 'live') warm(trees, st);
   trees.drawRoots(ctx, st, t, dt);
   trees.drawTrees(ctx, st, t, dt);
 }
@@ -96,7 +107,9 @@ function drawSheet() {
       label(`${sp} · stage ${s}`, gx, gy + 24);
     }
   });
-  trees.drawTrees(ctx, fakeState(list), tFixed, 1 / 60);
+  const st = fakeState(list);
+  warm(trees, st);
+  trees.drawTrees(ctx, st, tFixed, 1 / 60);
 }
 
 function drawHealth() {
@@ -116,7 +129,9 @@ function drawHealth() {
       label(`${sp} · health ${h}`, gx, gy + 24);
     });
   });
-  trees.drawTrees(ctx, fakeState(list), tFixed, 1 / 60);
+  const st = fakeState(list);
+  warm(trees, st);
+  trees.drawTrees(ctx, st, tFixed, 1 / 60);
 }
 
 function drawSeasons() {
@@ -139,7 +154,9 @@ function drawSeasons() {
       ctx.stroke();
       label(`${sp} · ${se}`, gx, gy + 24);
     });
-    inst.drawTrees(ctx, fakeState(list, se), tFixed, 1 / 60);
+    const st = fakeState(list, se);
+    warm(inst, st);
+    inst.drawTrees(ctx, st, tFixed, 1 / 60);
   });
 }
 

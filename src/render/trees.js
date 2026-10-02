@@ -22,11 +22,20 @@ const SEASON_FADE = 20; // crown cross-fade after a season change, seconds (glob
 const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'];
 const LOST_FADE = 1.6; // the crown of a tree the honey fungus has killed lets go, seconds
 const SNAG_SWAY = 0.1; // a dead trunk hardly moves
+const FIRST_FADE = 0.6; // a first look (trunk, crown, roots) comes up out of the paper, seconds
+const PRE_FRAC = 0.88; // the next season's crowns are painted in the background once this much of a season has passed
 
 /** The season to paint ('' = the picture without seasons: flag off or no clock). */
 function seasonOf(state) {
   const c = state && state.flags && state.flags.seasons && state.clock;
   return c && SEASON_NAMES.includes(c.season) ? c.season : '';
+}
+
+/** The season whose crowns should already be painted in the background ('' = none yet: early in the season, or no clock). */
+function nextSeasonOf(state) {
+  const c = state && state.flags && state.flags.seasons && state.clock;
+  const i = c ? SEASON_NAMES.indexOf(c.season) : -1;
+  return i >= 0 && num(c.seasonFrac) >= PRE_FRAC ? SEASON_NAMES[(i + 1) % 4] : '';
 }
 
 /**
@@ -354,7 +363,51 @@ function drawRootGeom(ctx, g, frac, sx = 0, sy = 0) {
 /* ------------------------------------------------------------------ factory */
 
 const nowMs = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
-const PUMP_MS = 3; // per frame, spent on background sprite painting
+const MAX_STEPS = 6; // per frame, whatever the clock says
+const PUMP_MS = 4; // per frame, spent on painting sprites in the background (every step is a couple of ms at most)
+
+/**
+ * The background painter: pump(budget, t) runs the queued jobs' steps, in order, for about `budget` ms per frame (t
+ * identifies the frame, so several callers in one frame share the budget). A job is { steps, i, done, cancelled };
+ * a step cannot be cut short, so one is not started when the step before it says it would not fit in what is left, but a
+ * frame always runs at least one step (or the queue would never move) and never more than MAX_STEPS (a clock too coarse to
+ * time a step must not let the whole queue through). There is no pixel read after a step to force the raster: that is a
+ * sync with the canvas (15-50 ms when the machine is busy), and the sprites are software canvases anyway.
+ */
+export function createPump(queue, now, onError) {
+  let key = null;
+  let spent = 0;
+  let ran = 0;
+  let lastStepMs = 0;
+  return function pump(budget, t) {
+    if (t !== key) {
+      key = t;
+      spent = 0;
+      ran = 0;
+    }
+    while (queue.length && ran < MAX_STEPS && (!ran || spent + lastStepMs <= budget)) {
+      const job = queue[0];
+      if (job.cancelled) {
+        queue.shift();
+        continue;
+      }
+      const t0 = now();
+      try {
+        job.steps[job.i++]();
+      } catch (e) {
+        onError(e);
+        job.i = job.steps.length;
+      }
+      ran++;
+      lastStepMs = now() - t0;
+      spent += lastStepMs;
+      if (job.i >= job.steps.length) {
+        job.done = true;
+        queue.shift();
+      }
+    }
+  };
+}
 
 export function createTrees() {
   let px = 1;
@@ -380,40 +433,16 @@ export function createTrees() {
     }
   };
 
-  let pumpKey = null;
-  let pumpSpent = 0;
-  /** Run background steps for up to `budget` ms per frame (t identifies the frame; drawRoots and drawTrees share it). */
-  function pump(budget, t) {
-    if (t !== pumpKey) {
-      pumpKey = t;
-      pumpSpent = 0;
-    }
-    while (queue.length && pumpSpent < budget) {
-      const job = queue[0];
-      if (job.cancelled) {
-        queue.shift();
-        continue;
-      }
-      const t0 = nowMs();
-      try {
-        job.steps[job.i++]();
-        // canvas commands are recorded lazily; reading a pixel makes the raster work happen here, inside the budget
-        for (const c of job.ctxs) c.getImageData(0, 0, 1, 1);
-      } catch (e) {
-        warn(e);
-        job.i = job.steps.length;
-      }
-      pumpSpent += nowMs() - t0;
-      if (job.i >= job.steps.length) {
-        job.done = true;
-        queue.shift();
-      }
+  const pump = createPump(queue, nowMs, warn);
+  /** Paint everything that is queued, right now (for a tool or a test that wants one still frame, not for the game loop). */
+  function settle() {
+    while (queue.length) {
+      const job = queue.shift();
+      if (job.cancelled) continue;
+      while (job.i < job.steps.length) job.steps[job.i++]();
+      job.done = true;
     }
   }
-  const runAll = (job) => {
-    while (job.i < job.steps.length) job.steps[job.i++]();
-    job.done = true;
-  };
   const cancel = (job) => {
     if (job) job.cancelled = true;
   };
@@ -495,6 +524,7 @@ export function createTrees() {
       trunk = makeSprite(b.w, b.h, pf, b.ax, b.ay);
       steps.push(...(lost ? snagSteps(trunk.ctx, model, trunk.cw, trunk.ch) : trunkSteps(trunk.ctx, model, trunk.cw, trunk.ch)));
     }
+    const trunkN = steps.length; // the trunk can be shown once this many steps have run
     let crown;
     if (lost) {
       crown = makeSprite(2, 2, 1, 1, 1); // a snag has no crown: an empty sprite to fade the old one into
@@ -505,15 +535,31 @@ export function createTrees() {
       steps.push(...crownSteps(crown.ctx, model, vit, crown.cw, crown.ch, season || undefined));
       steps.push(...infectionSteps(crown.ctx, model, ib, vit, season || undefined, crown.cw, crown.ch));
     }
-    return { stage, bucket, ib, lost, season, fadeDur: HEALTH_FADE, fadeSeason: false, px, model, trunk, crown, steps, ctxs: trunk === reuseTrunk ? [crown.ctx] : [trunk.ctx, crown.ctx], i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1 };
+    return { stage, bucket, ib, lost, season, fadeDur: HEALTH_FADE, fadeSeason: false, px, model, trunk, trunkN, crown, steps, i: 0, done: false, cancelled: false, fadeOld: null, fadeT: 1, first: false, trunkT: 1, crownT: 1 };
+  }
+
+  const sameLook = (J, stage, bucket, season, ib, lost) => J.stage === stage && J.px === px && J.bucket === bucket && J.season === season && J.ib === ib && J.lost === lost;
+
+  /** The first look of a tree: queued like any job; its trunk, then its crown, fade in as soon as each is painted. */
+  function firstLook(tree, stage, bucket, season, ib, lost) {
+    const job = makeLookJob(tree, stage, bucket, null, season, ib, lost);
+    job.first = true;
+    job.trunkT = 0;
+    job.crownT = 0;
+    queue.push(job);
+    return job;
   }
 
   function upRecord(tree) {
     const key = `${tree.species}|${num(tree.crownSeed, 1)}`;
     let rec = ups.get(tree.id);
     if (!rec || rec.key !== key) {
-      cancel(rec && rec.job);
-      rec = { key, look: null, prev: null, grow: 0, job: null, phase: (num(tree.crownSeed, 1) % 1000) * 0.137, bucket: undefined };
+      if (rec) {
+        cancel(rec.job);
+        cancel(rec.pre);
+        if (rec.look && !rec.look.done) cancel(rec.look);
+      }
+      rec = { key, look: null, prev: null, grow: 0, job: null, pre: null, phase: (num(tree.crownSeed, 1) % 1000) * 0.137, bucket: undefined };
       ups.set(tree.id, rec);
     }
     return rec;
@@ -539,30 +585,60 @@ export function createTrees() {
     return flat;
   }
 
-  /** Make sure rec.look is up to date: painted synchronously the first time, later in a background job and swapped in. */
-  function updateLook(rec, tree, stage, bucket, season, ib = 0, lost = false) {
+  /**
+   * Make sure rec.look is up to date. The first look is painted in the background like every other one and fades in when it
+   * is ready; a later change is painted in a background job meanwhile the old look stays on show, and swapped in. In the last
+   * stretch of a season the next season's crown is painted ahead (rec.pre), so the turn itself only has to swap it in.
+   */
+  function updateLook(rec, tree, stage, bucket, season, ib = 0, lost = false, nextSeason = '') {
     if (!rec.look) {
-      const job = makeLookJob(tree, stage, bucket, null, season, ib, lost);
-      runAll(job);
-      rec.look = job;
+      rec.look = firstLook(tree, stage, bucket, season, ib, lost);
       return;
     }
     const L = rec.look;
-    const mismatch = L.stage !== stage || L.px !== px || L.bucket !== bucket || L.season !== season || L.ib !== ib || L.lost !== lost;
+    const mismatch = !sameLook(L, stage, bucket, season, ib, lost);
+    if (!L.done) {
+      // still painting its first look: a change of plan starts it over
+      if (mismatch) {
+        cancel(L);
+        rec.look = firstLook(tree, stage, bucket, season, ib, lost);
+      }
+      return;
+    }
     if (!mismatch) {
       if (rec.job) {
         cancel(rec.job);
         rec.job = null;
       }
+      const pre = nextSeason && !lost && !L.lost;
+      if (rec.pre && !(pre && sameLook(rec.pre, stage, bucket, nextSeason, ib, false))) {
+        cancel(rec.pre);
+        rec.pre = null;
+      }
+      if (pre && !rec.pre) {
+        rec.pre = makeLookJob(tree, stage, bucket, L.trunk, nextSeason, ib, false);
+        queue.push(rec.pre);
+      }
       return;
     }
     let J = rec.job;
-    if (!J || J.stage !== stage || J.px !== px || J.bucket !== bucket || J.season !== season || J.ib !== ib || J.lost !== lost) {
+    if (!J && rec.pre && sameLook(rec.pre, stage, bucket, season, ib, lost)) {
+      J = rec.job = rec.pre; // painted ahead
+      rec.pre = null;
+    }
+    if (J && !sameLook(J, stage, bucket, season, ib, lost)) {
       cancel(J);
+      J = null;
+    }
+    if (rec.pre) {
+      cancel(rec.pre);
+      rec.pre = null;
+    }
+    if (!J) {
       J = makeLookJob(tree, stage, bucket, L.stage === stage && L.px === px && !L.lost ? L.trunk : null, season, ib, lost);
-      rec.job = J;
       queue.push(J);
     }
+    rec.job = J;
     if (!J.done) return;
     rec.job = null;
     if (L.stage !== J.stage) {
@@ -584,10 +660,16 @@ export function createTrees() {
     ctx.translate(x, y);
     if (scale !== 1) ctx.scale(scale, scale);
     // trunk: shear about the base
-    ctx.save();
-    ctx.transform(1, 0, k1, 1, 0, 0);
-    drawSprite(ctx, look.trunk, 0, 0, alpha);
-    ctx.restore();
+    if (look.trunkT > 0) {
+      ctx.save();
+      ctx.transform(1, 0, k1, 1, 0, 0);
+      drawSprite(ctx, look.trunk, 0, 0, alpha * look.trunkT);
+      ctx.restore();
+    }
+    if (look.crownT <= 0) {
+      ctx.restore();
+      return;
+    }
     // crown: shear a little more, plus a flutter about its own centre
     ctx.save();
     ctx.transform(1, 0, k2, 1, 0, 0);
@@ -598,7 +680,7 @@ export function createTrees() {
     if (look.fadeOld && look.fadeT < 1) {
       drawSprite(ctx, look.fadeOld, 0, 0, alpha * oldCrownAlpha(look));
       drawSprite(ctx, look.crown, 0, 0, alpha * look.fadeT);
-    } else drawSprite(ctx, look.crown, 0, 0, alpha);
+    } else drawSprite(ctx, look.crown, 0, 0, alpha * look.crownT);
     ctx.restore();
     ctx.restore();
   }
@@ -609,6 +691,7 @@ export function createTrees() {
     const tt = Number.isFinite(t) ? t : lastT || 0;
     const wind = noise1(tt * 0.13 + 7) * 0.6 + noise1(tt * 0.047 + 3) * 0.4;
     const season = seasonOf(state);
+    const nextSeason = nextSeasonOf(state);
     ctx.save();
     for (const tree of treesOf(state)) {
       guard(() => {
@@ -620,8 +703,15 @@ export function createTrees() {
         rec.bucket = bucket;
         const ib = lost ? 0 : infFor(rec, tree.infection);
         rec.ib = ib;
-        updateLook(rec, tree, stage, bucket, season, ib, lost);
+        updateLook(rec, tree, stage, bucket, season, ib, lost, nextSeason);
         const look = rec.look;
+        if (look.first) {
+          // the trunk fades in once it is painted, the crown once that is
+          if (look.i >= look.trunkN) look.trunkT = Math.min(1, look.trunkT + d / FIRST_FADE);
+          if (look.done) look.crownT = Math.min(1, look.crownT + d / FIRST_FADE);
+          if (look.crownT >= 1 && look.trunkT >= 1) look.first = false;
+          if (look.trunkT <= 0) return; // nothing to show yet
+        }
         if (look.fadeOld) {
           look.fadeT += d / look.fadeDur;
           if (look.fadeT >= 1) {
@@ -706,6 +796,7 @@ export function createTrees() {
         job: null,
         anim: null, // { t, to, items: [{ g, start, dur }] }
         stage: stageOf(tree),
+        inT: 0, // fade-in of the first sprite
         link: tree.linked ? 1 : 0,
         phase: (num(tree.crownSeed, 1) % 977) * 0.21,
       };
@@ -726,12 +817,12 @@ export function createTrees() {
     });
     items.sort((a, c) => a.w0 - c.w0);
     const steps = [];
-    for (let i = 0; i < items.length; i += 3) {
-      const chunk = items.slice(i, i + 3);
+    for (let i = 0; i < items.length; i += 2) {
+      const chunk = items.slice(i, i + 2);
       steps.push(() => chunk.forEach((g) => drawRootGeom(sp.ctx, g, 1)));
     }
     if (!steps.length) steps.push(() => {});
-    return { sp, stage, px, steps, ctxs: [sp.ctx], i: 0, done: false, cancelled: false };
+    return { sp, stage, px, steps, i: 0, done: false, cancelled: false };
   }
 
   const GLOW = { c: null };
@@ -794,11 +885,21 @@ export function createTrees() {
         const stage = stageOf(tree);
 
         if (!rec.sprite) {
-          const job = makeRootJob(rec, stage);
-          runAll(job);
-          rec.sprite = { sp: job.sp, stage, px };
+          // the first sprite is painted in the background too; the roots come up out of the paper when it is ready
+          let J = rec.job;
+          if (!J || J.stage !== stage || J.px !== px) {
+            cancel(J);
+            J = makeRootJob(rec, stage);
+            rec.job = J;
+            queue.push(J);
+          }
+          if (!J.done) return;
+          rec.sprite = { sp: J.sp, stage, px };
+          rec.job = null;
           rec.stage = stage;
+          rec.inT = 0;
         }
+        if (rec.inT < 1) rec.inT = Math.min(1, rec.inT + d / FIRST_FADE);
         // a higher stage: the new roots grow in live while the sprite keeps the old ones
         if (stage > rec.sprite.stage) {
           const anim = rec.anim || { t: 0, to: stage, items: [] };
@@ -842,7 +943,7 @@ export function createTrees() {
         }
 
         const dead = isLost(tree); // the roots of a tree the honey fungus has killed fade to a ghost
-        ctx.globalAlpha = dead ? 0.5 : 1;
+        ctx.globalAlpha = (dead ? 0.5 : 1) * smooth01(rec.inT);
         const sp = rec.sprite.sp;
         ctx.drawImage(sp.canvas, rec.box.x0, rec.box.y0, sp.w, sp.h);
         ctx.globalAlpha = 1;
@@ -893,5 +994,5 @@ export function createTrees() {
     pump(PUMP_MS, tt);
   }
 
-  return { setScale, reset, event, drawRoots, drawTrees, bounds };
+  return { setScale, reset, event, drawRoots, drawTrees, bounds, settle };
 }
