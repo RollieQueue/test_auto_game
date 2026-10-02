@@ -1,5 +1,6 @@
 // Ambient life: watercolor clouds drifting across the sky and leaves falling from healthy crowns.
 // Cheap by design: a handful of prerendered sprites, a capped particle pool, no per-frame path building.
+import { reducedMotion } from './motion.js';
 import { granulate, hatch, inkStroke, makeSprite, mulberry, rgba, subSeed, noise1 } from './ink.js';
 
 const CLOUDS = 4;
@@ -118,8 +119,9 @@ export function createAmbient() {
       if (!view) return;
       if (!clouds) build(state.world);
       ctx.save();
+      const calm = reducedMotion(); // «меньше движения»: the clouds stand still
       for (const c of clouds) {
-        c.x += c.v * dt;
+        if (!calm) c.x += c.v * dt;
         if (c.x - c.w / 2 > ext.x1 + 20) c.x = ext.x0 - c.w / 2 - 20;
         ctx.globalAlpha = c.alpha;
         ctx.drawImage(c.sp.canvas, c.x - c.sp.ax, c.y - c.sp.ay, c.sp.w, c.sp.h);
@@ -128,6 +130,11 @@ export function createAmbient() {
     },
     draw(ctx, state, t, dt, frame) {
       if (!leafSprites) return;
+      if (reducedMotion()) {
+        if (leaves.length) leaves.length = 0; // no falling leaves at all
+        if (acc.size) acc.clear();
+        return;
+      }
       const world = state.world;
       const trees = frame?.refs?.trees;
       const season = seasonOf(state);

@@ -11,10 +11,19 @@ import { DT, playBot } from './bot.mjs';
 
 const YEAR = B.seasonSeconds * 4;
 
-function fresh(seed = 7, seasons = true) {
+/**
+ * A playing game. Most tests below were written for the old day clock (a game that starts at dayFrac 0.3 and has plain
+ * 100 s days: noon at 20 s, midnight at 70 s of every season), which is exactly what a save made before the long first
+ * morning keeps, so by default the new-game flag is dropped. `newClock` keeps what a new game gets (flags.firstDusk).
+ */
+function fresh(seed = 7, seasons = true, newClock = false) {
   const state = createState(seed);
   state.phase = 'playing';
   state.flags.seasons = seasons;
+  if (!newClock) {
+    delete state.flags.firstDusk;
+    restoreTime(state);
+  }
   return state;
 }
 
@@ -120,10 +129,10 @@ test('daylight is a smooth 0..1 curve: night, dawn ramp, day, dusk ramp', () => 
 });
 
 test('the clock always advances; without the flag nothing else changes (no events, no effects, clear weather)', () => {
-  const s = fresh(7, false);
+  const s = fresh(7, false, true);
   const seen = run(s, 1300);
   assert.equal(seen.filter((e) => ['dawn', 'dusk', 'season', 'weather', 'year-end'].includes(e.type)).length, 0);
-  assert.deepEqual(s.clock, clockAt(s.sim.clock));
+  assert.deepEqual(s.clock, clockAt(s.sim.clock, s.flags.firstDusk));
   assert.equal(s.clock.year, 1);
   assert.equal(s.clock.season, 'spring');
   assert.deepEqual(s.weather, { kind: 'clear', intensity: 0 });
@@ -136,16 +145,16 @@ test('the clock always advances; without the flag nothing else changes (no event
 });
 
 test('a full year: event order, times and counts; the year ends once and play continues', () => {
-  const s = fresh();
+  const s = fresh(7, true, true);
   const seen = run(s, YEAR + 1.5 * B.daySeconds);
   const of = (type) => seen.filter((e) => e.type === type);
-  // dusk is first (45 s in), then dawn at 95 s, alternating every 50 s
+  // a new game: dusk is first (at B.newGameDusk = 80 s), then dawn 50 s later, alternating every 50 s
   const lightEvents = seen.filter((e) => e.type === 'dawn' || e.type === 'dusk');
   assert.equal(lightEvents[0].type, 'dusk');
-  assert.ok(Math.abs(lightEvents[0].t - 45) < 0.1 && Math.abs(lightEvents[1].t - 95) < 0.1);
+  assert.ok(Math.abs(lightEvents[0].t - B.newGameDusk) < 0.1 && Math.abs(lightEvents[1].t - (B.newGameDusk + 50)) < 0.1);
   lightEvents.forEach((e, i) => assert.equal(e.type, i % 2 === 0 ? 'dusk' : 'dawn'));
-  assert.equal(of('dawn').length, 12 + 1);
-  assert.equal(of('dusk').length, 12 + 2);
+  assert.equal(of('dawn').length, 13); // 130, 230 ... 1330
+  assert.equal(of('dusk').length, 13); // 80, 180 ... 1280
   // seasons, in order, at the right moments; the year ends right before spring returns
   assert.deepEqual(of('season').map((e) => e.season), ['summer', 'autumn', 'winter', 'spring']);
   of('season').forEach((e, i) => assert.ok(Math.abs(e.t - (i + 1) * B.seasonSeconds) < 0.05));
@@ -163,7 +172,7 @@ test('a full year: event order, times and counts; the year ends once and play co
   assert.ok(weather.length >= 16, `${weather.length} weather changes in a year`);
   for (const e of weather) {
     if (e.kind === 'clear') continue;
-    assert.equal(e.kind, kinds[clockAt(e.t).season], `weather ${e.kind} at ${e.t}`);
+    assert.equal(e.kind, kinds[clockAt(e.t, s.flags.firstDusk).season], `weather ${e.kind} at ${e.t}`);
   }
   for (let i = 1; i < weather.length; i++) assert.notEqual(weather[i].kind, weather[i - 1].kind, 'only changes are reported');
   assert.ok(of('weather').some((e) => e.kind === 'rain') && of('weather').some((e) => e.kind === 'drought') && of('weather').some((e) => e.kind === 'snow'));

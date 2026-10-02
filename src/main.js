@@ -7,6 +7,8 @@ import { createHud } from './ui/hud.js';
 import { attachInput } from './input/pointer.js';
 import { createAudio } from './audio/index.js';
 import * as persist from './persist.js';
+import { getSettings } from './ui/settings.js';
+import { setReducedMotion } from './render/motion.js';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 8;
@@ -14,6 +16,7 @@ const MAX_STEPS = 8;
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('scene');
 const hudRoot = document.getElementById('hud');
+const settings = getSettings(); // volume and «Меньше движения» from localStorage (roots-threads.settings.*)
 // Seasons with day and night, and threats in the soil, are on by default; ?seasons=0 / ?threats=0 turn them off.
 const SEASONS = params.get('seasons') !== '0';
 const THREATS = params.get('threats') !== '0';
@@ -82,12 +85,25 @@ game.actions = {
   isMuted() {
     return game.audio.muted;
   },
+  // settings of the pause page: stored by ui/settings.js, applied to audio and renderer below (and at boot)
+  setVolume(v) {
+    settings.setVolume(v);
+  },
+  setReducedMotion(on) {
+    settings.setReduceMotion(on);
+  },
 };
 
 game.renderer = createRenderer(canvas);
 game.audio = createAudio();
 game.hud = createHud(hudRoot, game.actions);
 game.input = attachInput(canvas, game);
+const applySettings = () => {
+  game.audio.setVolume(settings.volume);
+  setReducedMotion(settings.reduceMotion);
+};
+settings.onChange(applySettings);
+applySettings();
 window.__game = game;
 
 function resize() {

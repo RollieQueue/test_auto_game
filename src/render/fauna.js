@@ -8,6 +8,8 @@
 import { glowSprite, granulate, makeSprite, mix, mulberry, noise1, rgba, smooth01, tracePath } from './ink.js';
 import { hash32 } from '../core/rng.js';
 import { STEPS, extentOf, paintMushroom } from './mushrooms-paint.js';
+import { reducedMotion } from './motion.js';
+import { levelFor, drained, mushroomSprite, growScale, spritesReady } from './sprites.js';
 
 const TRAP_RADIUS = 60; // world units: the lure radius of a trap (balance.trapRadius); the placement preview circle
 const WAX = '#c9443b'; // sealing wax, bright enough to read on dark soil (same as feedback.js)
@@ -131,15 +133,19 @@ export function createFauna() {
     if (edges.length) push({ k: 'ghost', edges, life: maxDelay + CUT_FADE + 0.2, x, y });
   }
 
-  function startWilt(ev) {
+  function startWilt(ev, state) {
     const v = Math.floor(Math.abs(num(ev.variant)));
     const g = clamp(num(ev.growth, 1), 0.08, 1);
     const h = hash32('mushroom', ev.id === undefined ? 0 : ev.id);
     const a = (h & 1023) / 1023;
     const b = ((h >>> 10) & 1023) / 1023;
     const c = ((h >>> 20) & 1023) / 1023;
+    // the illustration the living mushroom wore (same pick as mushrooms.js), so it wilts as itself; null = painted
+    const spr = spritesReady() ? mushroomSprite({ id: ev.id, x: ev.x, variant: ev.variant, species: ev.species }, state && state.world ? state.world.trees : null) : null;
     push({
       k: 'wilt',
+      spr,
+      grow: g,
       x: num(ev.x),
       y: num(ev.y),
       kind: v % 4,
@@ -208,7 +214,7 @@ export function createFauna() {
         push({ k: 'dashring', x, y, r: TRAP_RADIUS, life: 0.8, color: WAX });
         break;
       case 'mushroom-wilted':
-        startWilt(ev);
+        startWilt(ev, state);
         break;
       default:
     }
@@ -515,7 +521,7 @@ export function createFauna() {
     }
     const nx = -dy;
     const ny = dx;
-    const shake = 0.25 + 1.1 * p * p;
+    const shake = (0.25 + 1.1 * p * p) * (reducedMotion() ? 0.2 : 1); // «меньше движения»: the thread trembles hardly at all
     const jx = shake * Math.sin(t * 61 + 1.3);
     const jy = shake * Math.cos(t * 53);
     const x = b.x + jx * 0.4;
@@ -1075,8 +1081,39 @@ export function createFauna() {
         ctx.restore();
         break;
       case 'wilt': {
-        const s = wiltSprites(e.kind, e.sub, e.step);
         const m = ease(u / 0.8);
+        const il = e.spr;
+        if (il) {
+          // the living mushroom's own illustration (placed as in mushrooms.js), drained of colour as it sinks and bows over
+          const k = (il.worldSize * e.size * growScale(e.grow)) / il.h;
+          const lv = levelFor(il, il.h * k * px);
+          const dx = -il.anchor.x * k;
+          const dy = -il.anchor.y * k;
+          const dw = il.w * k;
+          const dh = il.h * k;
+          const lean = e.lean0 + e.dir * 0.62 * m * m;
+          const sy = 1 - 0.34 * ease(u / 0.9);
+          const sx = (e.mirror ? -1 : 1) * (1 + 0.1 * m);
+          const alpha = 1 - ease((u - 0.3) / 0.7);
+          const colA = 1 - ease(u / 0.22);
+          ctx.save();
+          ctx.translate(e.x, e.y + 0.05 * il.worldSize * e.size);
+          ctx.transform(sx, 0, -lean, sy, 0, 0);
+          ctx.globalAlpha = alpha * 0.22;
+          ctx.fillStyle = '#2a1b13';
+          ctx.beginPath();
+          ctx.ellipse(0, -0.3, Math.max(2, dw * 0.17), Math.max(0.8, dh * 0.045), 0, 0, TAU); // the seat in the soil
+          ctx.fill();
+          ctx.globalAlpha = alpha;
+          ctx.drawImage(drained(lv.src, lv.w, lv.h), dx, dy, dw, dh);
+          if (colA > 0.01) {
+            ctx.globalAlpha = colA * alpha;
+            ctx.drawImage(lv.src, dx, dy, dw, dh);
+          }
+          ctx.restore();
+          break;
+        }
+        const s = wiltSprites(e.kind, e.sub, e.step);
         const lean = e.lean0 + e.dir * 0.62 * m * m;
         const sy = e.size * (1 - 0.34 * ease(u / 0.9));
         const sx = e.size * (e.mirror ? -1 : 1) * (1 + 0.1 * m);

@@ -290,6 +290,7 @@ test('a cut takes links, mushrooms, rings and growing tips of the branch with it
   assert.equal(evs(seen, 'mushroom-wilted').length, 1);
   const wilted = evs(seen, 'mushroom-wilted')[0];
   assert.ok(wilted.id === 0 && Number.isFinite(wilted.x) && Number.isFinite(wilted.y) && 'variant' in wilted);
+  assert.equal(wilted.species, 'common', 'the event names the species, so the ghost can wear the look of the living mushroom');
   assert.equal(evs(seen, 'trap-spent').filter((e) => e.lost).length, 1);
   assert.equal(s.mushrooms.length, 0);
   assert.equal(s.traps.length, 0);

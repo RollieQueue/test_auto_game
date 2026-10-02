@@ -20,9 +20,21 @@ export function daylightAt(dayFrac) {
   return smooth(clamp((sun + B.daylightEdge) / (2 * B.daylightEdge), 0, 1));
 }
 
-/** The state.clock fields after `t` elapsed game seconds. */
-export function clockAt(t) {
-  const dayPos = B.startDayFrac + t / B.daySeconds;
+/**
+ * Position in the day-count (whole part = day number, fraction = time of day) after `t` game seconds. A game saved before
+ * the long first morning has no `firstDusk` (state.flags.firstDusk) and keeps the old clock: it starts at B.startDayFrac
+ * and every day is B.daySeconds long. A new game starts at first light (B.newGameStart) and its first daytime lasts
+ * `firstDusk` seconds, so the first dusk (dayFrac 0.75) comes then; the days after it are the usual length.
+ */
+function dayPosAt(t, firstDusk) {
+  if (!(firstDusk > 0)) return B.startDayFrac + t / B.daySeconds;
+  if (t < firstDusk) return B.newGameStart + ((0.75 - B.newGameStart) * t) / firstDusk;
+  return 0.75 + (t - firstDusk) / B.daySeconds;
+}
+
+/** The state.clock fields after `t` elapsed game seconds (`firstDusk`: state.flags.firstDusk, absent in old saves). */
+export function clockAt(t, firstDusk = 0) {
+  const dayPos = dayPosAt(t, firstDusk);
   const day = Math.floor(dayPos);
   const dayFrac = dayPos - day;
   const yearSeconds = B.seasonSeconds * 4;
@@ -41,8 +53,8 @@ export function clockAt(t) {
 }
 
 /** Counters whose increase marks a dawn, a dusk or a new season (events fire when they grow). */
-function marksAt(t) {
-  const dayPos = B.startDayFrac + t / B.daySeconds;
+function marksAt(t, firstDusk) {
+  const dayPos = dayPosAt(t, firstDusk);
   return { dawn: Math.floor(dayPos - 0.25), dusk: Math.floor(dayPos - 0.75), season: Math.floor(t / B.seasonSeconds) };
 }
 
@@ -97,12 +109,13 @@ export function effectsFor(clock, weather, t) {
   };
 }
 
-/** Called by initSim: the game starts in spring, in the morning, with clear weather. */
+/** Called by initSim: the game starts in spring, at first light, with clear weather (and records its long first morning). */
 export function initTime(state) {
-  state.clock = clockAt(0);
+  state.flags.firstDusk = B.newGameDusk; // decodeState drops it again for a save that has none
+  state.clock = clockAt(0, state.flags.firstDusk);
   state.weather = { kind: 'clear', intensity: 0 };
   state.flags.yearDone ??= false;
-  state.sim.marks = marksAt(0);
+  state.sim.marks = marksAt(0, state.flags.firstDusk);
   state.sim.fx = NEUTRAL_FX;
 }
 
@@ -112,8 +125,8 @@ export function initTime(state) {
  */
 export function restoreTime(state) {
   const t = state.sim.clock;
-  state.clock = clockAt(t);
-  state.sim.marks = marksAt(t);
+  state.clock = clockAt(t, state.flags.firstDusk);
+  state.sim.marks = marksAt(t, state.flags.firstDusk);
   if (state.flags.seasons) {
     state.weather = weatherAt(state, t);
     state.sim.fx = effectsFor(state.clock, state.weather, t);
@@ -127,9 +140,9 @@ export function restoreTime(state) {
 export function stepTime(state) {
   const { sim, flags, events, clock } = state;
   const t = sim.clock;
-  Object.assign(clock, clockAt(t));
+  Object.assign(clock, clockAt(t, flags.firstDusk));
   const prev = sim.marks;
-  const marks = marksAt(t);
+  const marks = marksAt(t, flags.firstDusk);
   sim.marks = marks;
   if (!flags.seasons) {
     sim.fx = NEUTRAL_FX;

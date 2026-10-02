@@ -1,6 +1,7 @@
 // Event effects: ink ripples and colour blooms for links, golden sparkle for tree growth, red ink blots when sugar
 // is short, fade puffs for exhausted deposits, tiny sparks while hyphae grow, red crosses for denied fruiting.
 // The renderer feeds every state.events entry to event(); particles are kept in a small capped list here.
+import { reducedMotion } from './motion.js';
 import { PAL, glowSprite, inkBlot, makeSprite, mulberry, rgba } from './ink.js';
 
 const MAX = 420;
@@ -61,7 +62,7 @@ export function createEffects() {
           const rr = mulberry(seq * 31 + 5);
           push({ k: 'bloom', x, y, life: 2.2, color: '#ffd36b', r1: 90 });
           push({ k: 'ring', x, y, life: 1.6, color: '#ffe08a', r0: 6, r1: 70 });
-          for (let i = 0; i < 22; i++) {
+          for (let i = 0; i < (reducedMotion() ? 0 : 22); i++) { // «меньше движения»: no sparkle confetti
             const a = rr() * Math.PI * 2;
             const sp = 14 + rr() * 46;
             push({ k: 'star', x: x + (rr() - 0.5) * 60, y: y - rr() * 80, vx: Math.cos(a) * sp * 0.4, vy: -8 - rr() * 26, life: 1.3 + rr() * 1.3, color: rr() < 0.7 ? '#ffd36b' : '#fff1b8', size: 3 + rr() * 4, delay: rr() * 0.5, tw: rr() * 6 });
@@ -79,7 +80,7 @@ export function createEffects() {
         }
         case 'grow-tick': {
           const rr = mulberry(seq * 13 + 1);
-          for (let i = 0; i < 3; i++) {
+          for (let i = 0; i < (reducedMotion() ? 0 : 3); i++) {
             const a = rr() * Math.PI * 2;
             const sp = 16 + rr() * 30;
             push({ k: 'spark', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + rr() * 0.35, color: rr() < 0.5 ? '#fff6dc' : '#ffe6a0', size: 2 + rr() * 1.6 });
@@ -133,7 +134,7 @@ export function createEffects() {
       case 'bloom': {
         const r = e.r1 * (0.35 + 0.65 * Math.sqrt(u));
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.6 * (1 - u) * (1 - u);
+        ctx.globalAlpha = (reducedMotion() ? 0.22 : 0.6) * (1 - u) * (1 - u); // a soft glow instead of a flash
         ctx.drawImage(glowSprite(e.color, 64), e.x - r, e.y - r, r * 2, r * 2);
         ctx.globalAlpha = 1;
         break;

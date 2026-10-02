@@ -18,6 +18,7 @@ import { buildYearPage } from './year.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
 import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
 import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
+import { initSettingsPanel } from './settings.js';
 import * as balance from '../sim/balance.js';
 
 // bar colours of the capped stocks (spores have no cap and no bar)
@@ -144,6 +145,14 @@ export function createHud(root, actions) {
           <button class="ink-btn" data-act="resume" type="button">Продолжить</button>
           <button class="ink-btn quiet" data-act="help" type="button">Как играть</button>
           <button class="ink-btn quiet" data-act="guide-toggle" type="button">Подсказки: вкл</button>
+        </div>
+        <div class="settings" role="group" aria-label="Настройки">
+          <label class="set-row">
+            <span class="set-name">Громкость</span>
+            <input class="set-range" type="range" min="0" max="100" step="5" value="100" data-set="volume" aria-label="Громкость" />
+            <output class="set-val">100 %</output>
+          </label>
+          <button class="ink-btn quiet set-toggle" data-act="motion-toggle" type="button" aria-pressed="false">Меньше движения: выкл</button>
         </div>
         <div class="hint"><kbd>Пробел</kbd> или <kbd>Esc</kbd></div>
       </div>
@@ -307,6 +316,7 @@ export function createHud(root, actions) {
     paintGuideButtons();
   });
   paintGuideButtons();
+  initSettingsPanel(root, actions); // volume and «Меньше движения» on the pause page (src/ui/settings.js)
 
   // Frontispiece: shown only when the art helper has produced it.
   const art = q('.plate img');

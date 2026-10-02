@@ -316,6 +316,7 @@ export function decodeState(p) {
   assignPlain(state.rates, p.rates);
   assignPlain(state.cap, p.cap);
   assignPlain(state.stats, p.stats);
+  delete state.flags.firstDusk; // a save made before the long first morning has no such flag and keeps the old clock (see sim/clock.js)
   assignPlain(state.flags, decodeValue(p.flags));
   if (p.clock !== undefined) state.clock = decodeValue(p.clock);
   if (p.weather !== undefined) state.weather = decodeValue(p.weather);

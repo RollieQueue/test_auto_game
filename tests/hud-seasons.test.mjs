@@ -15,7 +15,7 @@ import { clockAt } from '../src/sim/clock.js';
 const seasonal = (t, weather = { kind: 'clear', intensity: 0 }) => {
   const state = createState(7);
   state.flags.seasons = true;
-  state.clock = clockAt(t);
+  state.clock = clockAt(t, state.flags.firstDusk); // the clock of a new game (long first morning)
   state.weather = weather;
   return state;
 };
@@ -25,7 +25,7 @@ const seasonal = (t, weather = { kind: 'clear', intensity: 0 }) => {
 test('calendar: nothing without the seasons flag or a clock', () => {
   assert.equal(calendarModel(null), null);
   const state = createState(7);
-  state.clock = clockAt(0);
+  state.clock = clockAt(0, state.flags.firstDusk);
   assert.equal(calendarModel(state), null);
   state.flags.seasons = true;
   state.clock = undefined;
@@ -61,9 +61,9 @@ test('calendar: the day is numbered from 1, the glyph follows the daylight, the 
   assert.equal(start.glyph, 'sun');
   assert.equal(start.weather, 'clear');
   assert.equal(start.weatherWord, 'ясно');
-  const dark = clockAt(B.daySeconds * 0.65); // 0.3 + 0.65 = 0.95 of the day: night
-  assert.ok(dark.daylight < 0.1);
-  const state = seasonal(B.daySeconds * 0.65, { kind: 'rain', intensity: 0.8 });
+  const night = B.newGameDusk + 30; // the first dusk, then 30 s: night
+  assert.ok(clockAt(night, B.newGameDusk).daylight < 0.1);
+  const state = seasonal(night, { kind: 'rain', intensity: 0.8 });
   const m = calendarModel(state);
   assert.equal(m.glyph, 'moon');
   assert.equal(m.word, 'ночь');

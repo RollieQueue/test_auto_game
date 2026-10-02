@@ -54,7 +54,7 @@ export function cutEdge(state, edgeId, at = null, cause = 'worm') {
     if (!rep.dead.has(m.nodeId)) continue;
     state.mushrooms.splice(i, 1);
     wilted++;
-    events.push({ type: 'mushroom-wilted', id: m.id, x: m.x, y: m.baseY, variant: m.variant, growth: m.growth, mature: m.mature });
+    events.push({ type: 'mushroom-wilted', id: m.id, x: m.x, y: m.baseY, variant: m.variant, species: m.species, growth: m.growth, mature: m.mature });
   }
   for (let i = state.traps.length - 1; i >= 0; i--) {
     const t = state.traps[i];

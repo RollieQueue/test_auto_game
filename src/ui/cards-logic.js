@@ -1,27 +1,45 @@
 // The HUD cards (resources top-left, objectives top-right) must not hide what the player is looking at:
 // this is the pure part that says what lies under a card (screen rect). No DOM.
 import { CROWN_HALF } from '../world/generate.js';
+import { hash32 } from '../core/rng.js';
+import { mushroomSprite, growScale } from '../render/sprites.js';
 
 const STAGE_H = [70, 140, 205, 255]; // as in render/trees-model.js (full height of a tree per stage)
 const CROWN_SHARE = [0.3, 0.55, 0.85, 1]; // how much of the full crown width is grown at each stage
-const MUSHROOM_HALF = 38; // world units: a cap with its spore haze, wider than it looks
-const MUSHROOM_UP = 100;
-const MUSHROOM_DOWN = 8;
+// A mushroom without a loaded illustration (the procedural body is shown meanwhile) is about this big, world units.
+const MUSHROOM_HALF = 28;
+const MUSHROOM_UP = 58;
+const MUSHROOM_DOWN = 4;
 const PAD = 6; // CSS px: a thing this close to the card edge counts as under it
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-/** World -> screen rect {l, t, r, b} of a mushroom (a generous box round the cap and stalk). */
-export function mushroomRect(m, view) {
+/**
+ * World box {l, r, t, b} of what a mushroom draws. With its illustration loaded (render/mushrooms.js: the picture is
+ * worldSize tall times the per-mushroom size 0.92..1.08 and the growth scale, its anchor at the stalk base, mirrored
+ * for half of them) this is the picture's own rectangle; without one, a plain box of the same order.
+ */
+export function mushroomBox(m, trees) {
   const x = num(m.x);
   const y = num(m.baseY);
+  const il = mushroomSprite(m, trees);
+  if (!il) return { l: x - MUSHROOM_HALF, r: x + MUSHROOM_HALF, t: y - MUSHROOM_UP, b: y + MUSHROOM_DOWN };
+  const h = hash32('mushroom', m.id === undefined ? 0 : m.id);
+  const size = 0.92 + 0.16 * ((h & 1023) / 1023);
+  const mirror = ((h >>> 10) & 1023) / 1023 < 0.5;
+  const g = Math.max(0, Math.min(1, num(m.growth)));
+  const k = (il.worldSize * size * growScale(g)) / il.h; // world units per image pixel
+  const left = (mirror ? il.w - il.anchor.x : il.anchor.x) * k;
+  const right = (mirror ? il.anchor.x : il.w - il.anchor.x) * k;
+  const sink = 0.05 * il.worldSize * size; // the stalk base sits a hair below the ground line
+  return { l: x - left, r: x + right, t: y + sink - il.anchor.y * k, b: y + sink + (il.h - il.anchor.y) * k };
+}
+
+/** World -> screen rect {l, t, r, b} of a mushroom as drawn (`trees`: state.world.trees, for the species look). */
+export function mushroomRect(m, view, trees) {
+  const box = mushroomBox(m, trees);
   const s = view.scale;
-  return {
-    l: (x - MUSHROOM_HALF) * s + view.ox,
-    r: (x + MUSHROOM_HALF) * s + view.ox,
-    t: (y - MUSHROOM_UP) * s + view.oy,
-    b: (y + MUSHROOM_DOWN) * s + view.oy,
-  };
+  return { l: box.l * s + view.ox, r: box.r * s + view.ox, t: box.t * s + view.oy, b: box.b * s + view.oy };
 }
 
 /** World -> screen rect of the leafy part of a tree crown (the upper part of the tree, as wide as it has grown). */
@@ -48,8 +66,9 @@ const overlaps = (a, b) => a.l < b.r + PAD && a.r > b.l - PAD && a.t < b.b + PAD
 export function coverage(state, view, rect) {
   const out = { mushrooms: 0, crowns: 0 };
   if (!state || !view || !(view.scale > 0) || !rect || rect.r - rect.l < 2) return out;
-  for (const m of state.mushrooms || []) if (overlaps(rect, mushroomRect(m, view))) out.mushrooms += 1;
-  for (const t of (state.world && state.world.trees) || []) if (overlaps(rect, crownRect(t, view))) out.crowns += 1;
+  const trees = (state.world && state.world.trees) || [];
+  for (const m of state.mushrooms || []) if (overlaps(rect, mushroomRect(m, view, trees))) out.mushrooms += 1;
+  for (const t of trees) if (overlaps(rect, crownRect(t, view))) out.crowns += 1;
   return out;
 }
 

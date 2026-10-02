@@ -121,14 +121,21 @@ test('the first nights pay almost like days; the floor eases back to photoFloor 
   }
   assert.equal(nightFloor(B.firstLight.until + B.firstLight.fade), B.photoFloor);
   assert.equal(nightFloor(), B.photoFloor);
-  // the first dusk is still at ~45 s (the day length did not change) ...
-  assert.ok(clockAt(44).daylight > 0.5 && clockAt(60).daylight < 0.05);
-  // ... and a save restores the same effects at any time
+  // a new game meets its first dusk at B.newGameDusk (80 s, not the old 45 s) and the night after it is still gentle ...
+  const D = B.newGameDusk;
+  assert.ok(D >= 75 && D <= 90);
+  assert.ok(clockAt(D - 1, D).daylight > 0.5 && clockAt(D + 20, D).daylight < 0.05);
+  const firstNight = effectsFor(clockAt(D + 25, D), { kind: 'clear', intensity: 0 }, D + 25).pay;
+  assert.ok(firstNight >= B.seasons.spring.pay * B.firstLight.floor - 1e-9, `the first night pays ${firstNight}`);
+  // ... and a save restores the same effects at any time, for a new game and for an old save without the flag
   for (const t of [0, 70, 239, 300, 361, YEAR + 70]) {
-    const s = fresh(7, { seasons: true });
-    s.sim.clock = t;
-    restoreTime(s);
-    assert.deepEqual(s.sim.fx, effectsFor(clockAt(t), s.weather, t));
+    for (const old of [false, true]) {
+      const s = fresh(7, { seasons: true });
+      if (old) delete s.flags.firstDusk;
+      s.sim.clock = t;
+      restoreTime(s);
+      assert.deepEqual(s.sim.fx, effectsFor(clockAt(t, s.flags.firstDusk), s.weather, t));
+    }
   }
 });
 

@@ -4,6 +4,7 @@
 import { hash32 } from '../core/rng.js';
 import { makeSprite, makeCanvas, glowSprite, granulate, smooth01 } from './ink.js';
 import { STEPS, extentOf, paintMushroom } from './mushrooms-paint.js';
+import { reducedMotion } from './motion.js';
 import { levelFor, washed, mushroomSprite, spritesReady, wiltTarget, growScale } from './sprites.js';
 
 const MAX_P = 500;
@@ -301,6 +302,7 @@ export function createMushrooms() {
     const n = order.length;
     if (n > 1) order.sort(byBase);
     const ease = 1 - Math.exp(-dt * 5);
+    const calm = reducedMotion(); // «меньше движения»: no sway, no idle breathing, no wisps of spores drifting off by themselves
     for (let i = 0; i < n; i++) {
       const m = order[i];
       const r = info(m);
@@ -316,7 +318,7 @@ export function createMushrooms() {
       curS[i] = r.spr;
       const step = Math.round(clamp(r.sg, 0, 1) * STEPS);
       cur[i] = r.spr ? null : getSprite(r.kind, r.sub, step);
-      if (m.mature && r.sg > 0.9 && now >= r.nextWisp) {
+      if (m.mature && r.sg > 0.9 && now >= r.nextWisp && !calm) {
         r.nextWisp = now + 3 + Math.random() * 6;
         const cy = m.baseY - (extentFull(r.kind).up - 8) * 0.85 * r.size;
         const k = 3 + ((Math.random() * 3) | 0);
@@ -359,8 +361,8 @@ export function createMushrooms() {
       curR[i] = null;
       const ph = r.phase;
       const droop = 0.2 * wilt * (r.lean < 0 ? -1 : 1); // winter: the stalk bows over, the cap hangs
-      const sway = r.lean + droop + 0.011 * Math.sin(now * 0.8 + ph) + 0.004 * Math.sin(now * 1.9 + ph * 2.3);
-      const pulse = 1 + 0.009 * Math.sin(now * 1.35 + ph * 1.7);
+      const sway = r.lean + droop + (calm ? 0 : 0.011 * Math.sin(now * 0.8 + ph) + 0.004 * Math.sin(now * 1.9 + ph * 2.3));
+      const pulse = calm ? 1 : 1 + 0.009 * Math.sin(now * 1.35 + ph * 1.7);
       const squash = 1 - 0.14 * wilt;
       if (il) {
         // an illustration: its anchor (stipe base) sits a hair below the ground line so the stalk comes out of the soil

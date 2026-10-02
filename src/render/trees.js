@@ -5,6 +5,7 @@ import { makeCanvas, glowSprite, noise1, mulberry, mix, catmull, smooth01 } from
 import { resample } from '../core/geom.js';
 import { buildModel, STAGE_H } from './trees-model.js';
 import { trunkSteps, crownSteps, snagSteps } from './trees-paint.js';
+import { reducedMotion } from './motion.js';
 import { infBucket, infectedVitality, sallowAmount, isLost, mantleOf, INF_BUCKETS } from './rival-logic.js';
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -642,7 +643,9 @@ export function createTrees() {
         const own = noise1(tt * 0.31 + rec.phase) * 0.5 + noise1(tt * 0.77 + rec.phase * 1.7) * 0.25;
         const flut = noise1(tt * 1.15 + rec.phase * 2.3) * 0.5 + noise1(tt * 2.3 + rec.phase) * 0.3;
         const k1 = sw * 0.0075 * (0.7 * wind + 0.7 * own);
-        const base = { alpha: 1, scale: 1, k1, k2: k1 * 1.5 + flut * 0.003, rot: flut * 0.0055 * sw, fl: flut };
+        const base = reducedMotion()
+          ? { alpha: 1, scale: 1, k1: 0, k2: 0, rot: 0, fl: 0 } // «меньше движения»: the trees stand still
+          : { alpha: 1, scale: 1, k1, k2: k1 * 1.5 + flut * 0.003, rot: flut * 0.0055 * sw, fl: flut };
         if (rec.prev) {
           rec.grow += d / GROW_TIME;
           if (rec.grow >= 1) rec.prev = null;

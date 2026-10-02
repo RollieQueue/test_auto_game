@@ -1072,6 +1072,105 @@ kbd {
   flex-direction: column;
   gap: 0.8em;
 }
+/* settings on the pause page: the volume as an inked line with a wax bead, and the «Меньше движения» toggle */
+.pause-page .settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  margin: 1.2em auto 0;
+  padding-top: 0.9em;
+  max-width: 19em;
+  border-top: 1px dashed rgba(58, 42, 30, 0.35);
+}
+.set-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.7em;
+  font-size: 1.3em;
+  color: var(--indigo);
+  cursor: pointer;
+}
+.set-name {
+  text-align: left;
+}
+.set-val {
+  min-width: 2.9em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.set-range {
+  --fill: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  min-width: 6em;
+  height: 1.5em;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.set-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--sepia) var(--fill), rgba(58, 42, 30, 0.28) var(--fill));
+}
+.set-range::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(58, 42, 30, 0.28);
+}
+.set-range::-moz-range-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--sepia);
+}
+.set-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.05em;
+  height: 1.05em;
+  margin-top: calc(-0.525em + 1.5px);
+  border: 0;
+  border-radius: 52% 48% 55% 45% / 48% 55% 45% 52%;
+  background: var(--wax);
+  box-shadow:
+    0 0 0 1.5px var(--sepia),
+    0 0 0 0.2em rgba(239, 228, 204, 0.9),
+    0.05em 0.15em 0.3em 0.15em rgba(40, 24, 8, 0.3);
+}
+.set-range::-moz-range-thumb {
+  width: 1.05em;
+  height: 1.05em;
+  border: 0;
+  border-radius: 52% 48% 55% 45% / 48% 55% 45% 52%;
+  background: var(--wax);
+  box-shadow:
+    0 0 0 1.5px var(--sepia),
+    0 0 0 0.2em rgba(239, 228, 204, 0.9),
+    0.05em 0.15em 0.3em 0.15em rgba(40, 24, 8, 0.3);
+}
+.set-range:focus-visible {
+  outline: 2px dashed var(--indigo);
+  outline-offset: 4px;
+}
+.pause-page .settings .set-toggle {
+  align-self: center;
+  font-size: 1.15em;
+}
+/* «Меньше движения» on: the HUD's own endless animations stand still (the nudge of the «Гриб» tab keeps its glow) */
+.reduce-motion .g-ring,
+.reduce-motion .g-arrow,
+.reduce-motion .help-more span {
+  animation: none;
+}
+.reduce-motion .tool.nudge {
+  animation: none;
+  box-shadow:
+    0 0 0 0.26em rgba(236, 184, 66, 0.95),
+    0 0 1.2em 0.4em rgba(236, 184, 66, 0.7);
+}
 
 /* short windows: tighten the pages */
 @media (max-height: 640px) {
@@ -1084,6 +1183,11 @@ kbd {
   }
   .page .hint {
     margin-top: 0.6em;
+  }
+  .pause-page .settings {
+    margin-top: 0.7em;
+    padding-top: 0.6em;
+    gap: 0.5em;
   }
 }
 

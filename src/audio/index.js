@@ -1,4 +1,4 @@
-// Procedural audio (WebAudio only, no samples). API: createAudio() -> { unlock(), update(state, dt), setMuted(bool), muted }.
+// Procedural audio (WebAudio only, no samples). API: createAudio() -> { unlock(), update(state, dt), setMuted(bool), setVolume(0..1), muted, volume }.
 // createAudio({ context }) takes a ready (Offline)AudioContext instead of making its own (tests, src/audio/lab.html).
 //
 // Sound design (see docs/GDD.md "Звук"):
@@ -50,6 +50,8 @@ function writeMuted(value) {
 
 export function createAudio(options = {}) {
   let muted = readMuted();
+  let volume = 1; // 0..1, the settings slider (the player's choice is stored by ui/settings.js, not here)
+  const level = () => (muted ? 0 : MASTER_LEVEL * volume * volume); // squared: the slider then feels even to the ear
   let ctx = null;
   let g = null; // graph nodes
   let voices = 0;
@@ -123,7 +125,7 @@ export function createAudio(options = {}) {
     ctx = options.context || new AC({ latencyHint: 'playback' });
 
     const master = ctx.createGain();
-    master.gain.value = muted ? 0 : MASTER_LEVEL;
+    master.gain.value = level();
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -20;
     comp.knee.value = 24;
@@ -639,7 +641,7 @@ export function createAudio(options = {}) {
     if (!ctx) return;
     clearTimeout(suspendTimer);
     g.master.gain.cancelScheduledValues(now);
-    g.master.gain.setTargetAtTime(muted ? 0 : MASTER_LEVEL, now, 0.08);
+    g.master.gain.setTargetAtTime(level(), now, 0.08);
     if (muted) {
       suspendTimer = setTimeout(() => {
         if (muted && ctx.state === 'running') ctx.suspend();
@@ -707,8 +709,23 @@ export function createAudio(options = {}) {
       if (ctx) applyMute(ctx.currentTime);
     },
 
+    /** Master volume 0..1 (anything else is clamped; NaN is ignored). Applies at once, also before the first unlock. */
+    setVolume(value) {
+      const v = Number(value);
+      if (!Number.isFinite(v)) return;
+      volume = clamp(v, 0, 1);
+      if (ctx) {
+        g.master.gain.cancelScheduledValues(ctx.currentTime);
+        g.master.gain.setTargetAtTime(level(), ctx.currentTime, 0.05);
+      }
+    },
+
     get muted() {
       return muted;
+    },
+
+    get volume() {
+      return volume;
     },
 
     /** For tests and debugging. */

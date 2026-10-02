@@ -196,6 +196,29 @@ export function washed(src, sw, sh) {
   return c;
 }
 
+/**
+ * An ink-washed copy of an image or canvas: the same silhouette drained of colour and dimmed (a fruit body whose thread
+ * was cut off), no snow. Cached on the source.
+ */
+const drainedCopies = new WeakMap();
+export function drained(src, sw, sh) {
+  let c = drainedCopies.get(src);
+  if (c) return c;
+  c = scratch(sw, sh);
+  const g = c.getContext('2d');
+  g.drawImage(src, 0, 0, c.width, c.height);
+  g.globalCompositeOperation = 'saturation'; // drops the colour; the grey fill also covers the empty corners...
+  g.fillStyle = '#7e7e7e';
+  g.fillRect(0, 0, c.width, c.height);
+  g.globalCompositeOperation = 'destination-in'; // ...so cut them away again with the original's alpha
+  g.drawImage(src, 0, 0, c.width, c.height);
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = 'rgba(58,48,40,0.32)';
+  g.fillRect(0, 0, c.width, c.height);
+  drainedCopies.set(src, c);
+  return c;
+}
+
 /* ------------------------------------------------------------------ which look a mushroom gets */
 
 export const TREE_MUSHROOM = { birch: 'fly_agaric', oak: 'porcini', pine: 'saffron_milk_cap' };

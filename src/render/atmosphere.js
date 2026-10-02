@@ -9,6 +9,7 @@
 // `night` (0..1) is published for the glow of the mycelium and the flows.
 import { glowSprite, makeSprite, mulberry, noise1, rgb, seedOf, smooth01, subSeed } from './ink.js';
 import { sampleProfile } from '../world/query.js';
+import { reducedMotion } from './motion.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -408,11 +409,12 @@ export function createAtmosphere() {
     const cloud = 1 - 0.9 * Math.max(wx.rain, wx.snow);
     // stars
     const starA = smooth01((st.night - 0.35) / 0.5) * cloud;
+    const still = reducedMotion();
     if (starA > 0.02) {
       ctx.save();
       ctx.fillStyle = '#fff4d4';
       for (let b = 0; b < 3; b++) {
-        ctx.globalAlpha = starA * (0.62 + 0.38 * Math.sin(t * (0.9 + b * 0.4) + b * 2.1));
+        ctx.globalAlpha = starA * (0.62 + 0.38 * Math.sin((still ? 0 : t) * (0.9 + b * 0.4) + b * 2.1)); // still: no twinkle
         ctx.beginPath();
         for (const s of built.stars) {
           if (s.b !== b || s.big) continue;
@@ -428,7 +430,7 @@ export function createAtmosphere() {
       ctx.beginPath();
       for (const s of built.stars) {
         if (!s.big) continue;
-        const L = s.r * 3.2 * (0.8 + 0.2 * Math.sin(t * 1.2 + s.ph));
+        const L = s.r * 3.2 * (0.8 + 0.2 * Math.sin((still ? 0 : t) * 1.2 + s.ph));
         ctx.moveTo(s.x - L, s.y);
         ctx.lineTo(s.x + L, s.y);
         ctx.moveTo(s.x, s.y - L);
@@ -523,6 +525,7 @@ export function createAtmosphere() {
   function heatHaze(ctx, t) {
     const d = wx.drought;
     if (d < 0.05) return;
+    const still = reducedMotion(); // the shimmering lines hold still
     const { xs, gy } = built;
     ctx.save();
     ctx.lineWidth = 1.3;
@@ -531,7 +534,7 @@ export function createAtmosphere() {
       ctx.beginPath();
       const up = 12 + k * 15;
       for (let i = 0; i < xs.length; i += 2) {
-        const y = gy[i] - up + Math.sin(xs[i] * 0.045 + t * (1.4 + k * 0.3) + k * 1.7) * (1.6 + k * 0.5);
+        const y = gy[i] - up + Math.sin(xs[i] * 0.045 + (still ? 0 : t) * (1.4 + k * 0.3) + k * 1.7) * (1.6 + k * 0.5);
         if (i === 0) ctx.moveTo(xs[i], y);
         else ctx.lineTo(xs[i], y);
       }
@@ -729,9 +732,16 @@ export function createAtmosphere() {
     }
     ctx.restore();
     if (!particlesReady) seedParticles();
-    if (wx.rain > 0.02) rainfall(ctx, dt);
-    else if (splashAcc) splash.t.fill(-1);
-    if (wx.snow > 0.02) snowfall(ctx, t, dt);
+    // «меньше движения»: no falling rain or snow (the grey light and the wet or white ground still tell the weather) and no sweep
+    const calm = reducedMotion();
+    if (calm) {
+      if (splashAcc) splash.t.fill(-1);
+      sweep = null;
+    } else {
+      if (wx.rain > 0.02) rainfall(ctx, dt);
+      else if (splashAcc) splash.t.fill(-1);
+      if (wx.snow > 0.02) snowfall(ctx, t, dt);
+    }
     // a new season passes over the page as a soft wash
     if (sweep) {
       const u = (t - sweep.t0) / 3.2;

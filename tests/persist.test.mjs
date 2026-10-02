@@ -4,9 +4,10 @@ import { createState } from '../src/state.js';
 import * as sim from '../src/sim/index.js';
 import { addNode } from '../src/sim/network.js';
 import { createRng } from '../src/core/rng.js';
-import { restoreTime, weatherAt } from '../src/sim/clock.js';
+import { clockAt, restoreTime, weatherAt } from '../src/sim/clock.js';
+import { B } from '../src/sim/balance.js';
 import * as persist from '../src/persist.js';
-import { encodeState } from '../src/persist-codec.js';
+import { decodeState, encodeState } from '../src/persist-codec.js';
 import { DT, playBot } from './bot.mjs';
 
 const KEY = persist.SAVE_KEY;
@@ -215,6 +216,41 @@ test('determinism with seasons on: saved in late autumn, the loaded game goes th
     assert.equal(loaded.flags.yearDone, true);
     assert.deepEqual(view(loaded), view(state), 'the whole dynamic state agrees at the end');
   });
+});
+
+test('the long first morning: a new game saves its own clock; a save without the flag keeps the old 0.3 clock', () => {
+  const state = createState(7);
+  state.phase = 'playing';
+  state.flags.seasons = true;
+  assert.equal(state.flags.firstDusk, B.newGameDusk, 'a new game records its first dusk');
+  assert.ok(Math.abs(state.clock.dayFrac - B.newGameStart) < 1e-9, 'and starts at first light');
+  for (let i = 0; i < Math.round(60 / DT); i++) sim.updateSim(state, DT);
+  const t = state.sim.clock;
+  // a new game round-trips with the flag and the same clock
+  const fresh = decodeState(JSON.parse(JSON.stringify(encodeState(state))));
+  assert.equal(fresh.flags.firstDusk, B.newGameDusk);
+  assert.deepEqual(fresh.clock, state.clock);
+  assert.deepEqual(fresh.clock, clockAt(t, B.newGameDusk));
+  assert.deepEqual(fresh.sim.marks, state.sim.marks);
+  // the same save as an older build wrote it: no flag, so the clock it was saved with (0.3 at the start, 100 s days)
+  const old = JSON.parse(JSON.stringify(encodeState(state)));
+  delete old.flags.firstDusk;
+  const loaded = decodeState(old);
+  assert.equal(loaded.flags.firstDusk, undefined, 'the default of a new game must not leak into an old save');
+  assert.deepEqual(loaded.clock, clockAt(t), 'the legacy clock');
+  assert.ok(Math.abs(loaded.clock.dayFrac - ((B.startDayFrac + t / B.daySeconds) % 1)) < 1e-9);
+  // and it keeps that clock as it runs: the first dusk of such a game stays at 45 s
+  loaded.phase = 'playing';
+  const dusks = [];
+  loaded.sim.clock = 0;
+  restoreTime(loaded);
+  for (let i = 0; i < Math.round(100 / DT); i++) {
+    sim.updateSim(loaded, DT);
+    for (const e of loaded.events) if (e.type === 'dusk') dusks.push(loaded.sim.clock);
+    loaded.events.length = 0;
+  }
+  assert.equal(dusks.length, 1);
+  assert.ok(Math.abs(dusks[0] - 45) < 0.1, `old clock: dusk at ${dusks[0]} s`);
 });
 
 test('determinism: a loaded game continues exactly like the original (2 seeds)', () => {

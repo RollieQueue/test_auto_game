@@ -231,11 +231,13 @@ export const B = {
   // --- Time (the clock always runs; the effects below apply only with state.flags.seasons) ---
   daySeconds: 100, // a day (3 per season)
   seasonSeconds: 300, // a year is 4 seasons = 20 game minutes at x1
-  startDayFrac: 0.3, // a game starts in spring, shortly after sunrise (0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset)
+  startDayFrac: 0.3, // the old start of the day, kept for saves made before the long first morning (0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset)
+  newGameStart: 0.27, // a new game starts in spring at first light...
+  newGameDusk: 80, // ...and its first daytime lasts this many game seconds (the first dusk), then days are daySeconds long; stored in state.flags.firstDusk
   daylightEdge: 0.45, // daylight = smoothstep over sin(sun) in +-this: dawn and dusk take ~15 s each
   photoFloor: 0.4, // tree sugar payout = x (photoFloor + (1 - photoFloor) * daylight)
   // The first minutes are gentle: the night floor starts at `floor` (a night pays almost like a day), holds for `until` s of game
-  // time and then falls linearly to photoFloor over `fade` s, so a new player is not punished for the first dusk (at ~45 s).
+  // time and then falls linearly to photoFloor over `fade` s, so a new player is not punished for the first dusk (at 80 s, B.newGameDusk).
   firstLight: { floor: 0.85, until: 240, fade: 120 },
   nightSpores: 0.3, // spore release is up to +30% at night (humid air)
   weatherLead: 20, // s at the start of every season without an episode

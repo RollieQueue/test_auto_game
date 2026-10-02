@@ -6,7 +6,8 @@ import { createState } from '../src/state.js';
 import { B } from '../src/sim/balance.js';
 import { groundYAt } from '../src/world/query.js';
 import { pickHint, mineralsDry } from '../src/ui/guide-logic.js';
-import { coverage, cardMode, mushroomRect, crownRect, pointerIn } from '../src/ui/cards-logic.js';
+import { coverage, cardMode, mushroomRect, mushroomBox, crownRect, pointerIn } from '../src/ui/cards-logic.js';
+import { _setSpritesForTest } from '../src/render/sprites.js';
 import { describeTree, objectiveText, objectiveProgress, leadingTree, pctText } from '../src/ui/trees-logic.js';
 import { placeTip } from '../src/ui/tip-logic.js';
 import { placeLabelY, sweptRect, LABEL_LIFE } from '../src/ui/labels-logic.js';
@@ -36,6 +37,48 @@ test('a mushroom under the resources card is found; one far from it is not', () 
   s.mushrooms.length = 0;
   s.mushrooms.push(away);
   assert.equal(coverage(s, VIEW, card).mushrooms, 0);
+});
+
+test('the mushroom box is the drawn sprite (worldSize 46-52), not a 76 x 108 unit slab', () => {
+  const entry = { id: 'mushroom.common.1', group: 'mushroom', type: 'common', w: 300, h: 320, anchor: { x: 100, y: 316 }, worldSize: 50, img: {} };
+  _setSpritesForTest([entry]);
+  try {
+    const m = mushroom(500, 400, 0);
+    const box = mushroomBox(m, []);
+    const h = box.b - box.t;
+    const w = box.r - box.l;
+    assert.ok(h > 44 && h < 58, `height ${h}`); // about worldSize (x 0.92..1.08), anchor 4 px above the image bottom
+    assert.ok(Math.abs(w / h - 300 / 320) < 1e-9, 'the box keeps the picture proportions');
+    assert.ok(box.t > 400 - 56 && box.b < 400 + 6, 'it stands on the ground line');
+    // the anchor decides which side is wider (the mirror flips it): 100 px one way, 200 px the other
+    const wide = Math.max(500 - box.l, box.r - 500);
+    const narrow = Math.min(500 - box.l, box.r - 500);
+    assert.ok(Math.abs(wide - (200 * h) / 320) < 1e-9 && Math.abs(narrow - (100 * h) / 320) < 1e-9);
+    // a half-grown one is smaller
+    const half = mushroomBox({ ...m, growth: 0.3 }, []);
+    assert.ok(half.b - half.t < h * 0.7);
+    // screen rect: the view scale and offset apply
+    const r = mushroomRect(m, { scale: 0.5, ox: 10, oy: 20 }, []);
+    assert.ok(Math.abs(r.t - (box.t * 0.5 + 20)) < 1e-9 && Math.abs(r.l - (box.l * 0.5 + 10)) < 1e-9);
+    // a card whose edge is 70 units above the base is clear of the sprite (the old rect reached 100 up) ...
+    const s = createState(23);
+    s.mushrooms.push(m);
+    const above = { l: 0, t: 0, r: 2000, b: (400 - 70) * VIEW.scale - 7 };
+    assert.equal(coverage(s, VIEW, above).mushrooms, 0);
+    // ... and one that really reaches the cap is not
+    const onCap = { l: 0, t: 0, r: 2000, b: (400 - 30) * VIEW.scale };
+    assert.equal(coverage(s, VIEW, onCap).mushrooms, 1);
+    // nor does a card 60 units beside it count
+    s.mushrooms.length = 0;
+    s.mushrooms.push(mushroom(900, 400, 0));
+    const beside = { l: 0, t: 0, r: (900 - 120) * VIEW.scale, b: 2000 };
+    assert.equal(coverage(s, VIEW, beside).mushrooms, 0);
+  } finally {
+    _setSpritesForTest([]);
+  }
+  // without a loaded picture a plain box of about the same size is used
+  const plain = mushroomBox(mushroom(500, 400), []);
+  assert.ok(plain.r - plain.l <= 60 && plain.b - plain.t <= 64);
 });
 
 test('a tree crown is under a card when it reaches it; a sapling far below is not', () => {
