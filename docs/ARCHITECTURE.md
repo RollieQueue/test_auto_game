@@ -442,6 +442,13 @@ edges (up to `B.rivalRaidReach`), and each overgrown edge (`state.rival.over`) i
 `B.rivalRaidWither` s. Thick cords (`w >= B.rivalBlockW`), the immune stretch round the spore and barriers stop it; a barrier
 kills it and heals what it overgrew (`rival-raid-end`). `raiders(state)`, `spawnRaiderAt(state, x, y, dir)` for tests and
 scenarios. `node tools/rival-balance.mjs` prints the bot table (barriers, grips, raids, losses, closes, income) in about 30 s.
+Raid drawing and texts: src/render/rival.js `drawOver` paints `state.rival.over` live after the cord cache (never in it: a change of
+`cover` or `wither` rebuilds nothing), `drawRaiders` draws the head of a running raider and the heading dashes follow `tip.raid.goal`;
+a standing barrier gets a frost veil (`frostSprite`, `freezeLook` in rival-logic.js) under its chalk ring. `?mode=raid` in
+gallery-rival.js shows them (`&focus=chain|seek|barrier|barrier2|all`). UI (src/ui/rival.js): `describeBarrierPick(pick, cost, sugar,
+B, state)` adds the price line `sub2` from `effectsOf`; tooltip.js `describePreview` explains a ring refusal with the seconds left;
+the `grow-denied` label has a 5 s gate; one margin note per game on the first `rival-raid-seek`/`rival-raid-touch`; the guide hint
+`raidHint` shows once per player (prefs `seen.raid-hint`); threats.js gives `severed {cause: 'rival'}` its own texts.
 
 Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-grip {treeId, x, y}`,
 `tree-infected {treeId, level}` (at 0.25 / 0.5 / 0.75; also `x, y` of the trunk base), `tree-freed {treeId, x, y}`,
