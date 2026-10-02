@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createState } from '../src/state.js';
 import { B } from '../src/sim/balance.js';
-import { groundYAt } from '../src/world/query.js';
 import { YOUNG_DETOUR, mineralsDry, pickHint, rockDetour } from '../src/ui/guide-logic.js';
+import { groundYAt } from '../src/world/query.js';
 import { coverage, cardMode, mushroomRect, mushroomBox, crownRect, pointerIn } from '../src/ui/cards-logic.js';
 import { _setSpritesForTest } from '../src/render/sprites.js';
 import { describeTree, objectiveText, objectiveProgress, leadingTree, pctText } from '../src/ui/trees-logic.js';
@@ -61,16 +61,19 @@ test('the mushroom box is the drawn sprite (worldSize 46-52), not a 76 x 108 uni
     const r = mushroomRect(m, { scale: 0.5, ox: 10, oy: 20 }, []);
     assert.ok(Math.abs(r.t - (box.t * 0.5 + 20)) < 1e-9 && Math.abs(r.l - (box.l * 0.5 + 10)) < 1e-9);
     // a card whose edge is 70 units above the base is clear of the sprite (the old rect reached 100 up) ...
+    // (the mushroom stands on the ground: its clump's small caps are placed from the ground profile)
     const s = createState(23);
-    s.mushrooms.push(m);
-    const above = { l: 0, t: 0, r: 2000, b: (400 - 70) * VIEW.scale - 7 };
+    const gy = groundYAt(s.world, 500);
+    const mg = mushroom(500, gy, 0);
+    s.mushrooms.push(mg);
+    const above = { l: 0, t: 0, r: 2000, b: (gy - 70) * VIEW.scale - 7 };
     assert.equal(coverage(s, VIEW, above).mushrooms, 0);
     // ... and one that really reaches the cap is not
-    const onCap = { l: 0, t: 0, r: 2000, b: (400 - 30) * VIEW.scale };
+    const onCap = { l: 0, t: 0, r: 2000, b: (gy - 30) * VIEW.scale };
     assert.equal(coverage(s, VIEW, onCap).mushrooms, 1);
     // nor does a card 60 units beside it count
     s.mushrooms.length = 0;
-    s.mushrooms.push(mushroom(900, 400, 0));
+    s.mushrooms.push(mushroom(900, groundYAt(s.world, 900), 0));
     const beside = { l: 0, t: 0, r: (900 - 120) * VIEW.scale, b: 2000 };
     assert.equal(coverage(s, VIEW, beside).mushrooms, 0);
   } finally {

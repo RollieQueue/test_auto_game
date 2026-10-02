@@ -2,6 +2,8 @@
 // this is the pure part that says what lies under a card (screen rect). No DOM.
 import { CROWN_HALF } from '../world/generate.js';
 import { hash32 } from '../core/rng.js';
+import { clumpCaps } from '../world/clump.js';
+import { groundYAt } from '../world/query.js';
 import { mushroomSprite, growScale } from '../render/sprites.js';
 
 const STAGE_H = [70, 140, 205, 255]; // as in render/trees-model.js (full height of a tree per stage)
@@ -19,11 +21,22 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
  * worldSize tall times the per-mushroom size 0.92..1.08 and the growth scale, its anchor at the stalk base, mirrored
  * for half of them) this is the picture's own rectangle; without one, a plain box of the same order.
  */
-export function mushroomBox(m, trees) {
+export function mushroomBox(m, trees, world) {
   const x = num(m.x);
   const y = num(m.baseY);
   const il = mushroomSprite(m, trees);
-  if (!il) return { l: x - MUSHROOM_HALF, r: x + MUSHROOM_HALF, t: y - MUSHROOM_UP, b: y + MUSHROOM_DOWN };
+  const main = il ? spriteBox(m, il, x, y) : { l: x - MUSHROOM_HALF, r: x + MUSHROOM_HALF, t: y - MUSHROOM_UP, b: y + MUSHROOM_DOWN };
+  // the small caps of the clump (seeded, see world/clump.js) widen the box to the whole clump
+  for (const c of clumpCaps(world, m, groundYAt).slice(1)) {
+    main.l = Math.min(main.l, c.x - MUSHROOM_HALF * c.scale);
+    main.r = Math.max(main.r, c.x + MUSHROOM_HALF * c.scale);
+    main.t = Math.min(main.t, c.y - MUSHROOM_UP * c.scale);
+    main.b = Math.max(main.b, c.y + MUSHROOM_DOWN * c.scale);
+  }
+  return main;
+}
+
+function spriteBox(m, il, x, y) {
   const h = hash32('mushroom', m.id === undefined ? 0 : m.id);
   const size = 0.92 + 0.16 * ((h & 1023) / 1023);
   const mirror = ((h >>> 10) & 1023) / 1023 < 0.5;
@@ -36,8 +49,8 @@ export function mushroomBox(m, trees) {
 }
 
 /** World -> screen rect {l, t, r, b} of a mushroom as drawn (`trees`: state.world.trees, for the species look). */
-export function mushroomRect(m, view, trees) {
-  const box = mushroomBox(m, trees);
+export function mushroomRect(m, view, trees, world) {
+  const box = mushroomBox(m, trees, world);
   const s = view.scale;
   return { l: box.l * s + view.ox, r: box.r * s + view.ox, t: box.t * s + view.oy, b: box.b * s + view.oy };
 }
@@ -67,7 +80,7 @@ export function coverage(state, view, rect) {
   const out = { mushrooms: 0, crowns: 0 };
   if (!state || !view || !(view.scale > 0) || !rect || rect.r - rect.l < 2) return out;
   const trees = (state.world && state.world.trees) || [];
-  for (const m of state.mushrooms || []) if (overlaps(rect, mushroomRect(m, view, trees))) out.mushrooms += 1;
+  for (const m of state.mushrooms || []) if (overlaps(rect, mushroomRect(m, view, trees, state.world))) out.mushrooms += 1;
   for (const t of trees) if (overlaps(rect, crownRect(t, view))) out.crowns += 1;
   return out;
 }

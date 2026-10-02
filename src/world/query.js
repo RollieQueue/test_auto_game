@@ -1,5 +1,6 @@
 // Spatial queries over the generated world. Pure functions, no DOM.
 import { distToPolyline, pointInPolygon } from '../core/geom.js';
+import { clumpHit } from './clump.js';
 
 /** Linear interpolation into a profile sampled every `step` units from x = 0. */
 export function sampleProfile(profile, step, x) {
@@ -51,9 +52,17 @@ export const isPassable = (world, x, y) => Number.isFinite(costAt(world, x, y));
  * (open sky). `id` is the object id; for 'horizon' it is the horizon id string ('litter', 'humus', ...).
  */
 export function targetAt(world, mushrooms, x, y) {
+  // any cap of a clump, the main one or a small one; the nearest stalk wins when two clumps overlap
+  let hit = null;
+  let best = Infinity;
   for (const m of mushrooms) {
-    if (Math.abs(x - m.x) <= 24 && y >= m.baseY - 70 && y <= m.baseY + 8) return { kind: 'mushroom', id: m.id };
+    const d = clumpHit(world, m, x, y, groundYAt);
+    if (d >= 0 && d < best) {
+      best = d;
+      hit = m.id;
+    }
   }
+  if (hit !== null) return { kind: 'mushroom', id: hit };
   const ground = groundYAt(world, x);
   if (y < ground) {
     for (const t of world.trees) if (Math.abs(x - t.x) <= 36 && y >= t.baseY - 420) return { kind: 'tree', id: t.id };

@@ -989,7 +989,7 @@ export function createHud(root, actions) {
     const trees = (state.world && state.world.trees) || [];
     const things = [];
     for (const t of trees) things.push({ ...crownRect(t, view), w: 2 });
-    for (const m of state.mushrooms || []) things.push({ ...mushroomRect(m, view, trees), w: 3 });
+    for (const m of state.mushrooms || []) things.push({ ...mushroomRect(m, view, trees, state.world), w: 3 });
     const box = { cx: z.left + z.width / 2 - dx0, w: z.width, t: z.top, h: (smallWindow() ? 6.5 : 9.5) * fs };
     const dx = notesShift(box, { l: res.right + 8, r: obj.right - 21.5 * fs - 8 }, things);
     if (dx !== dx0) root.style.setProperty('--notes-dx', `${dx}px`);
