@@ -17,7 +17,9 @@ import { createAtlasStore } from './atlas-store.js';
 import { createSpeciesPicker } from './species.js';
 import { calendarHtml, createCalendar } from './calendar.js';
 import { seasonNote } from './season-logic.js';
-import { buildYearPage } from './year.js';
+import { buildClosedPage, buildYearPage } from './year.js';
+import { stakesSlip } from './year-logic.js';
+import { pageClosed } from '../sim/stakes.js';
 import { guideEnabled, setGuideEnabled, onGuideChange, atlasHintSeen, markAtlasHint, wormNoteSeen, markWormNote } from './prefs.js';
 import { FIRST_WORM_NOTE, WORM_SENSE_NOTE, chapterOf, createSenseGate, objectivesTitle, summaryTexts, threatsOn, trapCost, trapTabTitle } from './threats.js';
 import { barrierCostOf, barrierTabShown, barrierTabTitle, markRivalHint, rivalOn, rivalStats, rivalSummaryLine } from './rival.js';
@@ -180,6 +182,7 @@ export function createHud(root, actions) {
     <div class="screen year-screen">
       <div class="page sum-page year-page" role="dialog" aria-label="Итог года"></div>
     </div>
+    <div class="stakes-slip" role="status" hidden><span class="sl-main"></span><span class="sl-hint"></span></div>
 
     <div class="screen summary-screen">
       <div class="page sum-page" data-sum="page">
@@ -246,6 +249,9 @@ export function createHud(root, actions) {
     summary: q('.summary-screen'),
     year: q('.year-screen'),
     yearPage: q('.year-page'),
+    slip: q('.stakes-slip'),
+    slipMain: q('.sl-main'),
+    slipHint: q('.sl-hint'),
   };
   for (const k of RESOURCES) {
     const row = el.resRows[k.k];
@@ -404,6 +410,7 @@ export function createHud(root, actions) {
   let pausedByAtlas = false;
   let yearOpen = false;
   let pausedByYear = false;
+  let closedOpen = false; // the year page shows the closed page (no «Продолжить»: the notebook is shut until a new game)
   let pendingYear = null; // a year-end waiting for the page that is open now (the summary) to close
   let prevChapter = 1; // the chapter at the previous frame (the page that just closed when all-objectives arrives)
   let muteDoneFlag = false; // a new page turned while allObjectivesDone was still set: ignore it until it drops
@@ -445,6 +452,7 @@ export function createHud(root, actions) {
     pausedByAtlas = false;
     yearOpen = false;
     pausedByYear = false;
+    closedOpen = false;
     pendingYear = null;
     prevChapter = chapterOf(state);
     muteDoneFlag = false;
@@ -521,8 +529,19 @@ export function createHud(root, actions) {
     }
   }
 
+  /** «Страница закрыта»: the year screen shows the closing page; the game stays paused behind it, only the two buttons go on. */
+  function openClosed(state) {
+    closedOpen = true;
+    yearOpen = true;
+    pendingYear = null;
+    el.yearPage.setAttribute('aria-label', 'Страница закрыта');
+    el.yearPage.innerHTML = buildClosedPage(state);
+    setScreen(el.year, true);
+    if (state.phase === 'playing') actions.togglePause();
+  }
+
   function dismissYear() {
-    if (!yearOpen) return false;
+    if (!yearOpen || closedOpen) return false;
     yearOpen = false;
     setScreen(el.year, false);
     if (pausedByYear && cur && cur.phase === 'paused') actions.togglePause();
@@ -637,6 +656,8 @@ export function createHud(root, actions) {
         return void dismissSummary();
       case 'year-continue':
         return void dismissYear();
+      case 'retry': // the same glade and fungus, from the start
+        return actions.restart(cur.seed, cur.flags.species);
       case 'restart':
         return actions.restart();
       default:
@@ -1050,6 +1071,20 @@ export function createHud(root, actions) {
     }
   }
 
+  /** The warning slip of the stakes (no ally for a while, the last tree rotting): bottom centre above the tools, quiet otherwise. */
+  function updateSlip(state) {
+    const slip = phaseShowsSlip(state) ? stakesSlip(state) : null;
+    const text = slip ? `${slip.text}|${slip.hint}` : '';
+    if (shown.slip === text) return;
+    shown.slip = text;
+    el.slip.hidden = !slip;
+    el.slips.classList.toggle('lifted', Boolean(slip)); // a mark's slip stands above the warning, never under it
+    el.slipMain.textContent = slip ? slip.text : '';
+    el.slipHint.textContent = slip ? slip.hint : '';
+    el.slip.dataset.tone = slip ? slip.tone : '';
+  }
+  const phaseShowsSlip = (state) => state.phase === 'playing' && !yearOpen && !summaryOpen && !helpOpen && !atlasOpen;
+
   /** Counts the trees freed from the honey fungus for the summary and year pages. */
   function updateRival(state) {
     if (!rivalOn(state) || state.phase === 'title') return;
@@ -1163,6 +1198,11 @@ export function createHud(root, actions) {
       prevChapter = chapterNow;
       // the end of the first (and every later) year: its page waits for the summary page if that is open
       for (const ev of state.events) if (ev.type === 'year-end') pendingYear = ev.year;
+      if (pageClosed(state) && !closedOpen && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen) {
+        if (yearOpen) dismissYear();
+        openClosed(state);
+      }
+      updateSlip(state);
       if (pendingYear !== null && phase !== 'title' && !summaryOpen && !helpOpen && !atlasOpen && !yearOpen) {
         openYear(state, pendingYear);
         pendingYear = null;

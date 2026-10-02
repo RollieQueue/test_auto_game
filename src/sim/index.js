@@ -8,6 +8,7 @@ import { recomputeFlows } from './flows.js';
 import { createObjectives, stepObjectives } from './objectives.js';
 import { initTime, stepTime } from './clock.js';
 import { canTrap, commandTrap, pickTrapNode, stepThreats, trapDenial } from './threats.js';
+import { stepStakes } from './stakes.js';
 import { barrierCost, barrierDenial, canBarrier, commandBarrier, pickBarrierNode, stepRival } from './rival.js';
 
 export { commandGrow, estimateGrowth, canFruit, commandFruit, mushroomCost, pickFruitNode, canTrap, commandTrap, pickTrapNode, trapDenial };
@@ -42,6 +43,7 @@ export function initSim(state) {
 }
 
 export function updateSim(state, dt) {
+  if (state.flags.pageClosed) return; // «страница закрыта»: the glade stands still (see stakes.js)
   const { res, sim, rates } = state;
   const before = { sugar: res.sugar, water: res.water, minerals: res.minerals, spores: res.spores };
   sim.clock += dt;
@@ -57,6 +59,7 @@ export function updateSim(state, dt) {
     sim.flowDt = 0;
   }
   stepObjectives(state, dt);
+  stepStakes(state, dt);
   // Smoothed net change per second (commands run between steps, so their one-off costs are not counted).
   const k = Math.min(1, dt / B.rateTau);
   for (const key of ['sugar', 'water', 'minerals', 'spores']) rates[key] += ((res[key] - before[key]) / dt - rates[key]) * k;

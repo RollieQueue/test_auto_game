@@ -284,6 +284,15 @@ state.ui.tool          // 'grow' | 'fruit' | 'trap'; while 'trap', state.ui.trap
 state.chapter          // 1..3; state.objectives is always the current page; flags.pagesDone, flags.bookDone
 ```
 
+Stakes (src/sim/stakes.js, numbers `B.stakes`; text in src/ui/year-logic.js; all of it in `state.flags`, so a save needs no new
+field): at every `year-end` the sim stores `flags.yearGrades` (the grade of the year: parts, score 0..100, grade
+`poor|fair|good|great`) and moves `flags.yearSnap` (the counters «this year» is measured from). From chapter 2 on, with threats,
+`page-closed { cause }` fires and `flags.pageClosed = { cause: 'grove' | 'allies', time, year, chapter }` is set when every tree is
+lost, or when no living tree has had a root contact for `B.stakes.noAllySeconds` of game time with no hypha growing
+(`flags.noAlly` counts it). `updateSim` does nothing while `flags.pageClosed` is set; the HUD asks the state (not the event), so a
+reloaded closed game shows the closed page again (buttons `retry` = same seed and fungus, `restart` = a new glade). From chapter 2
+the honey fungus may rot the last tree through (`B.rivalLastTree` holds only in page 1).
+
 Nematodes spawn as the network grows (more in summer, few in winter) and bite thin hyphae (`edge.w < 1.6`; the
 first 52 u around the spore and hyphae younger than 8 s are immune). A cut kills the whole branch beyond it:
 nodes and edges get `alive = false`, links, flows, growing tips, mushrooms and rings on it are dropped. A ring

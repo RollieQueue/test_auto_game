@@ -1926,6 +1926,89 @@ kbd {
 .year-page .actions {
   margin-top: 0.9em;
 }
+/* the grade of the year: a line of verdict, the reason («за: …») and the advice, under the flourish */
+.year-mark {
+  max-width: 38em;
+  margin: 0.45em auto 0.15em;
+  padding: 0.3em 0.9em 0.35em;
+  text-align: center;
+  background: rgba(168, 50, 45, 0.06);
+  border-top: 1px solid rgba(90, 62, 36, 0.35);
+  border-bottom: 1px solid rgba(90, 62, 36, 0.35);
+}
+.year-mark-line {
+  font-size: 1.55em;
+  line-height: 1.15;
+  color: var(--indigo);
+}
+.year-mark-line .k {
+  font: 400 0.95em/1 var(--font-script);
+  margin-right: 0.3em;
+  opacity: 0.85;
+}
+.year-mark-line b {
+  font-weight: 700;
+  color: var(--wax);
+}
+.year-mark.g-great .year-mark-line b {
+  color: #2f4a22;
+}
+.year-mark-why,
+.year-mark-next {
+  font: italic 400 1.05em/1.2 var(--font-serif);
+  color: rgba(58, 42, 30, 0.85);
+  margin-top: 0.15em;
+}
+.year-mark-next {
+  color: rgba(38, 48, 74, 0.8);
+}
+.stamp-seal.g-great {
+  color: #2f4a22;
+  border-color: #2f4a22;
+  outline-color: rgba(47, 74, 34, 0.55);
+}
+.closed-stats {
+  max-width: 24em;
+  margin-top: 0.4em;
+}
+/* the warning slip of the stakes: no ally for a while, the last tree rotting (bottom centre, the margin notes keep the top) */
+.stakes-slip {
+  position: absolute;
+  left: 50%;
+  bottom: 4.3em;
+  transform: translateX(-50%) rotate(-0.6deg);
+  max-width: min(46em, calc(100vw - 40em));
+  padding: 0.3em 1em 0.36em;
+  font-size: 1.35em;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--wax);
+  background:
+    var(--grain),
+    linear-gradient(172deg, rgba(246, 238, 218, 0.97), rgba(236, 224, 196, 0.96));
+  border-radius: 0.3em 0.6em 0.3em 0.5em / 0.5em 0.3em 0.5em 0.3em;
+  box-shadow:
+    0 0 0 1.5px rgba(168, 50, 45, 0.6),
+    0.06em 0.16em 0.4em rgba(14, 8, 4, 0.35);
+  pointer-events: none;
+}
+.stakes-slip .sl-main,
+.stakes-slip .sl-hint {
+  display: block;
+}
+.stakes-slip .sl-hint {
+  margin-top: 0.1em;
+  font: italic 400 0.72em/1.1 var(--font-serif);
+  color: rgba(58, 42, 30, 0.85);
+}
+.stakes-slip[hidden] {
+  display: none;
+}
+.stakes-slip[data-tone='danger'] {
+  box-shadow:
+    0 0 0 2.5px var(--wax),
+    0.06em 0.16em 0.4em rgba(14, 8, 4, 0.4);
+}
 @media (max-height: 760px) {
   .year-page h2 {
     font-size: 2.1em;
@@ -1935,6 +2018,12 @@ kbd {
   }
   .year-page .flourish {
     display: none;
+  }
+  .year-mark {
+    margin-top: 0.2em;
+  }
+  .year-mark-line {
+    font-size: 1.3em;
   }
   .year-page .stamp-seal {
     width: 6em;
@@ -2300,6 +2389,10 @@ kbd {
   gap: 0.5em;
   pointer-events: none;
   z-index: 3;
+}
+/* while the stakes warning (.stakes-slip: bottom 4.3em at 1.35em, two lines) is up, the mark slips stand above it */
+.slips.lifted {
+  bottom: 10.6em;
 }
 .slip {
   display: flex;

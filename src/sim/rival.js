@@ -10,6 +10,7 @@ import { costAt, groundYAt } from '../world/query.js';
 import { B, treeFx } from './balance.js';
 import { eachNodeNear, nearestNode } from './network.js';
 import { fungusFx } from './species.js';
+import { stakesOn } from './stakes.js';
 
 const TAU = Math.PI * 2;
 const THINK = 0.1; // s between the steering decisions of one tip
@@ -704,7 +705,7 @@ function stepInfection(state, rival, dt) {
     // the first quarter of the rot runs slow (B.rivalEarlyRate): a grip is seen, and answered, well before it hurts
     if (n > 0) tree.infection += (rate * season * (1 - B.mantleProtect * tree.mantle) * rot * (tree.infection < 0.25 ? B.rivalEarlyRate : 1) * dt) / B.rivalInfectSeconds;
     else if (tree.infection > 0) tree.infection -= ((1 + B.rivalHealMantle * tree.mantle) * dt) / B.rivalHealSeconds;
-    tree.infection = clamp(tree.infection, 0, living <= 1 ? B.rivalLastTree : 1);
+    tree.infection = clamp(tree.infection, 0, living <= 1 && !stakesOn(state) ? B.rivalLastTree : 1);
     let lvl = rival.levels[tree.id] ?? 0;
     while (lvl < 3 && tree.infection >= 0.25 * (lvl + 1)) {
       lvl++;

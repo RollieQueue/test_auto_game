@@ -191,7 +191,7 @@ export const B = {
   rivalHealSeconds: 240, // s from 1 to 0 for a free tree with no mantle
   rivalHealMantle: 2, // ... faster by (1 + this * mantle)
   rivalPayCut: 0.7, // the sugar a tree pays falls by this share at full infection
-  rivalLastTree: 0.9, // the last living tree cannot be rotted beyond this (there is always a way on)
+  rivalLastTree: 0.9, // the last living tree cannot be rotted beyond this (there is always a way on) until the stakes begin (B.stakes.fromChapter)
   rivalFruitInfection: 0.4, // autumn clusters appear at trees rotted this far
   rivalFruitRate: 0.04, // per second per such tree in autumn
   rivalFruit: [3, 7], // mushrooms in a cluster
@@ -230,6 +230,25 @@ export const B = {
   starveAfter: 30, // s
   starveEvery: 10, // s between dieback steps while it goes on
 
+  // --- Stakes (threats only, sim/stakes.js): the year's grade and the fair loss «страница закрыта». A page closes when every tree
+  // of the glade is lost, or when the network has had no living ally (a non-lost tree with a root contact) for noAllySeconds
+  // while no hypha was growing. Never before chapter `fromChapter`: page 1 is for learning. From that chapter the honey fungus may rot
+  // the last tree too (B.rivalLastTree no longer holds). noAllySeconds: a tip crosses the whole glade (1920 u) in ~14 s at growSpeed,
+  // so 90 s is time to see the slip, afford a hypha (the saprotrophic floor pays ~0.35 sugar/s) and reach a root; the clock stands while a hypha grows. ---
+  stakes: {
+    fromChapter: 2,
+    noAllySeconds: 90,
+    noAllyShow: 3, // s without an ally before the slip with the countdown appears (a link lost and relinked at once shows nothing)
+    lastTreeShow: 0.5, // the slip about the last living tree appears at this infection
+    // the grade of a year, 0..100 points: the maximum of every part; a part that does not apply (no rival) leaves the sum
+    // and the scale out (the score is the share of what could be earned). sporesYear: spores in one year for the full spores points.
+    max: { alive: 20, allies: 10, growth: 20, spores: 20, mushrooms: 5, pages: 15, rival: 10 },
+    sporesYear: 800,
+    growthFull: 0.6, // tree stages gained in the year, per tree, for the full growth points
+    mushroomsFull: 6, // grown mushrooms for the full 5 points
+    cuts: [40, 62, 82], // score (in %) where «fair», «good» and «great» begin; below the first is «poor»
+    lostCap: 'fair', // the best grade of a year in which a tree was lost
+  },
   // --- Chapters (threats only): the notebook turns the page after the five first observations ---
   chapterCount: 3,
   chapter2Finds: 4, // kinds of finds

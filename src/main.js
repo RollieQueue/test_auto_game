@@ -32,9 +32,9 @@ function pickSeed(value) {
 // the fungus a new glade starts with: ?species=<id>, else the last pick on the title page (kept in localStorage)
 let lastSpecies = parseSpecies(params.get('species')) ?? loadChoice();
 
-function newState(seed) {
+function newState(seed, species) {
   const state = createState(pickSeed(seed));
-  state.flags.species = startingSpecies(state.world, lastSpecies);
+  state.flags.species = startingSpecies(state.world, parseSpecies(species) ?? lastSpecies);
   state.flags.seasons = SEASONS;
   state.flags.threats = THREATS;
   state.flags.rival = RIVAL;
@@ -76,11 +76,12 @@ game.actions = {
     game.state.ui.drag = null;
     game.state.ui.preview = null;
   },
-  restart(seed) {
+  /** A fresh game: a random glade, or glade `seed` (with the fungus `species` of the game that closed: «Попробовать снова»). */
+  restart(seed, species) {
     const previous = game.state.world && game.state.world.biome;
-    let next = newState(seed);
+    let next = newState(seed, species);
     // a random new glade that keeps the biome of the last one gets one more roll, so «Новая поляна» looks new
-    if (!Number.isFinite(Number(seed)) && previous && next.world.biome === previous) next = newState(seed);
+    if (!Number.isFinite(Number(seed)) && previous && next.world.biome === previous) next = newState(seed, species);
     game.state = next;
     game.state.phase = 'playing';
     game.audio.unlock();
