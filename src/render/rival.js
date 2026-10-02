@@ -13,7 +13,7 @@ import { PAL, blobPoly, glowSprite, granulate, inkStroke, makeCanvas, makeSprite
 import { hash32 } from '../core/rng.js';
 import { honeySprite, levelFor, stumpSprite } from './sprites.js';
 import { STAGE_H } from './trees-model.js';
-import { GROW_TIME, barrierLook, clamp, clusterLook, growFrac, hasRival, num, cameraKey, rivalParts, stumpsOf, witherAlpha, smoothEdges, curveAt, rootGoal, headingAlpha, tipPulse, tuftLayout, infectionLabel, ringStrength, isLost, overList, hyphaCurve, overPoints, pointAlong, overLook, raidPhase, raidGoal, freezeLook } from './rival-logic.js';
+import { GROW_TIME, barrierLook, clamp, clusterLook, growFrac, hasRival, num, cameraKey, rivalParts, stumpsOf, witherAlpha, smoothEdges, curveAt, rootGoal, headingAlpha, tipPulse, tuftLayout, infectionLabel, ringStrength, isLost, overList, hyphaCurve, spiralLook, threadPoints, threadAt, threadSlice, spiralBands, raidPhase, raidGoal, raidLead, leadAlpha, leadDashes, leadDrop, freezeLook, HONEY, SPIRAL_MAX, LEAD_MAX_DASHES } from './rival-logic.js';
 import { reducedMotion } from './motion.js';
 
 const TAU = Math.PI * 2;
@@ -39,6 +39,13 @@ export function createRival() {
   const curves = { rival: null, ver: -2, nodes: -1, edges: -1, grips: -1, stamp: 0 }; // the stamp of the smoothed shapes
   const sprites = new Map(); // key -> sprite (stain, honey tuft, stump, barrier ring)
   const fx = [];
+  const threads = new Map(); // edge id -> the polyline of an overgrown player's hypha (threadOf)
+  const sliceBuf = new Float32Array(2 * 160); // scratch of drawOver: the covered stretch, then its wraps, and of the raider's lead
+  const bandBuf = new Float32Array(6 * SPIRAL_MAX);
+  const dashBuf = new Float32Array(6 * LEAD_MAX_DASHES);
+  const leadBuf = {};
+  const dropBuf = {};
+  const speck = {};
   let seq = 1;
   const stats = { rebuilds: 0, bakes: 0, live: 0, baked: 0, withering: 0 };
 
@@ -303,14 +310,14 @@ export function createRival() {
    * and a «!» on the root, like the worm's warning. The goal comes from rival-logic rootGoal (the sim's own choice).
    */
   function drawHeading(ctx, state, rival, tip, t, startR) {
-    let goal = null;
-    if (tip.raid) goal = raidGoal(tip); // a raider heads for a point on the player's hypha
-    else {
-      const list = state.world && state.world.trees;
-      if (!tip.target || !Array.isArray(list)) return;
-      const tree = list.find((q) => q && q.id === tip.target.id);
-      goal = rootGoal(tip, tree, { grips: rival.grip, claimed: state.sim && state.sim.tipClaimed });
+    if (tip.raid) {
+      drawRaidLead(ctx, tip, t, startR); // a raider heads for a point on the player's hypha: its own look
+      return;
     }
+    const list = state.world && state.world.trees;
+    if (!tip.target || !Array.isArray(list)) return;
+    const tree = list.find((q) => q && q.id === tip.target.id);
+    const goal = rootGoal(tip, tree, { grips: rival.grip, claimed: state.sim && state.sim.tipClaimed });
     if (!goal) return;
     const a = headingAlpha(goal.d);
     if (a <= 0.01 || goal.d < 9) return;
@@ -348,6 +355,89 @@ export function createRival() {
     ctx.setLineDash([]);
     paintBang(ctx, goal.x, goal.y - 17, pulse);
     ctx.restore();
+  }
+
+  /**
+   * A seeking raider's lead: a long dashed arrow of honey amber along its heading, the dashes marching to a small honey drop at
+   * the tip (rival-logic raidLead / leadDashes / leadDrop), faded in and out over the 12 s it stands before it creeps and shown
+   * again, fainter, while its hypha is near. Where it will touch (the goal) gets the dashed wax ring and the «!».
+   */
+  function drawRaidLead(ctx, tip, t, startR) {
+    const goal = raidGoal(tip);
+    const lead = raidLead(tip, startR, leadBuf);
+    const still = reducedMotion();
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (lead) {
+      ctx.globalAlpha = lead.alpha;
+      ctx.beginPath();
+      ctx.moveTo(lead.x0, lead.y0);
+      ctx.lineTo(lead.x1, lead.y1);
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = rgba(HONEY, 0.14);
+      ctx.stroke();
+      const n = leadDashes(dashBuf, lead, t, still);
+      for (let i = 0; i < n; i++) {
+        const b = i * 6;
+        ctx.globalAlpha = lead.alpha * dashBuf[b + 5];
+        ctx.beginPath();
+        ctx.moveTo(dashBuf[b], dashBuf[b + 1]);
+        ctx.lineTo(dashBuf[b + 2], dashBuf[b + 3]);
+        ctx.lineWidth = dashBuf[b + 4] + 1.8;
+        ctx.strokeStyle = 'rgba(36,20,6,0.45)';
+        ctx.stroke();
+        ctx.lineWidth = dashBuf[b + 4];
+        ctx.strokeStyle = HONEY;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = lead.alpha;
+      paintHoneyDrop(ctx, leadDrop(lead, t, still, dropBuf));
+    }
+    if (goal && goal.d >= 9) {
+      const a = Math.max(leadAlpha(tip.age), headingAlpha(goal.d));
+      if (a > 0.01) {
+        const pulse = still ? 0 : Math.sin(t * 3 + num(tip.id));
+        ctx.globalAlpha = a;
+        ctx.setLineDash([2.5, 3]);
+        ctx.lineDashOffset = t * 6;
+        ctx.beginPath();
+        ctx.arc(goal.x, goal.y, 8 + 0.8 * pulse, 0, TAU);
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = WAX;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        paintBang(ctx, goal.x, goal.y - 17, pulse);
+      }
+    }
+    ctx.restore();
+  }
+
+  /** A honey drop pointing along its heading (d = { x, y, ang, size }): a chalk rim, sepia line, amber body and a cream gleam, like the «!» beside it. */
+  function paintHoneyDrop(ctx, d) {
+    const s = d.size;
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.rotate(d.ang);
+    ctx.beginPath();
+    ctx.moveTo(1.6 * s, 0);
+    ctx.bezierCurveTo(0.9 * s, -0.15 * s, 0.5 * s, -0.85 * s, -0.3 * s, -0.85 * s);
+    ctx.bezierCurveTo(-1.2 * s, -0.85 * s, -1.2 * s, 0.85 * s, -0.3 * s, 0.85 * s);
+    ctx.bezierCurveTo(0.5 * s, 0.85 * s, 0.9 * s, 0.15 * s, 1.6 * s, 0);
+    ctx.closePath();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.2;
+    ctx.strokeStyle = CHALK;
+    ctx.stroke();
+    ctx.fillStyle = '#e9a92e';
+    ctx.fill();
+    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = PAL.sepia;
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,244,214,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(d.x - Math.cos(d.ang) * 0.35 * s - 0.2 * s, d.y - Math.sin(d.ang) * 0.35 * s - 0.4 * s, 0.3 * s, 0.17 * s, -0.5, 0, TAU);
+    ctx.fill();
   }
 
   /**
@@ -406,10 +496,13 @@ export function createRival() {
   /* ------------------------------------------------------------------ the raider on the player's hyphae */
 
   /**
-   * The stretches of the player's hyphae the raider has overgrown (state.rival.over): the rhizomorph's glossy black cord laid over
-   * the hypha from the end it entered at, as far as `cover`. As `wither` rises towards the cut the pale rim thins, the sheen and
-   * the highlight die, the black greys and breaks into dashes and specks fall off. These rows change every frame, so they are
-   * drawn live here and never into the cord cache; with nothing overgrown this returns before it allocates anything.
+   * The stretches of the player's hyphae the raider has overgrown (state.rival.over). They must read as «my thread, which the
+   * honey fungus is wrapping», so neither as a healthy hypha nor as the rhizomorph's own black cord: the pale core stays,
+   * tinted with honey and haloed in amber, and a thin black ribbon winds round it in slanting wraps from the end the raider
+   * entered at, as far as `cover`. As `wither` rises towards the cut the spiral tightens (the thread is strangled), the
+   * core is darkened, the halo dies, the black greys, wraps come undone and specks fall off. The shape of each thread is cached
+   * per edge (threadOf) and the wraps are made into one scratch buffer, so a frame allocates nothing per wrap. These rows change
+   * every frame, so they are drawn live here and never into the cord cache; with nothing overgrown this returns at once.
    */
   function drawOver(ctx, state, t) {
     const list = overList(state);
@@ -417,51 +510,49 @@ export function createRival() {
     const nodes = state.net.nodes;
     ctx.save();
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     for (const { o, e } of list) {
-      const look = overLook(o);
+      const look = spiralLook(o);
       if (look.cover < 0.01) continue;
-      const pts = overPoints(hyphaCurve(nodes, e, noise1), o.from, look.cover);
-      const path = new Path2D();
-      path.moveTo(pts[0], pts[1]);
-      for (let i = 2; i < pts.length; i += 2) path.lineTo(pts[i], pts[i + 1]);
-      const w = look.width + 0.45 * clamp(num(e.w, 1) - 1, 0, 3.2);
-      const dashed = look.gap > 0;
-      ctx.lineCap = 'round';
-      if (dashed) {
-        // round caps add half a width to each end of a dash: shorten the dashes and lengthen the gaps to match
-        ctx.setLineDash([Math.max(0.1, lerp(13, 5, look.gap) - w), lerp(0.5, 3.4, look.gap) + w]);
-        ctx.lineDashOffset = -(hash32(num(o.edge), 5) % 20);
+      const th = threadOf(nodes, e);
+      const fromChild = o.from !== th.parentId;
+      const core = 1.75 + 0.7 * clamp(num(e.w, 1) - 1, 0, 3.2); // the hypha's own width (mycelium.js coreWidth)
+      const np = threadSlice(sliceBuf, th, fromChild, look.cover);
+      if (look.halo > 0.02) {
+        tracePoints(ctx, sliceBuf, np);
+        ctx.strokeStyle = rgba(HONEY, 0.3 * look.halo);
+        ctx.lineWidth = core + 8;
+        ctx.stroke();
+        ctx.strokeStyle = rgba('#f0b04a', 0.62 * look.halo);
+        ctx.lineWidth = core + 1.8;
+        ctx.stroke();
       }
-      if (look.rimAlpha > 0.02) {
-        ctx.strokeStyle = rgba('#ecd6aa', 0.45 * look.rimAlpha);
-        ctx.lineWidth = w + 2.6;
-        ctx.stroke(path);
+      if (look.dim > 0.02) {
+        tracePoints(ctx, sliceBuf, np);
+        ctx.strokeStyle = rgba('#3a2412', look.dim);
+        ctx.lineWidth = core + 0.4;
+        ctx.stroke();
       }
-      ctx.strokeStyle = rgba(mix(LACE_BODY, ASH, look.ash), look.bodyAlpha);
-      ctx.lineWidth = w;
-      ctx.stroke(path);
-      if (dashed) ctx.setLineDash([]);
-      ctx.lineCap = 'round';
-      if (look.glossAlpha > 0.02) {
-        ctx.save();
-        ctx.translate(-w * 0.1, -w * 0.14);
-        ctx.strokeStyle = rgba('#7c8aa0', 0.42 * look.glossAlpha);
-        ctx.lineWidth = w * 0.34;
-        ctx.stroke(path);
-        if (look.shineAlpha > 0.02) {
-          ctx.translate(-w * 0.12, -w * 0.12);
-          ctx.strokeStyle = rgba('#fff7e2', 0.9 * look.shineAlpha);
-          ctx.lineWidth = Math.max(0.7, w * 0.12);
-          ctx.stroke(path);
+      const wraps = spiralBands(bandBuf, th, fromChild, look.cover, look.pitch, core / 2 + 1.5, num(o.edge) * 13, look.skip);
+      if (wraps > 0) {
+        if (look.rimAlpha > 0.02) {
+          tracePoints(ctx, bandBuf, wraps, true);
+          ctx.strokeStyle = rgba('#ecd6aa', 0.42 * look.rimAlpha);
+          ctx.lineWidth = look.band + 1.7;
+          ctx.stroke();
         }
-        ctx.restore();
+        tracePoints(ctx, bandBuf, wraps, true);
+        ctx.strokeStyle = rgba(mix(LACE_BODY, ASH, look.ash), look.bodyAlpha);
+        ctx.lineWidth = look.band;
+        ctx.stroke();
       }
       if (look.crumbs > 0.02) {
-        // specks coming off the dying cord and falling
+        // specks coming off the dying thread and falling
         const rr = mulberry(hash32(num(o.edge), 11));
-        const n = Math.round(look.crumbs * (3 + pts.length / 2));
+        const n = Math.round(look.crumbs * (3 + np / 4));
         for (let i = 0; i < n; i++) {
-          const p = pointAlong(pts, rr());
+          const d = rr() * look.cover * th.len;
+          const p = threadAt(th, fromChild ? th.len - d : d, speck);
           const fall = look.wither * (3 + 11 * rr()) + Math.sin(t * 2 + i) * 0.3;
           ctx.fillStyle = rgba(i % 3 ? '#2a1a10' : '#8d7d68', (1 - 0.5 * look.wither) * (0.5 + 0.4 * rr()));
           ctx.beginPath();
@@ -471,6 +562,33 @@ export function createRival() {
       }
     }
     ctx.restore();
+  }
+
+  /** The cached polyline of a player's hypha (rival-logic threadPoints), made again only when its nodes are not the ones it was made for. */
+  function threadOf(nodes, e) {
+    const A = nodes[e.a];
+    const B = nodes[e.b];
+    let c = threads.get(e.id);
+    if (!c || c.a !== e.a || c.b !== e.b || c.ax !== A.x || c.ay !== A.y || c.bx !== B.x || c.by !== B.y) {
+      c = { a: e.a, b: e.b, ax: A.x, ay: A.y, bx: B.x, by: B.y, th: threadPoints(hyphaCurve(nodes, e, noise1), e.id, noise1) };
+      threads.set(e.id, c);
+      if (threads.size > 80) threads.delete(threads.keys().next().value);
+    }
+    return c.th;
+  }
+
+  /** Begin a path through `n` numbers of `buf` as a polyline, or (wraps) through `n` bands of 6 numbers as separate quadratics. */
+  function tracePoints(ctx, buf, n, wraps = false) {
+    ctx.beginPath();
+    if (wraps) {
+      for (let i = 0; i < n; i++) {
+        ctx.moveTo(buf[i * 6], buf[i * 6 + 1]);
+        ctx.quadraticCurveTo(buf[i * 6 + 2], buf[i * 6 + 3], buf[i * 6 + 4], buf[i * 6 + 5]);
+      }
+      return;
+    }
+    ctx.moveTo(buf[0], buf[1]);
+    for (let i = 2; i < n; i += 2) ctx.lineTo(buf[i], buf[i + 1]);
   }
 
   /** A raider running along a hypha: a small dark-brown glossy head with a faint pale rim, over the black it leaves behind. */
@@ -1316,6 +1434,7 @@ export function createRival() {
       world = w || null;
       shapes.clear();
       curves.rival = null;
+      threads.clear();
       sprites.clear();
       nodeIndex.src = null;
       cache.key = '';

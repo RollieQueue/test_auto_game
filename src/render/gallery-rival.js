@@ -7,7 +7,7 @@
 //   ?events=1        fires rival-wake, rival-cut, tree-lost, tree-freed, barrier-placed and rival-fruit after 2.5 s (&at=ms)
 //   ?mode=bench      frame cost of rival.js at ?n=300 segments (window.__bench, also shown on the page)
 //   ?mode=zoom       the scene at 2.2x around the stump and the web (&zx=, &zy= centre in world units)
-//   ?mode=raid       the raider on the player's hyphae and the frost inside barriers at 2.4x (&focus=chain|seek|barrier|barrier2|all, &z=, &zx=, &zy=; &fresh=1.1 age of the second barrier)
+//   ?mode=raid       the raider on the player's hyphae and the frost inside barriers at 2.4x (&focus=chain|seek|barrier|barrier2|all, &z=, &zx=, &zy=; &fresh=1.1 age of the second barrier, &age=6 seconds the seeking raider has stood: its arrow fades in over 1.3 s and out over 9.4-12 s)
 //   ?mode=cords      the cords alone on a soil board at 100 % (left) and 50 % (right): right-angle turns smoothed, a fork, tips, a heading path
 //   ?inf=0,0.4,0.8,1 the four trees' infection left to right (default 0, 0.3, 0.7, lost = 1); grips and rot rings follow
 //   ?seed=7 &dpr=1 &edges=300 &stumpart=1 (use decor.stump.1 / mushroom.honey.N from the manifest when it has them)
@@ -36,7 +36,7 @@ function makeState(pick) {
   if (q.get('tool')) state.ui.tool = q.get('tool');
   if (q.get('nolink') === '1') for (const t of state.world.trees) t.linked = false;
   if (q.get('inf')) applyInfection(state, q.get('inf').split(',').map(Number));
-  if (mode === 'raid') raidInfo = applyRaidFixture(state, { fresh: q.get('fresh') ? Number(q.get('fresh')) : undefined });
+  if (mode === 'raid') raidInfo = applyRaidFixture(state, { fresh: q.get('fresh') ? Number(q.get('fresh')) : undefined, age: q.get('age') ? Number(q.get('age')) : undefined });
   else addHeadingTip(state);
   return state;
 }

@@ -334,7 +334,7 @@ export function applyRivalFixture(state, opts = {}) {
  * the player's network, five overgrown edges in a row running towards the spore (the oldest nearly cut, the newest still
  * creeping) with the raider's head at the front, a short stretch entered from the parent end, a seeking raider on its way to
  * another branch, and two barriers over the densest parts of the network (one settled, one freshly put). Needs applyFixture;
- * makes a bare state.rival when there is none. Returns { chain: {x, y}, seek: {x, y}, barrier: {x, y} } (world points to look at).
+ * makes a bare state.rival when there is none; opts.age is how long the seeking raider has stood (its arrow depends on it, default 6 s). Returns { chain: {x, y}, seek: {x, y}, barrier: {x, y} } (world points to look at).
  */
 export function applyRaidFixture(state, opts = {}) {
   const net = state.net;
@@ -421,10 +421,10 @@ export function applyRaidFixture(state, opts = {}) {
       rival.edges.push({ id: rival.edges.length, a: prev, b: id, w: 1.2, alive: true, born: time - 300, wither: 0 });
       prev = id;
     }
-    rival.tips.push({ id: 62, node: prev, x: seekAt.x, y: seekAt.y, dir: ang, target: null, speed: 14, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: goalNode.x, y: goalNode.y } } });
+    rival.tips.push({ id: 62, node: prev, x: seekAt.x, y: seekAt.y, dir: ang, target: null, speed: 14, age: opts.age ?? 6, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: goalNode.x, y: goalNode.y } } });
     rival.ver++;
   } else {
-    rival.tips.push({ id: 62, node: 0, x: seekAt.x, y: seekAt.y, dir: 0.3, target: null, speed: 14, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: goalNode.x, y: goalNode.y } } });
+    rival.tips.push({ id: 62, node: 0, x: seekAt.x, y: seekAt.y, dir: 0.3, target: null, speed: 14, age: opts.age ?? 6, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: goalNode.x, y: goalNode.y } } });
   }
   // barriers over the densest bits of the network, away from the chain
   const R = 85;

@@ -1,10 +1,15 @@
-// The raider's render side: black cord laid over the player's hyphae (state.rival.over), the raider's head, its heading to a
-// point on a hypha, and the frost inside a standing barrier. Pure helpers first, then the renderer against a fake 2D context
-// (no DOM in node): nothing is drawn when nothing is overgrown, a dead edge is skipped, the cord cache is never rebuilt by a
-// change of cover / wither, and the frost needs a barrier.
+// The raider's render side: the player's hyphae it has overgrown (state.rival.over: the pale thread kept, honey-tinted, wrapped
+// by a black spiral that tightens as the cut nears), the raider's head, its lead (a dashed amber arrow with a honey drop that
+// fades in and out over the 12 s warning), and the frost inside a standing barrier. Pure helpers first, then the renderer against
+// a fake 2D context (no DOM in node): nothing is drawn when nothing is overgrown, a dead edge is skipped, the cord cache is
+// never rebuilt by a change of cover / wither, no Path2D is made per frame, and the frost needs a barrier.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { freezeLook, hyphaCurve, overList, overLook, overPoints, pointAlong, raidGoal, raidPhase, OVER_W, FREEZE_DRAW } from '../src/render/rival-logic.js';
+import {
+  freezeLook, hyphaCurve, overList, overLook, overPoints, pointAlong, raidGoal, raidPhase, OVER_W, FREEZE_DRAW,
+  spiralLook, threadPoints, threadAt, threadSlice, spiralBands, leadAlpha, raidLead, leadDashes, leadDrop,
+  SPIRAL_PITCH, SPIRAL_MAX, RAID_LEAD, LEAD_IN, LEAD_OUT, LEAD_LEN, LEAD_DROP, LEAD_MAX_DASHES,
+} from '../src/render/rival-logic.js';
 import { applyFixture, applyRaidFixture, applyRivalFixture } from '../src/render/fixture.js';
 import { createState } from '../src/state.js';
 
@@ -237,7 +242,7 @@ test('an overgrown entry paints a cord; its raider head paints too; a dead edge 
   s.rival.over[0].wither = 0.8;
   const dying = recorder();
   rival.drawSoil(dying.ctx, s, 1, 1 / 60);
-  assert.ok((dying.calls.fill || 0) > 0 && (dying.calls.setLineDash || 0) > 0, 'crumbs and dashes');
+  assert.ok((dying.calls.fill || 0) > 0, 'crumbs');
   // the head of the raider that runs along the hypha
   s.rival.tips = [{ id: 5, node: 0, x: 140, y: 360, dir: 0, target: null, speed: 20, raid: { phase: 'run', n: 1, edge: 1, at: 0.3, s: 0, goal: null } }];
   const withHead = recorder();
@@ -384,6 +389,312 @@ test('garbage in over, tips and barriers never throws', async () => {
   });
 });
 
+/* ------------------------------------------------------------------ the overgrown thread and the raider's lead */
+
+/** A straight thread of two nodes, 60 u along x, from the parent (0, 0) to the child (60, 0). */
+function straightThread() {
+  const nodes = [
+    { id: 0, x: 0, y: 0, alive: true, parent: -1 },
+    { id: 1, x: 60, y: 0, alive: true, parent: 0 },
+  ];
+  return threadPoints(hyphaCurve(nodes, { id: 0, a: 0, b: 1 }), 0);
+}
+
+/** Distance of (x, y) from the nearest point of a thread, by fine sampling. */
+function distTo(th, x, y) {
+  let best = Infinity;
+  const p = {};
+  for (let s = 0; s <= th.len; s += 0.25) {
+    threadAt(th, s, p);
+    best = Math.min(best, Math.hypot(p.x - x, p.y - y));
+  }
+  return best;
+}
+
+test('spiralLook: the spiral tightens as the thread is strangled, the honey halo dies and the wraps come undone', () => {
+  const fresh = spiralLook({ cover: 1, wither: 0 });
+  assert.equal(fresh.pitch, SPIRAL_PITCH[0]);
+  assert.equal(fresh.halo, 1);
+  assert.equal(fresh.dim, 0);
+  assert.equal(fresh.skip, 0);
+  let prev = fresh;
+  for (let i = 1; i <= 20; i++) {
+    const look = spiralLook({ cover: 1, wither: i / 20 });
+    assert.ok(look.pitch <= prev.pitch && look.halo <= prev.halo && look.band <= prev.band, `tighter at ${i}`);
+    assert.ok(look.dim >= prev.dim && look.skip >= prev.skip, `darker and more undone at ${i}`);
+    prev = look;
+  }
+  assert.ok(Math.abs(prev.pitch - SPIRAL_PITCH[1]) < 1e-9, 'tight at the cut');
+  assert.ok(prev.halo > 0.1 && prev.halo < 0.3, 'a faint halo is left');
+  assert.ok(prev.skip < 0.75, 'never all wraps gone');
+  for (const o of [null, {}, { cover: 9, wither: -3 }, { cover: NaN, wither: NaN }]) {
+    const look = spiralLook(o);
+    for (const k of ['halo', 'dim', 'skip']) assert.ok(look[k] >= 0 && look[k] <= 1, `${k} ${look[k]}`);
+    assert.ok(look.pitch >= SPIRAL_PITCH[1] && look.pitch <= SPIRAL_PITCH[0]);
+  }
+});
+
+test('threadPoints: a thread runs from the parent to the child, its arc length adds up, and threadAt finds the point and direction', () => {
+  const s = makeState();
+  const e = s.net.edges[1];
+  const th = threadPoints(hyphaCurve(s.net.nodes, e), e.id);
+  assert.deepEqual([th.pts[0], th.pts[1]], [120, 340]);
+  assert.deepEqual([th.pts[th.n * 2], th.pts[th.n * 2 + 1]], [150, 375]);
+  assert.equal(th.parentId, 1);
+  for (let k = 1; k <= th.n; k++) assert.ok(th.cum[k] > th.cum[k - 1]);
+  assert.ok(th.len >= Math.hypot(30, 35) - 1e-3 && th.len < 1.1 * Math.hypot(30, 35), `len ${th.len}`);
+  const p = threadAt(th, th.len / 2, {});
+  assert.ok(Math.abs(Math.hypot(p.tx, p.ty) - 1) < 1e-6, 'unit tangent');
+  assert.ok(p.tx > 0 && p.ty > 0, 'towards the child');
+  const a = threadAt(th, -5, {});
+  const b = threadAt(th, 1e6, {});
+  assert.ok(Math.hypot(a.x - 120, a.y - 340) < 1e-3 && Math.hypot(b.x - 150, b.y - 375) < 1e-3, 'clamped to the ends');
+  // the meander (noise) moves the middle sideways by at most 2.4 u and leaves the ends alone
+  const wavy = threadPoints(hyphaCurve(s.net.nodes, e), e.id, (x) => Math.sin(x));
+  assert.deepEqual([wavy.pts[0], wavy.pts[1]], [120, 340]);
+  assert.ok(Math.hypot(wavy.pts[th.n * 2] - 150, wavy.pts[th.n * 2 + 1] - 375) < 1e-3);
+  let far = 0;
+  for (let k = 0; k <= th.n; k++) far = Math.max(far, Math.hypot(wavy.pts[k * 2] - th.pts[k * 2], wavy.pts[k * 2 + 1] - th.pts[k * 2 + 1]));
+  assert.ok(far > 0.1 && far <= 2.4 + 1e-3, `meander ${far}`);
+});
+
+test('threadSlice covers the thread from the entry end as far as cover', () => {
+  const th = straightThread();
+  const buf = new Float32Array(2 * 160);
+  const fromParent = threadSlice(buf, th, false, 0.5);
+  assert.deepEqual([buf[0], buf[1]], [0, 0]);
+  assert.ok(Math.abs(buf[fromParent - 2] - 30) < 1e-3 && Math.abs(buf[fromParent - 1]) < 1e-3, 'half way');
+  const fromChild = threadSlice(buf, th, true, 0.25);
+  assert.deepEqual([buf[0], buf[1]], [60, 0]);
+  assert.ok(Math.abs(buf[fromChild - 2] - 45) < 1e-3, 'a quarter from the child end');
+  assert.ok(threadSlice(buf, th, false, 0) >= 4 && threadSlice(buf, th, false, NaN) >= 4, 'a zero cover is still a valid line');
+  assert.ok(threadSlice(new Float32Array(6), th, false, 1) <= 6, 'a small buffer is never overrun');
+  const full = threadSlice(buf, th, false, 9);
+  assert.ok(Math.abs(buf[full - 2] - 60) < 1e-3, 'cover is clamped to 1');
+});
+
+test('spiralBands: wraps sit on the thread, start at the entry end, follow the cover, tighten with the pitch and come undone with skip', () => {
+  const th = straightThread();
+  const out = new Float32Array(6 * SPIRAL_MAX);
+  const half = 2.5;
+  const n = spiralBands(out, th, false, 1, 8, half, 3, 0);
+  assert.ok(n >= 6 && n <= 9, `${n} wraps of pitch 8 on 60 u`);
+  for (let i = 0; i < n; i++) {
+    const [x0, y0, cx, cy, x1, y1] = Array.from(out.subarray(i * 6, i * 6 + 6));
+    // the band crosses the thread: one end on each side, a half width off it
+    assert.ok(Math.abs(Math.abs(y0) - half) < 1e-3 && Math.abs(Math.abs(y1) - half) < 1e-3 && y0 * y1 < 0, `crosses the thread ${i}`);
+    const full = Math.hypot(0.9 * 8, 2 * half);
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    assert.ok(i < n - 1 ? Math.abs(len - full) < 0.05 : len <= full + 0.05, 'leans by 0.9 pitch');
+    assert.ok(x0 >= -1e-3 && x1 <= 60 + 1e-3, 'never past the ends');
+    assert.ok(Math.abs(cx - (x0 + x1) / 2) < 8 && Math.abs(cy - (y0 + y1) / 2) < 1.5, 'only a slight bow');
+    if (i) assert.ok((x0 + x1) / 2 > (out[(i - 1) * 6] + out[(i - 1) * 6 + 4]) / 2, 'in order along the thread');
+  }
+  assert.ok((out[0] + out[4]) / 2 > 2 && (out[0] + out[4]) / 2 < 8, 'the first wrap is about half a pitch from the entry end');
+  // from the child end the first wrap is near x = 60, and the hand of the lean is the same
+  const m = spiralBands(out, th, true, 1, 8, half, 3, 0);
+  assert.equal(m, n);
+  assert.ok((out[0] + out[4]) / 2 > 52, 'entered at the child end');
+  assert.equal(spiralBandsHand(th, false, half), 1, 'the hand is fixed by the thread: parent to child');
+  assert.equal(spiralBandsHand(th, true, half), 1, 'the same from the other end');
+  // cover limits the stretch, from either end
+  const part = spiralBands(out, th, false, 0.4, 8, half, 3, 0);
+  assert.ok(part >= 2 && part < n);
+  for (let i = 0; i < part; i++) assert.ok(out[i * 6] <= 24 + 1e-3 && out[i * 6 + 4] <= 24 + 1e-3);
+  assert.equal(spiralBands(out, th, false, 0, 8, half, 3, 0), 0);
+  assert.equal(spiralBands(out, th, false, NaN, 8, half, 3, 0), 0);
+  // a tighter pitch makes more wraps, never more than SPIRAL_MAX or than the buffer holds
+  assert.ok(spiralBands(out, th, false, 1, 4.2, half, 3, 0) > n * 1.6);
+  assert.ok(spiralBands(out, th, false, 1, 0.1, half, 3, 0) <= SPIRAL_MAX);
+  assert.equal(spiralBands(new Float32Array(12), th, false, 1, 4, half, 3, 0), 2);
+  // skip drops about that share, the same ones every time
+  const kept = spiralBands(out, th, false, 1, 4.2, half, 3, 0.5);
+  const all = spiralBands(out, th, false, 1, 4.2, half, 3, 0);
+  assert.ok(kept > all * 0.25 && kept < all * 0.8, `${kept} of ${all}`);
+  assert.equal(spiralBands(out, th, false, 1, 4.2, half, 3, 0.5), kept);
+  assert.equal(spiralBands(out, th, false, 1, 4.2, half, 3, 1), 0);
+});
+
+/** The sign of y at the start of the first band (the hand of the wrap) for a thread entered from one end. */
+function spiralBandsHand(th, fromChild, half) {
+  const out = new Float32Array(6 * 4);
+  spiralBands(out, th, fromChild, 1, 8, half, 3, 0);
+  return Math.sign(out[1]);
+}
+
+test('spiralBands on a bent thread keeps every wrap within reach of the thread', () => {
+  const s = makeState();
+  const e = s.net.edges[2];
+  const th = threadPoints(hyphaCurve(s.net.nodes, e), e.id, (x) => Math.sin(x * 1.7));
+  const out = new Float32Array(6 * SPIRAL_MAX);
+  const half = 2.8;
+  for (const fromChild of [false, true]) {
+    const n = spiralBands(out, th, fromChild, 0.8, 6, half, 11, 0);
+    assert.ok(n >= 3);
+    for (let i = 0; i < n; i++) {
+      assert.ok(distTo(th, out[i * 6], out[i * 6 + 1]) <= half + 0.6, 'start of a band');
+      assert.ok(distTo(th, out[i * 6 + 4], out[i * 6 + 5]) <= half + 0.6, 'end of a band');
+    }
+  }
+  // the hand of the wrap does not depend on the end the raider came from
+  assert.equal(spiralBandsHand(th, false, 2.5), spiralBandsHand(th, true, 2.5));
+});
+
+test('leadAlpha: the arrow fades in, holds, and fades out before the raider sets off', () => {
+  assert.equal(leadAlpha(0), 0);
+  assert.equal(leadAlpha(-1), 0);
+  assert.equal(leadAlpha(undefined), 0);
+  assert.equal(leadAlpha(NaN), 0);
+  assert.equal(leadAlpha(LEAD_IN), 1);
+  assert.equal(leadAlpha(RAID_LEAD / 2), 1);
+  assert.equal(leadAlpha(RAID_LEAD - LEAD_OUT), 1);
+  assert.equal(leadAlpha(RAID_LEAD), 0);
+  assert.equal(leadAlpha(RAID_LEAD + 5), 0);
+  const ins = [0.2, 0.5, 0.9, 1.2].map((a) => leadAlpha(a));
+  for (let i = 1; i < ins.length; i++) assert.ok(ins[i] > ins[i - 1], 'in');
+  const outs = [9.6, 10.4, 11.2, 11.9].map((a) => leadAlpha(a));
+  for (let i = 1; i < outs.length; i++) assert.ok(outs[i] < outs[i - 1], 'out');
+  assert.equal(leadAlpha(6, 6), 0, 'a shorter lead ends where it ends');
+});
+
+const seeker = (o = {}) => ({ id: 3, x: 100, y: 200, dir: 0, age: 6, raid: { phase: 'seek', goal: { x: 300, y: 200 } }, ...o });
+
+test('raidLead: a long arrow along the heading to the goal, short of it, with its tip where the honey drop sits', () => {
+  const tip = seeker();
+  const lead = raidLead(tip, 7, {});
+  assert.ok(lead);
+  assert.equal(lead.alpha, 1);
+  assert.deepEqual([lead.ux, lead.uy], [1, 0], 'towards the goal');
+  assert.ok(Math.abs(lead.x1 - (100 + LEAD_LEN)) < 1e-9 && lead.y1 === 200, 'a far goal: the longest arrow');
+  assert.ok(lead.x0 > 100 + 7 && lead.x0 < 100 + 15, 'starts just outside the bulb');
+  assert.ok(Math.abs(lead.len - Math.hypot(lead.x1 - lead.x0, lead.y1 - lead.y0)) < 1e-9);
+  assert.ok(lead.len > 100, 'far longer than the old 2 px dash');
+  // a near goal: the arrow stops 16 u short of it
+  const near = raidLead(seeker({ raid: { phase: 'seek', goal: { x: 190, y: 200 } } }), 7, {});
+  assert.ok(Math.abs(near.x1 - 174) < 1e-9);
+  // a diagonal goal
+  const diag = raidLead(seeker({ raid: { phase: 'seek', goal: { x: 100, y: 500 } } }), 7, {});
+  assert.deepEqual([diag.ux, diag.uy], [0, 1]);
+  // with no goal it points along tip.dir
+  const blind = raidLead(seeker({ raid: { phase: 'seek', goal: null }, dir: Math.PI / 2 }), 7, {});
+  assert.ok(Math.abs(blind.ux) < 1e-9 && Math.abs(blind.uy - 1) < 1e-9 && Math.abs(blind.len - (LEAD_LEN - 11)) < 1e-9);
+  // not for a runner, a non-raider, a tip without coordinates or a goal too close to leave room for an arrow
+  assert.equal(raidLead(seeker({ raid: { phase: 'run' } })), null);
+  assert.equal(raidLead({ x: 1, y: 2 }), null);
+  assert.equal(raidLead(null), null);
+  assert.equal(raidLead(seeker({ x: NaN })), null);
+  assert.equal(raidLead(seeker({ raid: { phase: 'seek', goal: { x: 120, y: 200 } } })), null);
+  assert.equal(raidLead(seeker({ raid: { phase: 'seek', goal: null }, dir: undefined })), null);
+});
+
+test('raidLead follows the warning: faint at the start, full during it, gone when the raider sets off, back faintly when its hypha is near', () => {
+  const at = (age, goalX = 400) => raidLead(seeker({ age, raid: { phase: 'seek', goal: { x: goalX, y: 200 } } }), 7, {});
+  assert.equal(at(0), null, 'not yet');
+  const a1 = at(0.4).alpha;
+  const a2 = at(0.9).alpha;
+  assert.ok(a1 > 0 && a2 > a1 && a2 < 1);
+  assert.equal(at(5).alpha, 1);
+  assert.ok(at(11).alpha < at(10).alpha && at(10).alpha < 1);
+  assert.equal(at(12), null, 'the raider creeps now and its goal is far');
+  const noAge = raidLead(seeker({ age: undefined, raid: { phase: 'seek', goal: { x: 220, y: 200 } } }), 7, {});
+  assert.ok(noAge && noAge.alpha > 0, 'a goal within 150 u shows a faint arrow even without an age');
+  const faint = at(13, 100 + 120).alpha;
+  assert.ok(faint > 0 && faint <= 0.55, `near goal after the warning ${faint}`);
+  assert.ok(at(13, 100 + 90).alpha > faint, 'stronger the closer it is');
+});
+
+test('leadDashes march to the tip along the heading, thin at the tail and stronger at the head, and stop short of the drop', () => {
+  const lead = raidLead(seeker(), 7, {});
+  const out = new Float32Array(6 * LEAD_MAX_DASHES);
+  const n = leadDashes(out, lead, 0);
+  assert.ok(n >= 6 && n <= LEAD_MAX_DASHES, `${n} dashes`);
+  let prevMid = -1;
+  for (let i = 0; i < n; i++) {
+    const [x0, y0, x1, y1, w, a] = Array.from(out.subarray(i * 6, i * 6 + 6));
+    assert.ok(Math.abs(y0 - 200) < 1e-6 && Math.abs(y1 - 200) < 1e-6, 'on the heading line');
+    assert.ok(x0 >= lead.x0 - 1e-6 && x1 <= lead.x1 - LEAD_DROP + 1e-6, 'between the bulb and the drop');
+    assert.ok(x1 > x0 && (x0 + x1) / 2 > prevMid, 'in order, pointing on');
+    assert.ok(w >= 1.5 && w <= 3.2 && a >= 0.3 && a <= 1);
+    if (i) assert.ok(w >= out[(i - 1) * 6 + 4] && a >= out[(i - 1) * 6 + 5], 'growing towards the tip');
+    prevMid = (x0 + x1) / 2;
+  }
+  // they march: a later moment shifts them towards the tip, a reduced-motion frame stands still
+  const later = new Float32Array(6 * LEAD_MAX_DASHES);
+  leadDashes(later, lead, 0.4);
+  assert.notDeepEqual(Array.from(later.subarray(0, 12)), Array.from(out.subarray(0, 12)));
+  const still = new Float32Array(6 * LEAD_MAX_DASHES);
+  const calm = new Float32Array(6 * LEAD_MAX_DASHES);
+  leadDashes(still, lead, 0, true);
+  leadDashes(calm, lead, 77.7, true);
+  assert.deepEqual(Array.from(still), Array.from(calm));
+  assert.equal(leadDashes(new Float32Array(6), lead, 0) <= 1, true, 'a small buffer is never overrun');
+  assert.equal(leadDashes(out, { ...lead, len: 3 }, 0), 0);
+});
+
+test('leadDrop sits at the tip of the arrow, turned along it, bobbing a little', () => {
+  const lead = raidLead(seeker(), 7, {});
+  const d = leadDrop(lead, 0, true, {});
+  assert.deepEqual([d.x, d.y, d.ang, d.size], [lead.x1, lead.y1, 0, LEAD_DROP]);
+  let far = 0;
+  for (let t = 0; t < 6; t += 0.1) {
+    const m = leadDrop(lead, t, false, {});
+    far = Math.max(far, Math.hypot(m.x - lead.x1, m.y - lead.y1));
+    assert.ok(Math.abs(m.y - lead.y1) < 1e-9, 'bobs along the heading');
+  }
+  assert.ok(far > 0.5 && far <= 1.4 + 1e-9, `bob ${far}`);
+  const down = leadDrop({ x1: 5, y1: 5, ux: 0, uy: 1 }, 0, true, {});
+  assert.ok(Math.abs(down.ang - Math.PI / 2) < 1e-9);
+});
+
+test('the renderer: a seeking raider in its warning paints the arrow and the drop, a creeping one with a far goal paints neither', async () => {
+  const rival = await rivalApi();
+  const s = makeState();
+  rival.reset(s.world);
+  const tip = { id: 8, node: 2, x: 664, y: 452, dir: 0, age: 6, target: null, speed: 0, raid: { phase: 'seek', n: 0, edge: -1, at: 0, s: 0, goal: { x: 880, y: 470 } } };
+  s.rival.tips = [tip];
+  const warning = recorder();
+  rival.drawSoil(warning.ctx, s, 1, 1 / 60);
+  assert.ok((warning.calls.bezierCurveTo || 0) >= 3, 'the honey drop');
+  tip.age = 14;
+  const creeping = recorder();
+  rival.drawSoil(creeping.ctx, s, 1, 1 / 60);
+  assert.equal(creeping.calls.bezierCurveTo || 0, 0, 'the warning is over');
+  assert.ok((warning.calls.stroke || 0) > (creeping.calls.stroke || 0) + 8, `${warning.calls.stroke} vs ${creeping.calls.stroke}`);
+  // reduced motion and a missing age never throw
+  delete tip.age;
+  assert.doesNotThrow(() => rival.drawSoil(recorder().ctx, s, 3, 1 / 60));
+});
+
+test('an overgrown edge is drawn as a thread with a spiral round it, from the cached shape, without allocating paths', async () => {
+  const rival = await rivalApi();
+  const s = makeState();
+  s.rival.edges = [];
+  s.rival.nodes = [];
+  rival.reset(s.world);
+  s.rival.over = [{ edge: 1, from: 2, cover: 1, wither: 0.1, born: 99 }, { edge: 2, from: 3, cover: 0.5, wither: 0.5, born: 95 }];
+  let made = 0;
+  globalThis.Path2D = class extends FakePath {
+    constructor() {
+      super();
+      made++;
+    }
+  };
+  const first = recorder();
+  rival.drawSoil(first.ctx, s, 1, 1 / 60);
+  const again = recorder();
+  for (let i = 0; i < 20; i++) rival.drawSoil(again.ctx, s, 1 + i / 60, 1 / 60);
+  globalThis.Path2D = FakePath;
+  assert.equal(made, 0, 'no Path2D per edge or per frame');
+  assert.ok((first.calls.quadraticCurveTo || 0) >= 4, 'the wraps are quadratics');
+  assert.ok((first.calls.stroke || 0) >= 8, `halo, core tint, wraps and rim of two edges: ${first.calls.stroke}`);
+  assert.ok(!first.calls.setLineDash, 'not the dashed black cord of the rhizomorph');
+  // the wraps of a thread are the same on the next frame (the shape is cached); a moved node makes a new shape
+  assert.equal(again.calls.quadraticCurveTo, 20 * first.calls.quadraticCurveTo);
+  s.net.nodes[2].x += 10;
+  const moved = recorder();
+  assert.doesNotThrow(() => rival.drawSoil(moved.ctx, s, 2, 1 / 60));
+});
+
 /* ------------------------------------------------------------------ the gallery fixture */
 
 test('the raid fixture builds a branch with five overgrown edges, a running and a seeking raider and two barriers', () => {
@@ -406,6 +717,7 @@ test('the raid fixture builds a branch with five overgrown edges, a running and 
   assert.deepEqual(phases, ['run', 'seek']);
   const seek = r.tips.find((t) => t.raid && t.raid.phase === 'seek');
   assert.ok(raidGoal(seek).d > 60 && raidGoal(seek).d < 150, 'the heading path is in view');
+  assert.ok(raidLead(seek) && raidLead(seek).alpha === 1, 'the fixture raider is mid-warning: its arrow is at full strength');
   assert.equal(state.barriers.length, 2);
   assert.ok(state.barriers.every((b) => b.r === 85 && b.dur === 40));
   assert.ok(info.chain && info.seek && info.barrier);

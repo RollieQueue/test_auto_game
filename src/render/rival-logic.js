@@ -534,3 +534,253 @@ export function freezeLook(b) {
   if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return 0;
   return clamp(smooth(Math.max(0, num(b.t)) / FREEZE_DRAW) * barrierLook(b).alpha, 0, 1);
 }
+
+/* ------------------------------------------------------------------ the overgrown thread: a pale hypha in a black spiral */
+
+export const SPIRAL_PITCH = [8, 4.2]; // u between two wraps: loose at the touch, tight when the cut comes
+export const SPIRAL_MAX = 96; // wraps of one edge, at most
+export const SPIRAL_BAND = 2.4; // u: the black ribbon of one wrap
+export const HONEY = '#e6a844'; // the amber of the honey tint and of the raider's lead
+
+const lerp = (a, b, k) => a + (b - a) * k;
+/** A repeatable 0..1 value for (a, b), no allocation. */
+const unit = (a, b) => {
+  let h = Math.imul((a | 0) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul((b | 0) + 0x7f4a7c15, 0xc2b2ae35);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return (h >>> 0) / 4294967296;
+};
+
+/**
+ * The look of one overgrown hypha: overLook (the greying, the fraying, the specks) plus what the spiral needs. `pitch` is the
+ * distance between two wraps in u (it tightens as the thread is strangled: SPIRAL_PITCH[0] at the touch, [1] at the cut),
+ * `halo` 0..1 the honey tint round the thread (it dies with the thread), `dim` 0..1 how much the pale core is darkened,
+ * `skip` 0..1 the share of wraps that have come undone (a dying spiral frays), `band` the ribbon width in u.
+ */
+export function spiralLook(o) {
+  const look = overLook(o);
+  const w = look.wither;
+  return {
+    ...look,
+    pitch: lerp(SPIRAL_PITCH[0], SPIRAL_PITCH[1], smooth(w)),
+    halo: 1 - 0.78 * smooth(w),
+    dim: 0.62 * smooth((w - 0.15) / 0.85),
+    skip: 0.7 * look.gap,
+    band: SPIRAL_BAND * (1 - 0.25 * smooth(w)),
+  };
+}
+
+/**
+ * The player's hypha as a polyline the way mycelium.js shapes it (the same quadratic and the same fine meander, so the pale
+ * core drawn there lies under this line; keep the two in step): { pts: [x, y, ...] from the parent end to the child end, cum:
+ * arc length at every point, n: segments, len: total arc length, parentId }. `curve` comes from hyphaCurve, `id` is the edge id,
+ * `noise` is ink.js noise1 (leave it out for a plain quadratic).
+ */
+export function threadPoints(curve, id, noise = null) {
+  const L = curve.len || 1;
+  const ux = (curve.x1 - curve.x0) / L;
+  const uy = (curve.y1 - curve.y0) / L;
+  const n = Math.max(2, Math.ceil(L / 4));
+  const amp = Math.min(2.4, L * 0.07);
+  const so = num(id) * 3.17 + 11;
+  const pts = new Float32Array((n + 1) * 2);
+  const cum = new Float32Array(n + 1);
+  for (let k = 0; k <= n; k++) {
+    const u = k / n;
+    const v = 1 - u;
+    const off = noise ? amp * Math.sin(Math.PI * u) * (0.7 * noise(so + u * L * 0.09) + 0.3 * noise(so + 40 + u * L * 0.31)) : 0;
+    pts[k * 2] = v * v * curve.x0 + 2 * u * v * curve.qx + u * u * curve.x1 - uy * off;
+    pts[k * 2 + 1] = v * v * curve.y0 + 2 * u * v * curve.qy + u * u * curve.y1 + ux * off;
+    if (k) cum[k] = cum[k - 1] + Math.hypot(pts[k * 2] - pts[k * 2 - 2], pts[k * 2 + 1] - pts[k * 2 - 1]);
+  }
+  return { pts, cum, n, len: cum[n], parentId: curve.parentId };
+}
+
+/** The point, and the unit tangent (parent to child), at arc length `s` of a thread: writes { x, y, tx, ty } into `out`. */
+export function threadAt(th, s, out) {
+  const { pts, cum, n } = th;
+  const ss = clamp(num(s), 0, th.len);
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (cum[mid] <= ss) lo = mid;
+    else hi = mid - 1;
+  }
+  const seg = cum[lo + 1] - cum[lo];
+  const dx = pts[lo * 2 + 2] - pts[lo * 2];
+  const dy = pts[lo * 2 + 3] - pts[lo * 2 + 1];
+  const l = Math.hypot(dx, dy) || 1;
+  const u = seg > 1e-6 ? (ss - cum[lo]) / seg : 0;
+  out.x = pts[lo * 2] + dx * u;
+  out.y = pts[lo * 2 + 1] + dy * u;
+  out.tx = dx / l;
+  out.ty = dy / l;
+  return out;
+}
+
+const sEnd = {};
+
+/**
+ * The covered stretch of a thread as points [x, y, ...] written into `out` (a Float32Array), from the end the raider entered at
+ * (`fromChild`) as far as the share `cover` 0..1 of its arc length. Returns how many numbers were written (at least 4).
+ */
+export function threadSlice(out, th, fromChild, cover) {
+  const reach = clamp(num(cover), 0, 1) * th.len;
+  const { pts, cum, n } = th;
+  const cap = Math.floor(out.length / 2) * 2;
+  let c = 0;
+  const put = (x, y) => {
+    if (c + 2 <= cap) {
+      out[c++] = x;
+      out[c++] = y;
+    }
+  };
+  if (!fromChild) {
+    put(pts[0], pts[1]);
+    for (let k = 1; k <= n && cum[k] < reach; k++) put(pts[k * 2], pts[k * 2 + 1]);
+    threadAt(th, reach, sEnd);
+  } else {
+    put(pts[n * 2], pts[n * 2 + 1]);
+    for (let k = n - 1; k >= 0 && th.len - cum[k] < reach; k--) put(pts[k * 2], pts[k * 2 + 1]);
+    threadAt(th, th.len - reach, sEnd);
+  }
+  put(sEnd.x, sEnd.y);
+  return c;
+}
+
+const sP = {};
+const sQ = {};
+const sM = {};
+
+/**
+ * The wraps of the black spiral round a thread: for every one a slightly bowed band across the thread, written as
+ * quadratics [x0, y0, cx, cy, x1, y1] into `out` (a Float32Array, 6 numbers a wrap). The wraps are spaced `pitch` apart from
+ * the end the raider entered at (`fromChild`), as far as the share `cover` of the arc, each band `half` u to either side of the
+ * thread and leaning `0.9 * pitch` along it; the same hand whichever end it entered from. `skip` 0..1 drops that share of the
+ * wraps (a dying spiral comes undone); `seed` makes the jitter of the spacing. Returns the number of wraps.
+ */
+export function spiralBands(out, th, fromChild, cover, pitch, half, seed = 0, skip = 0) {
+  const p = Math.max(1.5, num(pitch, SPIRAL_PITCH[0]));
+  const reach = clamp(num(cover), 0, 1) * th.len;
+  const lean = p * 0.9;
+  const lo = fromChild ? th.len - reach : 0;
+  const hi = fromChild ? th.len : reach;
+  const room = Math.floor(out.length / 6);
+  let c = 0;
+  for (let k = 0; c < SPIRAL_MAX && c < room; k++) {
+    const d = (k + 0.5 + 0.2 * (unit(seed, k) - 0.5)) * p;
+    if (d > reach) break;
+    if (skip > 0 && unit(seed + 7, k) < skip) continue;
+    const mid = fromChild ? th.len - d : d;
+    threadAt(th, clamp(mid - lean / 2, lo, hi), sP);
+    threadAt(th, clamp(mid + lean / 2, lo, hi), sQ);
+    threadAt(th, mid, sM);
+    const nx = -sM.ty;
+    const ny = sM.tx;
+    const x0 = sP.x + nx * half;
+    const y0 = sP.y + ny * half;
+    const x1 = sQ.x - nx * half;
+    const y1 = sQ.y - ny * half;
+    const bow = lean * 0.14;
+    out[c * 6] = x0;
+    out[c * 6 + 1] = y0;
+    out[c * 6 + 2] = (x0 + x1) / 2 + sM.tx * bow;
+    out[c * 6 + 3] = (y0 + y1) / 2 + sM.ty * bow;
+    out[c * 6 + 4] = x1;
+    out[c * 6 + 5] = y1;
+    c++;
+  }
+  return c;
+}
+
+/* ------------------------------------------------------------------ the raider's lead: where it will go */
+
+export const RAID_LEAD = 12; // s a new raider stands before it creeps (B.rivalRaidLead): the warning
+export const LEAD_IN = 1.3; // s the arrow takes to fade in
+export const LEAD_OUT = 2.6; // s it takes to fade out before the raider sets off
+export const LEAD_LEN = 130; // u: the longest arrow
+export const LEAD_DASH = 9; // u: one dash
+export const LEAD_GAP = 6.5; // u: between two dashes
+export const LEAD_DROP = 7; // u: the size of the honey drop at the tip
+export const LEAD_MAX_DASHES = 12;
+
+/** Opacity 0..1 of the raider's arrow at `age` seconds after it appeared: in over LEAD_IN, out over the last LEAD_OUT of `lead`. */
+export function leadAlpha(age, lead = RAID_LEAD) {
+  if (!Number.isFinite(age) || age < 0) return 0;
+  return smooth(age / LEAD_IN) * (1 - smooth((age - (lead - LEAD_OUT)) / LEAD_OUT));
+}
+
+/**
+ * The arrow of a seeking raider, or null when none is to be drawn: written into `out` as { x0, y0 (where the dashes start),
+ * x1, y1 (the tip, where the honey drop sits), ux, uy (unit heading), len, alpha }. It points at the hypha the raider
+ * has chosen (tip.raid.goal) or, with no goal, along tip.dir; it is as long as LEAD_LEN, stops 16 u short of the goal, shows
+ * during the warning (leadAlpha of tip.age) and, fainter, while the goal is near (headingAlpha), so a creeping raider keeps it.
+ */
+export function raidLead(tip, startR = 7, out = {}) {
+  if (raidPhase(tip) !== 'seek' || !Number.isFinite(num(tip.x, NaN) + num(tip.y, NaN))) return null;
+  const g = raidGoal(tip);
+  let ux;
+  let uy;
+  let reach = LEAD_LEN;
+  if (g && g.d > 1e-3) {
+    ux = (g.x - tip.x) / g.d;
+    uy = (g.y - tip.y) / g.d;
+    reach = Math.min(LEAD_LEN, g.d - 16);
+  } else if (Number.isFinite(tip.dir)) {
+    ux = Math.cos(tip.dir);
+    uy = Math.sin(tip.dir);
+  } else return null;
+  const alpha = Math.max(leadAlpha(tip.age), g ? 0.55 * headingAlpha(g.d) : 0);
+  const s0 = startR + 4;
+  if (alpha < 0.02 || reach - s0 < 20) return null;
+  out.x0 = tip.x + ux * s0;
+  out.y0 = tip.y + uy * s0;
+  out.x1 = tip.x + ux * reach;
+  out.y1 = tip.y + uy * reach;
+  out.ux = ux;
+  out.uy = uy;
+  out.len = reach - s0;
+  out.alpha = alpha;
+  return out;
+}
+
+/**
+ * The dashes of an arrow, marching towards its tip with `t` (still when `reduced`), written into `out` (a Float32Array) as
+ * [x0, y0, x1, y1, width, alpha] a dash: thin and faint at the tail, thicker and stronger towards the drop, which they stop
+ * short of. Returns how many dashes.
+ */
+export function leadDashes(out, lead, t, reduced = false) {
+  const period = LEAD_DASH + LEAD_GAP;
+  const end = lead.len - LEAD_DROP * 1.5;
+  if (end < 4) return 0;
+  const phase = reduced ? 0 : ((((num(t) * 8) % period) + period) % period);
+  let c = 0;
+  for (let i = -1; c < LEAD_MAX_DASHES && out.length >= (c + 1) * 6; i++) {
+    const a0 = i * period + phase;
+    if (a0 >= end) break;
+    const s0 = Math.max(0, a0);
+    const s1 = Math.min(end, a0 + LEAD_DASH);
+    if (s1 - s0 < 1.2) continue;
+    const f = clamp((s0 + s1) / 2 / end, 0, 1);
+    out[c * 6] = lead.x0 + lead.ux * s0;
+    out[c * 6 + 1] = lead.y0 + lead.uy * s0;
+    out[c * 6 + 2] = lead.x0 + lead.ux * s1;
+    out[c * 6 + 3] = lead.y0 + lead.uy * s1;
+    out[c * 6 + 4] = 1.5 + 1.7 * f;
+    out[c * 6 + 5] = 0.3 + 0.7 * f;
+    c++;
+  }
+  return c;
+}
+
+/** Where the honey drop at the arrow's tip is drawn: the tip itself, bobbing along the heading by up to 1.4 u (still when `reduced`). { x, y, ang, size } */
+export function leadDrop(lead, t, reduced = false, out = {}) {
+  const bob = reduced ? 0 : 1.4 * Math.sin(num(t) * 2.4);
+  out.x = lead.x1 + lead.ux * bob;
+  out.y = lead.y1 + lead.uy * bob;
+  out.ang = Math.atan2(lead.uy, lead.ux);
+  out.size = LEAD_DROP;
+  return out;
+}
