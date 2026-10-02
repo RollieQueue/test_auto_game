@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateWorld } from '../src/world/generate.js';
 import { BIOMES, NAME_MAX, TERRAIN_FEATURES } from '../src/world/biomes.js';
-import { gladeLabel } from '../src/ui/glade.js';
+import { gladeLabel, gladeParts } from '../src/ui/glade.js';
 import { describeLabel } from '../src/ui/labels.js';
 import { nearAny, notesShift, sugarDenialSpots } from '../src/ui/labels-logic.js';
 import { placeTip } from '../src/ui/tip-logic.js';
@@ -29,6 +29,17 @@ test('a glade keeps its name: the same seed gives the same name', () => {
 
 test('the title says «Сохранённая поляна» for a save, with its seed', () => {
   assert.equal(gladeLabel({ seed: 7, world: { name: 'Сосняк у ручья на холме' } }, 'Сохранённая поляна'), 'Сохранённая поляна: Сосняк у ручья на холме · №7');
+});
+
+test('the title cuts only the glade name short: «· №seed» is its own tail, head + tail is the whole label', () => {
+  const named = { seed: 4000110866, world: { name: 'Берёзовая рощица с заросшей тропинкой в низине' } };
+  assert.deepEqual(gladeParts(named, 'Сохранённая поляна'), { head: 'Сохранённая поляна: Берёзовая рощица с заросшей тропинкой в низине', tail: ' · №4000110866' });
+  assert.deepEqual(gladeParts({ seed: 7, world: {} }), { head: 'Поляна', tail: ' №7' });
+  assert.deepEqual(gladeParts({ world: { name: 'Сосняк на холме' } }), { head: 'Поляна: Сосняк на холме', tail: '' });
+  for (const s of [named, { seed: 7, world: {} }, { world: { name: 'Сосняк на холме' } }]) {
+    const { head, tail } = gladeParts(s, 'Новая поляна');
+    assert.equal(head + tail, gladeLabel(s, 'Новая поляна'));
+  }
 });
 
 test('a refusal for sugar is told once: the plain «не хватает сахара» steps aside for the specific label', () => {

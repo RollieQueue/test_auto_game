@@ -2302,6 +2302,24 @@ kbd {
   font-size: 0.95em;
   color: rgba(58, 42, 30, 0.6);
 }
+/* the title shows the glade on one line: the name is cut with an ellipsis (the whole label is in the title attribute), «· №seed» stays */
+.title-page .title-body {
+  min-width: 0;
+}
+.title-page .glade-line {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+.title-page .gl-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.title-page .gl-tail {
+  flex: none;
+}
 .obj-glade {
   display: none;
   margin: -0.15em 0 0.3em;
@@ -2724,6 +2742,35 @@ kbd {
 }
 @media (max-height: 800px) {
   /* with a save the two big buttons stand side by side */
+  .title-page.has-save .ink-btn.primary {
+    font-size: 1.45em;
+  }
+  .title-page.has-save .actions {
+    gap: 0.9em;
+  }
+}
+/* a very short window (1024x600): the second intro paragraph steps aside so the buttons and key chips stay inside */
+@media (max-height: 640px) {
+  .title-page .intro p + p {
+    display: none;
+  }
+}
+/* with a save the card is taller (two glade lines, a second row of buttons): from 960 px down it takes the short-window compaction too, so the key chips stay inside the window */
+@media (min-height: 801px) and (max-height: 960px) {
+  .title-page.has-save {
+    padding-top: 1.5em;
+    padding-bottom: 1.3em;
+  }
+  .title-page.has-save h1 {
+    font-size: 3.4em;
+  }
+  .title-page.has-save .flourish {
+    margin: 0.1em auto 0.3em;
+  }
+  .title-page.has-save .intro {
+    font-size: 1.1em;
+    line-height: 1.4;
+  }
   .title-page.has-save .ink-btn.primary {
     font-size: 1.45em;
   }

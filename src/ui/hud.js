@@ -4,7 +4,7 @@ import { icons, checkbox, flourish, capBar } from './icons.js';
 import { RESOURCES, resourceView, resourceTip, createSugarNudge } from './resources-logic.js';
 import { coverage, cardMode, pointerIn, crownRect, mushroomRect, openCardRect, stumpsUnder, wantFold, foldStep } from './cards-logic.js';
 import { objectiveText } from './trees-logic.js';
-import { gladeLabel } from './glade.js';
+import { gladeLabel, gladeParts } from './glade.js';
 import { createNotes, smallWindow } from './notes.js';
 import { notesShift } from './labels-logic.js';
 import { createTooltip } from './tooltip.js';
@@ -62,6 +62,26 @@ function setText(el, cache, key, value) {
   if (cache[key] === value) return;
   cache[key] = value;
   el.textContent = value;
+}
+
+/** A glade line of the title: the name cuts itself short with an ellipsis, the «· №seed» tail stays whole, and the title attribute holds the whole label. */
+function setGladeLine(el, cache, key, parts) {
+  const full = parts ? parts.head + parts.tail : '';
+  if (cache[key] === full) return;
+  cache[key] = full;
+  el.textContent = '';
+  el.title = full;
+  if (!parts) return;
+  const head = document.createElement('span');
+  head.className = 'gl-head';
+  head.textContent = parts.head;
+  el.append(head);
+  if (parts.tail) {
+    const tail = document.createElement('span');
+    tail.className = 'gl-tail';
+    tail.textContent = parts.tail;
+    el.append(tail);
+  }
 }
 
 export function createHud(root, actions) {
@@ -433,7 +453,7 @@ export function createHud(root, actions) {
   let objBehind = false; // the card, were it open, would lie over a crown or a mushroom
   let saveFor = null; // the state object hasSave() was last asked for (once per title screen)
   let hasSave = false;
-  let savedLine = ''; // «Сохранённая поляна: …»: the glade «Продолжить наблюдения» opens (the title's own state is the new one)
+  let savedParts = null; // «Сохранённая поляна: …»: the glade «Продолжить наблюдения» opens (the title's own state is the new one)
   const shown = {}; // text cache of the DOM
   const smooth = { sugar: 0, water: 0, minerals: 0, spores: 0 };
   const lastVal = {};
@@ -612,7 +632,7 @@ export function createHud(root, actions) {
   function refreshSave(state) {
     hasSave = Boolean(actions.hasSave?.());
     const saved = hasSave ? actions.savedGlade?.() : null;
-    savedLine = saved ? gladeLabel(saved, 'Сохранённая поляна') : '';
+    savedParts = saved ? gladeParts(saved, 'Сохранённая поляна') : null;
     el.continueBtn.hidden = !hasSave;
     el.newBtn.hidden = !hasSave;
     el.startBtn.hidden = hasSave;
@@ -1176,8 +1196,8 @@ export function createHud(root, actions) {
 
       if (phase === 'title') {
         // with a save the first line is the saved glade («Продолжить»), the second the new one («Новая поляна» starts it)
-        setText(el.gladeTitle, shown, 'glade.title', savedLine || gladeLabel(state));
-        setText(el.gladeFresh, shown, 'glade.fresh', savedLine ? gladeLabel(state, 'Новая поляна') : '');
+        setGladeLine(el.gladeTitle, shown, 'glade.title', savedParts || gladeParts(state));
+        setGladeLine(el.gladeFresh, shown, 'glade.fresh', savedParts ? gladeParts(state, 'Новая поляна') : null);
       }
       updateResources(state, dt);
       updateObjectives(state);
