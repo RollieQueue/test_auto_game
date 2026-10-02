@@ -65,6 +65,7 @@ export function createRival(state) {
     // the raider (see stepRaid): tips with a `raid` field go for the player's network, `over` lists the player's edges it has overgrown
     over: [], // { edge (state.net edge id), from (node id it entered at), cover 0..1 (how far along it the black has crept), wither 0..1, born }
     raidCount: 0, // tips made by the spawn timer so far (every B.rivalRaidEvery-th is a raider)
+    deepPage: 0, // the last page (chapter) that had its deep tip (see spawnDeepTip)
   };
 }
 
@@ -80,6 +81,7 @@ function upgrade(rival) {
   rival.stats.freedTrees ??= rival.freedIds.length;
   rival.over ??= [];
   rival.raidCount ??= 0;
+  rival.deepPage ??= 0;
   for (const k of RAID_STATS) rival.stats[k] ??= 0;
 }
 
@@ -217,6 +219,11 @@ export function barrierEffects(state, nodeId) {
   }
   return out;
 }
+
+/** The raid cadence of the page: every n-th timer tip is a raider, at most `max` alive at once (later pages press harder). */
+const late = (state) => (state.chapter ?? 1) >= B.rivalRaidFromChapter;
+export const raidEvery = (state) => (late(state) ? B.rivalRaidEveryLate : B.rivalRaidEvery);
+export const raidMax = (state) => (late(state) ? B.rivalRaidMaxLate : B.rivalRaidMax);
 
 /** The raiders: rhizomorph tips that go for the player's hyphae (tip.raid is { phase: 'seek' | 'run', ... }). */
 export const raiders = (state) => (state.rival ? state.rival.tips.filter((t) => t.raid) : []);
@@ -423,7 +430,7 @@ function spawnTips(state, rival, dt, f) {
   let at = src[Math.floor(rand(rival) * src.length)];
   rival.raidCount++;
   let raid = false;
-  if (rival.raidCount % B.rivalRaidEvery === 0 && raiders(state).length < B.rivalRaidMax) {
+  if (rival.raidCount % raidEvery(state) === 0 && raiders(state).length < raidMax(state)) {
     // a raider starts where the player can see it coming: from a source at least B.rivalRaidMinDist from the nearest thin hypha
     const first = src.indexOf(at);
     for (let k = 0; k < src.length && !raid; k++) {
@@ -435,24 +442,105 @@ function spawnTips(state, rival, dt, f) {
       }
     }
   }
+  if (!raid && deepDue(state, rival)) spawnDeepTip(state, rival); // on top of the plain tip of this turn
   spawnTip(state, rival, at, raid);
+}
+
+// ---- the deep grip -----------------------------------------------------------------------------------------------------
+// Once per page a tip is sent from BELOW the gravel up to a root tip none of the player's threads is near: a barrier ring put on an
+// existing node cannot reach it, so the player must stretch a thread down first (the guide says so). Other grips wait for a node in
+// reach (answerable); this one does not, which is what makes it the page's harder grip.
+
+/** The page has not had its deep tip yet (the rival lives with the chapters from B.rivalDeepFromChapter on). */
+const deepDue = (state, rival) => (state.chapter ?? 1) >= B.rivalDeepFromChapter && rival.deepPage < (state.chapter ?? 1);
+
+/** The root tip of a linked, living tree that is deep and out of reach of the player's threads: { tree, i, x, y } (the best by worth x depth) or null. */
+function deepGoal(state, rival) {
+  const { world, sim } = state;
+  let best = null;
+  let bestScore = 0;
+  for (const tree of world.trees) {
+    if (!tree.linked || tree.lost || graced(state, rival, tree.id) || gripsOf(rival, tree.id) >= B.rivalMaxGrips) continue;
+    const worth = B.treePay[tree.stage] * treeFx(tree).pay * (1 - B.mantleProtect * (tree.mantle ?? 0));
+    for (let i = 0; i < tree.tips.length; i++) {
+      const tp = tree.tips[i];
+      if (tp.minStage > tree.stage || gripped(rival, tree.id, i) || sim.tipClaimed.has(`${tree.id}:${i}`)) continue;
+      const depth = tp.y - groundYAt(world, tp.x);
+      if (depth < B.rivalDeepTipMin || nearestNode(state, tp.x, tp.y, B.rivalDeepClear) !== null) continue;
+      const score = worth * depth;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { tree, i, x: tp.x, y: tp.y };
+      }
+    }
+  }
+  return best;
+}
+
+/** Is the straight way from (x1, y1) to (x2, y2) open soil all along (a rock between would stall the climbing tip)? */
+function lineOpen(world, x1, y1, x2, y2) {
+  const n = Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 10);
+  for (let i = 1; i < n; i++) if (!open(world, x1 + ((x2 - x1) * i) / n, y1 + ((y2 - y1) * i) / n)) return false;
+  return true;
+}
+
+/** Open soil under the top of the gravel near the root tip (a little under it, else on it) with a clear way up to it: { x, y } or null. The start of the deep tip. */
+function deepStart(state, goal) {
+  const { world } = state;
+  const gravel = world.horizons[world.horizons.length - 1].depth;
+  for (let off = B.rivalDeepStart; off >= 0; off -= 10) {
+    for (const dx of [0, 40, -40, 80, -80, 130, -130, 200, -200]) {
+      const sx = clamp(goal.x + dx, 60, world.width - 60);
+      const sy = groundYAt(world, sx) + gravel + off;
+      if (sy < world.height - 15 && open(world, sx, sy) && !inBarrier(state, sx, sy) && lineOpen(world, sx, sy, goal.x, goal.y)) return { x: sx, y: sy };
+    }
+  }
+  return null;
+}
+
+/** Starts the page's deep tip (its own root node under the gravel, pinned by `tip.deep`). Returns false when no root tip or start qualifies. */
+function spawnDeepTip(state, rival) {
+  if (rival.tips.length >= B.rivalMaxTips || spent(rival)) return false;
+  const goal = deepGoal(state, rival);
+  const from = goal && deepStart(state, goal);
+  if (!from) return false;
+  const tip = newTip(rival, addRoot(state, rival, from.x, from.y), Math.atan2(goal.y - from.y, goal.x - from.x), between(rival, B.rivalSpeed));
+  tip.target = { kind: 'tree', id: goal.tree.id };
+  tip.deep = { treeId: goal.tree.id, i: goal.i };
+  rival.deepPage = state.chapter ?? 1;
+  state.events.push({ type: 'rival-deep', x: from.x, y: from.y, treeId: goal.tree.id });
+  return true;
+}
+
+/** The pinned root tip of a deep tip as a goal ({ x, y, d, i }); null (and the tip is an ordinary one from now on) when it is no longer worth going for. */
+function deepGoalOf(state, rival, tip) {
+  const { treeId, i } = tip.deep;
+  const tree = state.world.trees[treeId];
+  const tp = tree && tree.tips[i];
+  if (!tp || tree.lost || tp.minStage > tree.stage || gripped(rival, treeId, i) || gripsOf(rival, treeId) >= B.rivalMaxGrips || graced(state, rival, treeId)) {
+    delete tip.deep;
+    return null;
+  }
+  return { x: tp.x, y: tp.y, d: Math.hypot(tp.x - tip.x, tp.y - tip.y), i };
 }
 
 /** The tip has reached the root tip it was after: it holds the tree there. */
 function makeGrip(state, rival, tip, tree, goal) {
   const node = addSeg(state, rival, tip.node, goal.x, goal.y, tip.trunk ? 1.5 : 1.2);
-  rival.grip.push({ treeId: tree.id, node: node.id, x: goal.x, y: goal.y, since: state.time, tip: goal.i });
+  const deep = tip.deep ? { deep: true } : null;
+  rival.grip.push({ treeId: tree.id, node: node.id, x: goal.x, y: goal.y, since: state.time, tip: goal.i, ...deep });
   rival.stats.grips++;
-  state.events.push({ type: 'rival-grip', treeId: tree.id, x: goal.x, y: goal.y });
+  state.events.push({ type: 'rival-grip', treeId: tree.id, x: goal.x, y: goal.y, ...deep });
 }
 
 /** One steering decision of a tip. Returns 'ok', 'gripped' or 'dead' (the caller removes the tip in the last two cases). */
 function thinkTip(state, rival, tip, f) {
   if (tip.raid) return thinkRaider(state, rival, tip, f);
   const { world } = state;
+  const pinned = tip.deep ? deepGoalOf(state, rival, tip) : null; // a deep tip keeps its root tip; the others go for the nearest of a tree
   tip.retarget -= THINK;
   const tree = tip.target ? world.trees[tip.target.id] : null;
-  if (tip.retarget <= 0 || !tree || tree.lost || gripsOf(rival, tree.id) >= B.rivalMaxGrips || graced(state, rival, tree.id)) {
+  if (!pinned && (tip.retarget <= 0 || !tree || tree.lost || gripsOf(rival, tree.id) >= B.rivalMaxGrips || graced(state, rival, tree.id))) {
     retarget(state, rival, tip);
     tip.retarget = 1.5 + rand(rival) * 1.5;
   }
@@ -461,9 +549,9 @@ function thinkTip(state, rival, tip, f) {
     return 'ok';
   }
   const goalTree = tip.target ? world.trees[tip.target.id] : null;
-  const goal = goalTree ? nearestRootTip(state, goalTree, tip.x, tip.y) : null;
+  const goal = pinned || (goalTree ? nearestRootTip(state, goalTree, tip.x, tip.y) : null);
   if (goal && goal.d <= B.rivalGripRadius) {
-    if (rival.age < (tip.gripAt ?? B.rivalGripAfter) || !answerable(state, rival, goalTree, goal)) {
+    if (rival.age < (tip.gripAt ?? B.rivalGripAfter) || (!pinned && !answerable(state, rival, goalTree, goal))) {
       tip.speed = 0; // it has arrived early, or the player cannot answer a grip here yet: it waits at the root
       return 'ok';
     }

@@ -74,7 +74,7 @@ test('flows: the feed flow goes to the nearest contact of several, and stops whe
   assert.equal(feedFlows(s).length, 0);
 });
 
-test('flows: none through a barrier ring, and the feed flow neither crowds out others nor thickens the cords', () => {
+test('flows: none through a barrier ring, and the feed flow does not crowd out others, and thickens its path', () => {
   const { s, ids, tree } = scene();
   s.flags.rival = true;
   const r = (s.rival ??= createRival(s));
@@ -89,14 +89,14 @@ test('flows: none through a barrier ring, and the feed flow neither crowds out o
   assert.equal(feedFlows(s).length, 0, 'the ring holds: nothing crosses it');
   for (const f of s.flows) assert.ok(!f.path.some((id) => ids.slice(7, 14).includes(id)), 'no flow of any kind inside the ring');
 
-  // a feed flow alone never thickens a cord
+  // a feed flow thickens its path (towards B.feedThickW, never beyond) and moves no sugar of its own
   const t = scene();
   commandFeed(t.s, t.tree.id);
-  t.s.feed.rate = 2;
-  const w0 = t.s.net.edges.map((e) => e.w);
-  for (let i = 0; i < 200; i++) recomputeFlows(t.s, DT);
+  t.s.feed.rate = B.feedRate;
+  for (let i = 0; i < 2000; i++) recomputeFlows(t.s, DT);
   assert.equal(feedFlows(t.s).length, 1);
-  assert.deepEqual(t.s.net.edges.map((e) => e.w), w0);
+  const w = t.ids.slice(1).map((id) => t.s.net.edges[t.s.sim.parentEdge[id]].w);
+  assert.ok(Math.min(...w) >= B.feedThickW - 0.1 && Math.max(...w) <= B.feedThickW + 0.05, `every edge of the path is a cord: ${w.slice(0, 3)}`);
 });
 
 test('persist: a saved game with a feed flow loads back (kind «feed» is valid)', () => {

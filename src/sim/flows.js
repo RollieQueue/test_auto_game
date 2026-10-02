@@ -65,7 +65,7 @@ export function recomputeFlows(state, dt) {
   for (const m of mushrooms) push(origin, m.nodeId, 'sugar', m.mature ? B.mushroomMatureSugar : B.mushroomGrowSugar);
 
   // Feeding a tree («Подкормка», sim/feed.js): the surplus sugar runs from the spore to the fed tree's contact. Pushed last, so it
-  // never crowds out a real flow when maxFlows is reached; it moves nothing extra, so it does not thicken the cords either.
+  // never crowds out a real flow when maxFlows is reached; it moves nothing extra, but it thickens its path into a cord (thicken).
   const fed = state.feed;
   if (fed && fed.rate > B.feedFlowMin) {
     const contacts = sim.contacts[fed.treeId];
@@ -76,33 +76,46 @@ export function recomputeFlows(state, dt) {
   thicken(state, flows, dt);
 }
 
-/** Busy paths slowly become thicker «rhizomorphs». */
+/** The edge ids a flow's path runs along. */
+function pathEdges(state, path, each) {
+  const { net, sim } = state;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const lo = net.nodes[path[i]].parent === path[i + 1] ? path[i] : path[i + 1];
+    const e = sim.parentEdge[lo];
+    if (e >= 0) each(e);
+  }
+}
+
+/**
+ * Busy paths slowly become thicker «rhizomorphs». The path of a feed flow thickens too, but not by what flows: towards B.feedThickW
+ * with a time constant of B.feedThickSeconds at the full feeding rate (a lower rate is slower), so a fed tree gets a cord the
+ * raider cannot pass (w >= B.rivalBlockW) in about a minute.
+ */
 function thicken(state, flows, dt) {
   const { net, sim } = state;
   if (flows.length === 0) return;
   const load = new Map();
+  const fedSpeed = new Map(); // edge id -> share of the full feeding rate along it
   for (const f of flows) {
-    if (f.kind === 'feed') continue;
-    const p = f.path;
-    for (let i = 0; i + 1 < p.length; i++) {
-      const lo = net.nodes[p[i]].parent === p[i + 1] ? p[i] : p[i + 1];
-      const e = sim.parentEdge[lo];
-      if (e >= 0) load.set(e, (load.get(e) || 0) + f.rate);
-    }
+    if (f.kind === 'feed') {
+      const share = Math.min(1, f.rate / B.feedRate);
+      pathEdges(state, f.path, (e) => fedSpeed.set(e, Math.max(fedSpeed.get(e) || 0, share)));
+    } else pathEdges(state, f.path, (e) => load.set(e, (load.get(e) || 0) + f.rate));
   }
   const k = 1 - Math.exp(-dt / B.edgeThickenTau);
   let changed = false;
-  for (const [id, l] of load) {
+  const grow = (id, target, kk) => {
     const edge = net.edges[id];
-    const target = 1 + (B.edgeMaxW - 1) * (1 - Math.exp(-l / B.edgeLoadScale));
     const cur = sim.wTrue.get(id) ?? 1;
-    if (target <= cur) continue;
-    const next = cur + (target - cur) * k;
+    if (target <= cur) return;
+    const next = cur + (target - cur) * kk;
     sim.wTrue.set(id, next);
     if (next - edge.w >= 0.05) {
       edge.w = Math.round(next * 20) / 20;
       changed = true;
     }
-  }
+  };
+  for (const [id, l] of load) grow(id, 1 + (B.edgeMaxW - 1) * (1 - Math.exp(-l / B.edgeLoadScale)), k);
+  for (const [id, share] of fedSpeed) grow(id, B.feedThickW, 1 - Math.exp((-dt * share) / B.feedThickSeconds));
   if (changed) net.version++;
 }

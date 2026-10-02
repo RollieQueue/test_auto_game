@@ -5,6 +5,7 @@ import * as sim from '../sim/index.js';
 import * as balance from '../sim/balance.js';
 import { barrierEffects, raiders } from '../sim/rival.js'; // straight from rival.js: sim/index.js does not re-export them
 import { createSenseGate, ruPlural, threatsOn } from './threats.js';
+import { feedTabShown } from './feed.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const pctOf = (v) => `${Math.round(Math.max(0, Math.min(1, isNum(v) ? v : 0)) * 100)} %`;
@@ -177,12 +178,16 @@ export const RIVAL_LOCAL = new Set([
 export const RIVAL_BOTH = new Set(['rival-wake', 'rival-grip', 'tree-freed', 'tree-lost', 'rival-fruit', 'rival-retreat', 'rival-turn', 'rival-raid-touch']);
 
 /** Every event type of the rival that notes.js or labels.js may turn into text. */
-export const RIVAL_EVENTS = new Set([...RIVAL_LOCAL, 'tree-infected', 'rival-dormant', 'rival-raid-seek']);
+export const RIVAL_EVENTS = new Set([...RIVAL_LOCAL, 'tree-infected', 'rival-dormant', 'rival-raid-seek', 'rival-deep']);
 
 export const RIVAL_DORMANT_NOTE = 'Опёнок дремлет до весны: под пнём затаилось что-то тёмное';
 export const RIVAL_TURN_NOTE = 'Толстая нить не пускает ризоморф: прочные шнуры к дереву — тоже защита';
 /** The first raider ever of a game: it goes for the threads, not for a tree. Told once (see GATE_OF). */
 export const RIVAL_RAID_NOTE = 'Ризоморф опёнка ползёт по тонким нитям сети: толстый тяж его не пустит, а барьер (4) остановит';
+/** The same once feeding (key 5) is there: feeding is the way to a thick cord. */
+export const RIVAL_RAID_FEED_NOTE = 'Ризоморф опёнка ползёт по тонким нитям сети. Подкорми дерево (5) из полной кладовой: путь к нему станет толстым тяжом, и налётчик не пройдёт. Или ставь барьер (4)';
+/** The note of the first raider: it names feeding only when the tool is there. */
+export const raidNote = (state) => (feedTabShown(state) ? RIVAL_RAID_FEED_NOTE : RIVAL_RAID_NOTE);
 
 export const RIVAL_WAKE_NOTE = 'Под старым пнём проснулся опёнок: чёрные шнуры-ризоморфы потянутся к корням. Против них — барьер (4)';
 
@@ -208,7 +213,9 @@ export function rivalNote(state, ev) {
       return { key: 'rival:turn', text: RIVAL_TURN_NOTE, tone: 'good', icon: 'thread', life: 10 };
     case 'rival-raid-seek':
     case 'rival-raid-touch': // whichever comes first tells it: the seek (the raider is near) leaves the player time to answer
-      return { key: 'rival:raid', text: RIVAL_RAID_NOTE, tone: 'warn', icon: 'honey', life: 12 };
+      return { key: 'rival:raid', text: raidNote(state), tone: 'warn', icon: 'honey', life: 12 };
+    case 'rival-deep':
+      return { key: 'rival:deep', text: `Из-под галечника тянется ризоморф к самым глубоким корням ${treeGen(tree)}: протяни туда нить, чтобы успеть поставить барьер`, tone: 'warn', icon: 'honey', life: 11 };
     case 'rival-grip':
       return { key: `rival:grip:${ev.treeId}`, text: `Опёнок вцепился в корни ${treeGen(tree)}`, tone: 'warn', icon: 'honey', life: 8 };
     case 'tree-infected': {
@@ -288,6 +295,7 @@ export function rivalLabel(state, ev) {
 // clocks of the same events and must not eat each other's allowance).
 const GATES = {
   'rival-grip': [5, 12],
+  'rival-deep': [4, 30],
   'tree-infected': [8, 10],
   'tree-freed': [5, 8],
   'rival-fruit': [4, 20],
@@ -377,7 +385,9 @@ export function rivalHint(state, B = balance.B) {
     title: 'Опёнок',
     text: reached
       ? `Опёнок держит корни ${treeGen(tree)}. Поставь барьер {4} на узел рядом: толстые нити тоже не пускают ризоморфы.`
-      : `Опёнок держит корни ${treeGen(tree)}. Протяни нить к этому дереву — барьер ставят на свою нить.`,
+      : g.deep
+        ? `Опёнок пришёл снизу и держит самые глубокие корни ${treeGen(tree)}. Протяни нить вглубь, к ним — барьер ставят на свою нить.`
+        : `Опёнок держит корни ${treeGen(tree)}. Протяни нить к этому дереву — барьер ставят на свою нить.`,
     ring: { x: g.x, y: g.y, rx: 58, ry: 40 },
     key: `rival:${g.treeId}`,
   };
@@ -410,7 +420,9 @@ export function raidHint(state) {
   return {
     id: 'raid',
     title: 'Ризоморф-налётчик',
-    text: 'Он идёт не к дереву, а по тонким нитям. Дай нужной нити потолстеть: толстый тяж ему не пройти. Или поставь барьер {4} перед ним: нити внутри замрут.',
+    text: feedTabShown(state)
+      ? 'Он идёт по тонким нитям. Подкорми дерево {5} из полной кладовой: путь к нему станет толстым тяжом, и налётчик не пройдёт. Или барьер {4} перед ним.'
+      : 'Он идёт не к дереву, а по тонким нитям. Дай нужной нити потолстеть: толстый тяж ему не пройти. Или поставь барьер {4} перед ним: нити внутри замрут.',
     ring: { x: tip.x, y: tip.y, rx: 52, ry: 40 },
     key: `raid:${Math.round(tip.x / RAID_KEY_STEP)}:${Math.round(tip.y / RAID_KEY_STEP)}`,
   };

@@ -8,6 +8,7 @@ import { B, pressure } from '../src/sim/balance.js';
 import { mushroomCost, fruitClaim } from '../src/sim/mushrooms.js';
 import { findRadius } from '../src/sim/finds.js';
 import { nearestRootTip } from '../src/sim/rival.js';
+import { pathBetween } from '../src/sim/network.js';
 import { costAt, groundYAt } from '../src/world/query.js';
 
 export const DT = 1 / 60;
@@ -133,7 +134,7 @@ function route(state, grid, isTarget) {
  * every 30 s into stats.curve), guard (false: never lay rings against worms), reaction / guardReach (how late and how
  * close the bot reacts to a worm), rival (the honey fungus: true wakes it with chapter 2, 'now' at once), barrier (with the rival: 'grip'
  * puts a barrier on every grip, 'near' also when a tip comes within `near` u (default 120) of its tree, false never: the passive bot),
- * species (state.flags.species: the fungus, see src/sim/species.js; none: 'common'), gen (the world generator version; none: the newest), debug }
+ * feed (with the rival awake: feeds the linked trees one by one until their paths are cords, «Подкормка»; feedTopUp: the stock is topped up to the feeding line for it), species (state.flags.species: the fungus, see src/sim/species.js; none: 'common'), gen (the world generator version; none: the newest), debug }
  */
 export function playBot(seed, opts = {}) {
   const maxSeconds = opts.maxSeconds ?? 1200;
@@ -152,7 +153,8 @@ export function playBot(seed, opts = {}) {
   const linked = (kind) => net.links.some((l) => l.kind === kind);
   const raw = () => state.res.sugar - committedSugar(net);
   // with the rival awake and barriers allowed, the bot keeps a reserve for them (defence spends the raw stock)
-  const reserve = () => (state.rival?.awake && opts.barrier !== false ? opts.reserve ?? 24 : 0);
+  let banking = false; // opts.feed: the bot keeps the stock at the feeding line (B.feedFrom of the cap) while a tree's path is being thickened
+  const reserve = () => (state.rival?.awake && opts.barrier !== false ? opts.reserve ?? 24 : 0) + (banking ? B.feedFrom * state.cap.sugar : 0);
   const free = () => raw() - reserve();
 
   const grow = (r, minPartial = Infinity, useRaw = false) => {
@@ -358,8 +360,40 @@ export function playBot(seed, opts = {}) {
     return false;
   };
 
+  // «Подкормка» (opts.feed): one linked living tree after another is fed until the path from the spore to its contact is a cord
+  // (every edge at least B.rivalBlockW thick). Feeding takes only the sugar above B.feedFrom of the cap, so while a tree is fed the bot
+  // banks (reserve) and grows only from what is over the line (or opts.feedTopUp); a tree it cannot thicken in 300 s is left alone.
+  const bankT = {};
+  const thickPath = (tree) => {
+    const ids = state.sim.contacts[tree.id];
+    if (!ids.length) return true; // nothing to feed
+    const to = ids.reduce((a, b) => (net.nodes[b].dist < net.nodes[a].dist ? b : a));
+    const path = pathBetween(net, net.originId, to);
+    for (let i = 0; i + 1 < path.length; i++) {
+      const lo = net.nodes[path[i]].parent === path[i + 1] ? path[i] : path[i + 1];
+      const e = state.sim.parentEdge[lo];
+      if (e >= 0 && net.edges[e].w < B.rivalBlockW) return false;
+    }
+    return true;
+  };
+  const keepFeeding = () => {
+    banking = false;
+    if (!opts.feed || !state.rival?.awake || (state.flags.threats && !state.flags.allObjectivesDone)) return; // feeding unlocks when page 1 closes
+    let want = null;
+    for (const t of world.trees) {
+      if (t.lost || sim.feedDenial(state, t.id) !== null || thickPath(t) || state.time - (bankT[t.id] ??= state.time) > 300) continue;
+      if (!want || t.stage > want.stage) want = t;
+    }
+    if (!want) return;
+    banking = true;
+    // opts.feedTopUp: the sugar is simply there (what a player who banked would have): measures the cord, not the affordability of feeding
+    if (opts.feedTopUp) state.res.sugar = Math.max(state.res.sugar, B.feedFrom * state.cap.sugar + 3);
+    if (!(state.feed && state.feed.treeId === want.id) && sim.commandFeed(state, want.id)) stats.commands++;
+  };
+
   const think = () => {
     guard();
+    keepFeeding();
     if (defend()) return; // acted, or a threat is waiting for sugar
     if (net.growing.length > 0) return;
     if (!linked('water')) return void goWater();

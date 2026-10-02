@@ -230,6 +230,22 @@ export const B = {
   // hyphae round the spore (biteImmuneDist) or its reach stop it. A barrier kills it and heals what it has overgrown inside.
   rivalRaidEvery: 3, // every this-th new tip (not the starting ones, not side branches) is a raider
   rivalRaidMax: 1, // raiders alive at once
+  // From page B.rivalRaidFromChapter on the pages press harder: a raid every B.rivalRaidEveryLate-th new tip, up to B.rivalRaidMaxLate at once.
+  rivalRaidFromChapter: 3,
+  rivalRaidEveryLate: 2,
+  rivalRaidMaxLate: 2,
+  // A thick cord is made by feeding («Подкормка», flows.js thicken): the 'feed' flow thickens the whole path from the spore to the fed
+  // tree's contact towards B.feedThickW, with a time constant of B.feedThickSeconds at the full B.feedRate (slower at a lower rate): from
+  // w 1 to B.rivalBlockW takes -ln(1 - (rivalBlockW - 1) / (feedThickW - 1)) x feedThickSeconds = about 60 s at the full rate.
+  feedThickW: 2.2,
+  feedThickSeconds: 55,
+  // The deep grip: once per page (from page B.rivalDeepFromChapter) the timer sends a tip from BELOW the gravel up to the deepest root tip
+  // that no thread of the player is within B.rivalDeepClear u of (a ring of B.barrierRadius put on a node cannot reach it): the player
+  // must first stretch a thread down, then put the barrier. It is not made to wait for a node in reach, as other grips are.
+  rivalDeepFromChapter: 2,
+  rivalDeepTipMin: 140, // u: a root tip at least this far below the surface is a deep one
+  rivalDeepClear: 150, // u: no alive node of the player this near the root tip
+  rivalDeepStart: 30, // u below the gravel's top at which the deep tip starts (it is moved up to the top if the soil is shut there)
   rivalRaidMinDist: 60, // u: a raider starts only from a source at least this far from the nearest thin hypha, else the tip is a plain one
   rivalRaidLead: 12, // s a new raider stands at its source before it creeps (rival-raid-seek is sent at once): the player is warned
   rivalRaidSpeed: 14, // u/s along the player's hyphae once it has touched them
