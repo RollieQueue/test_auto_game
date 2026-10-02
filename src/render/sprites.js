@@ -7,6 +7,8 @@
 //   spriteTypes(group) -> string[]     types that have at least one ready image
 //   onSpritesReady(cb)                 cb() fires once the first load finished with at least one image
 
+import { premultiply, unpremultiply, resize, sharpen, mipChain } from './resample.js';
+
 const ROOT = new URL('../../', import.meta.url); // the project root (the bundle maps it to rnt://app/)
 const MANIFEST = 'assets/art/manifest.json';
 const TIMEOUT = 8000; // ms: a silent network is given up on
@@ -87,6 +89,7 @@ export function loadSprites() {
       const rows = parseManifest(await res.json());
       const loaded = await Promise.all(rows.map(loadOne));
       for (const e of loaded) if (e) register(e);
+      if (typeof document !== 'undefined') warmUp(loaded.filter((e) => e && e.group === 'mushroom')); // not in the world worker: it paints the decor only
     } catch {
       /* no manifest, no sprites */
     }
@@ -148,26 +151,152 @@ function scratch(w, h) {
   return c;
 }
 
+const LEVEL_STEP = 1.1; // the ladder of level heights: each rung is 10 % taller than the one below
+const LEVEL_MIN = 8;
+
 /**
- * A copy of `entry.img` that is at least `pxH` device pixels tall, and no more than twice that: halved step by step so
- * the later drawImage downscale stays under 2:1 (a 320 px painting squeezed to 60 px in one go aliases).
- * Returns { src, h } where h is the level's pixel height; draw it into the rectangle of the entry's full size.
+ * The pixel height of the pre-filtered copy to draw for a target of pxH device pixels, out of an image fullH tall: the
+ * first rung of a fixed ladder that is not shorter than the target, so the later drawImage runs between 0.9x and 1x
+ * (bilinear stays crisp there) and never magnifies. A target near or above the full size gets the image itself.
+ */
+export function levelHeight(fullH, pxH) {
+  const t = Math.max(LEVEL_MIN, num(pxH, fullH));
+  if (t * LEVEL_STEP >= fullH) return fullH;
+  const rung = Math.ceil(Math.log(t / LEVEL_MIN) / Math.log(LEVEL_STEP) - 1e-9);
+  return Math.min(fullH, Math.round(LEVEL_MIN * Math.pow(LEVEL_STEP, rung)));
+}
+
+/** A copy of `src` (size sw x sh) squeezed to w x h with the best filter the 2D context has (the fallback below). */
+function squeeze(src, sw, sh, w, h) {
+  const c = scratch(w, h);
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+const SHARPEN = 0.55; // unsharp amount on a copy at most 1/1.5 of the full size: the squeeze takes the hatching's bite away
+const SHARPEN_FROM = 1.5;
+
+/** The entry's pixels as a mip chain of premultiplied bytes ({ pm, w, h } from the full size down), read once. */
+function mipsOf(entry) {
+  if (entry.mips) return entry.mips;
+  const w = entry.img.width || entry.w;
+  const h = entry.img.height || entry.h;
+  const c = scratch(w, h);
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(entry.img, 0, 0);
+  return (entry.mips = mipChain(premultiply(g.getImageData(0, 0, c.width, c.height).data), c.width, c.height, LEVEL_MIN));
+}
+
+/** The copy of an entry w x h, made from pixels: the smallest mip that is tall enough, area-averaged, then sharpened. */
+function buildLevel(entry, w, h) {
+  try {
+    const mips = mipsOf(entry);
+    let from = mips[0];
+    for (const m of mips) if (m.h >= h) from = m;
+    let pm = from.w === w && from.h === h ? from.pm : resize(from.pm, from.w, from.h, w, h);
+    if (mips[0].h / h >= SHARPEN_FROM) pm = sharpen(pm, w, h, SHARPEN);
+    const c = scratch(w, h);
+    c.getContext('2d').putImageData(new ImageData(unpremultiply(pm), w, h), 0, 0);
+    return c;
+  } catch {
+    return squeeze(entry.img, entry.w, entry.h, w, h); // no pixel access here (or no ImageData): let the canvas filter do it
+  }
+}
+
+/** Reads the pixels of the entries in idle slices, one per timer tick, so the first copies need no readback in a frame. */
+function warmUp(entries) {
+  let i = 0;
+  const next = () => {
+    while (i < entries.length) {
+      const e = entries[i++];
+      if (e.mips) continue;
+      try {
+        mipsOf(e);
+      } catch {
+        /* built on demand, or never (the fallback squeezes the image) */
+      }
+      setTimeout(next, 0);
+      return;
+    }
+  };
+  setTimeout(next, 0);
+}
+
+/**
+ * A copy of `entry.img` for drawing it about pxH device pixels tall: { src, w, h } (h = the copy's pixel height, see
+ * levelHeight); draw it into the rectangle of the entry's full size. Each copy is built once, from the nearest halved
+ * original above it (a 320 px painting squeezed to 45 px in one go aliases, so the squeeze stays under 2:1), and kept:
+ * sizes differ per mushroom, per growth stage and per window scale, and every request gets its own fit.
  */
 export function levelFor(entry, pxH) {
-  const levels = entry.levels || (entry.levels = [{ src: entry.img, w: entry.w, h: entry.h }]);
-  let last = levels[levels.length - 1];
-  while (last.h / 2 >= Math.max(8, pxH) && levels.length < 8) {
-    const w = Math.max(1, Math.round(last.w / 2));
-    const h = Math.max(1, Math.round(last.h / 2));
-    const c = scratch(w, h);
-    const g = c.getContext('2d');
-    g.imageSmoothingEnabled = true;
-    g.imageSmoothingQuality = 'high';
-    g.drawImage(last.src, 0, 0, w, h);
-    last = { src: c, w, h };
-    levels.push(last);
+  const ladder = entry.ladder || (entry.ladder = new Map());
+  const h = levelHeight(entry.h, pxH);
+  let lv = ladder.get(h);
+  if (lv) return lv;
+  if (h >= entry.h) {
+    lv = { src: entry.img, w: entry.w, h: entry.h };
+  } else {
+    const w = Math.max(1, Math.round((entry.w * h) / entry.h));
+    lv = { src: buildLevel(entry, w, h), w, h };
   }
-  return last;
+  ladder.set(h, lv);
+  return lv;
+}
+
+const BUILDS_PER_FRAME = 1; // copies a frame loop may build in the frame itself (each is 0.1-1 ms); the rest wait for idle
+const IDLE_SLICE = 2; // ms of one idle tick spent on the waiting copies
+let frameBuilds = 0;
+const queue = []; // build functions of copies a frame asked for and did not get
+let tick = 0;
+
+/** The per-frame callers (levelNear, washedNear) start a new frame: their build budget is full again. */
+export function beginFrame() {
+  frameBuilds = 0;
+}
+
+function later(build) {
+  queue.push(build);
+  if (!tick && typeof setTimeout === 'function') tick = setTimeout(drain, 0);
+}
+
+function drain() {
+  tick = 0;
+  const t0 = performance.now();
+  while (queue.length && performance.now() - t0 < IDLE_SLICE) {
+    try {
+      queue.shift()();
+    } catch {
+      /* the caller keeps drawing its stand-in */
+    }
+  }
+  if (queue.length) tick = setTimeout(drain, 0);
+}
+
+/**
+ * levelFor for a frame loop: a copy that is missing is built in the frame only while its budget lasts, else between
+ * frames, and the frame draws the closest taller copy built so far (a hair of aliasing beats a stall), else the image:
+ * such a stand-in is marked `stand: true` (no washed copy is worth building for it).
+ */
+export function levelNear(entry, pxH) {
+  const h = levelHeight(entry.h, pxH);
+  const ladder = entry.ladder;
+  const have = ladder && ladder.get(h);
+  if (have) return have;
+  if (frameBuilds < BUILDS_PER_FRAME) {
+    frameBuilds++;
+    return levelFor(entry, pxH);
+  }
+  const asked = entry.asked || (entry.asked = new Set());
+  if (!asked.has(h)) {
+    asked.add(h);
+    later(() => levelFor(entry, h));
+  }
+  let best = null;
+  if (ladder) for (const l of ladder.values()) if (l.h > h && (!best || l.h < best.h)) best = l;
+  return best ? { ...best, stand: true } : { src: entry.img, w: entry.w, h: entry.h, stand: true };
 }
 
 const WASH_COLD = 'rgba(88,82,92,0.5)';
@@ -194,6 +323,23 @@ export function washed(src, sw, sh) {
   g.fillRect(0, 0, c.width, c.height * 0.42);
   washes.set(src, c);
   return c;
+}
+
+const washAsked = new WeakSet();
+
+/** washed() for a frame loop: null while the copy is not built yet and the frame's budget is spent (draw without it). */
+export function washedNear(src, sw, sh) {
+  const c = washes.get(src);
+  if (c) return c;
+  if (frameBuilds < BUILDS_PER_FRAME) {
+    frameBuilds++;
+    return washed(src, sw, sh);
+  }
+  if (!washAsked.has(src)) {
+    washAsked.add(src);
+    later(() => washed(src, sw, sh));
+  }
+  return null;
 }
 
 /**

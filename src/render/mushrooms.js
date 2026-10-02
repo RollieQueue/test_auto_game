@@ -5,7 +5,7 @@ import { hash32 } from '../core/rng.js';
 import { makeSprite, makeCanvas, glowSprite, granulate, smooth01 } from './ink.js';
 import { STEPS, extentOf, paintMushroom } from './mushrooms-paint.js';
 import { reducedMotion } from './motion.js';
-import { levelFor, washed, drained, getSprite as artSprite, mushroomLook, mushroomSprite, spritesReady, wiltTarget, growScale, RIVAL_MUSHROOM_TYPES } from './sprites.js';
+import { levelFor, levelNear, washed, washedNear, drained, beginFrame, getSprite as artSprite, mushroomLook, mushroomSprite, spritesReady, wiltTarget, growScale, RIVAL_MUSHROOM_TYPES } from './sprites.js';
 import { lookOf, clumpLayout, companionGrowth } from './mushroom-cluster.js';
 import { groundYAt } from '../world/query.js';
 
@@ -281,6 +281,7 @@ export function createMushrooms() {
     lastT = now;
     curSeed = seedOf(state);
     renders = 0;
+    beginFrame();
     const list = state && Array.isArray(state.mushrooms) ? state.mushrooms : [];
     ctx.save();
     try {
@@ -316,7 +317,7 @@ export function createMushrooms() {
       const c = -sway;
       const sink = 0.05 * il.worldSize * size;
       ctx.setTransform(T.a * sx, T.b * sx, T.a * c + T.c * sy, T.b * c + T.d * sy, T.a * x + T.c * (baseY + sink) + T.e, T.b * x + T.d * (baseY + sink) + T.f);
-      const lv = levelFor(il, il.h * k * px);
+      const lv = live ? levelNear(il, il.h * k * px) : levelFor(il, il.h * k * px); // a ghost shows only briefly: its copy is never a stand-in
       const dx = -il.anchor.x * k;
       const dy = -il.anchor.y * k;
       const dw = il.w * k;
@@ -338,9 +339,10 @@ export function createMushrooms() {
         return;
       }
       ctx.drawImage(lv.src, dx, dy, dw, dh);
-      if (wilt > 0.01) {
+      const wash = wilt > 0.01 && !lv.stand ? washedNear(lv.src, lv.w, lv.h) : null; // null: not built yet, a frame or two later it is there
+      if (wash) {
         ctx.globalAlpha = a0 * wilt;
-        ctx.drawImage(washed(lv.src, lv.w, lv.h), dx, dy, dw, dh);
+        ctx.drawImage(wash, dx, dy, dw, dh);
         ctx.globalAlpha = a0;
       }
       return;
