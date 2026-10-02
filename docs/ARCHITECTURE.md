@@ -384,7 +384,8 @@ Events: `rival-wake {x, y, stumpId}`, `rival-tip {x, y}` (at most 1/s), `rival-g
 UI (src/ui/rival.js, guide.js, trees-logic.js): the grip hint says «Поставь барьер 4 на узел рядом» only when a player node is
 within `B.barrierRadius` of the grip; otherwise «Протяни нить к этому дереву — барьер ставят на свою нить» with a dotted line
 from the nearest node. `describeTree(tree, state)` shows «заражение · защита» only once the rival is awake; a stump tooltip
-(`describeStump`, target kind `'stump'` from `src/world/query.js` `targetAt`) foreshadows it in chapter 1 or says it is dormant.
+(`describeStump`, target kind `'stump'` from `src/world/query.js` `targetAt`) foreshadows it in chapter 1 or says it is dormant;
+like the drawing, it exists only while `state.rival` does (`?rival=0` has no stump tooltip; `describeTarget` in tooltip.js).
 
 Drawing (src/render/rival.js, rival-logic.js, trees-paint.js, infection-look.js): cords near-black with a pale highlight, one step
 thicker than roots, Chaikin-smoothed chains (`chaikin`, `smoothEdges`); bulbous dark tips that pulse (still under

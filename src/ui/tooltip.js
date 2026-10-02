@@ -20,7 +20,8 @@ const fmt = (v) => (v < 1 ? v.toFixed(2) : v < 10 ? v.toFixed(1) : String(Math.r
 /** Price in sugar; "сахара" is correct (genitive) after any number. */
 const sugar = (v) => `${Math.max(1, Math.ceil(v - 1e-6))} сахара`;
 
-function describeTarget(state, t) {
+/** The tooltip lines of a world target (query.js targetAt), or null when it has none. */
+export function describeTarget(state, t) {
   const world = state.world;
   switch (t.kind) {
     case 'water': {
@@ -38,6 +39,8 @@ function describeTarget(state, t) {
       return describeTree(tree, state);
     }
     case 'stump':
+      // stumps are drawn only while the rival is in the state (render/rival-logic stumpsOf): an undrawn one says nothing
+      if (!state.rival) return null;
       return typeof rivalUi.describeStump === 'function' ? rivalUi.describeStump(state, t) : null;
     case 'rock':
       return { main: 'Камень — нить не пройдёт' };
